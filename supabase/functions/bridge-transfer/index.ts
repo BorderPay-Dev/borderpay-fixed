@@ -74,6 +74,7 @@ import {
 } from "../_shared/bridge-payout-validator.ts";
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -181,11 +182,23 @@ async function spendableWalletBalanceMinor(userId: string, currency: string): Pr
     .eq("entity_type", "wallet")
     .eq("currency", String(currency || "").toUpperCase());
   if (error) throw new Error(`balance_check_failed:${error.message}`);
-  return (data || []).reduce((sum: bigint, row: Record<string, unknown>) => {
+  const ledgerBalance = (data || []).reduce((sum: bigint, row: Record<string, unknown>) => {
     const amount = BigInt(String(row.amount_minor ?? "0"));
     const abs = amount < 0n ? -amount : amount;
     return String(row.direction || "").toLowerCase() === "debit" ? sum - abs : sum + abs;
   }, 0n);
+  const { data: reservations, error: reservationError } = await supa
+    .from("yellowcard_jit_payouts")
+    .select("settlement_amount_minor")
+    .eq("user_id", userId)
+    .eq("settlement_asset", String(currency || "").toUpperCase())
+    .in("state", ["PENDING_SWEEP", "SEND_INTENT_CREATED", "TREASURY_SWEEP_SENT"]);
+  if (reservationError) throw new Error(`reservation_check_failed:${reservationError.message}`);
+  const reserved = (reservations || []).reduce(
+    (sum: bigint, row: Record<string, unknown>) => sum + BigInt(String(row.settlement_amount_minor ?? "0")),
+    0n,
+  );
+  return ledgerBalance - reserved;
 }
 
 async function recordTransferProviderAlert(input: {
@@ -623,6 +636,19 @@ Deno.serve(async (req) => {
     }
   }
 
+  // A normal authenticated session is not authority to move money. Consume a
+  // short-lived authorization bound to this exact request only after all
+  // validation/idempotent replay checks, and before the first provider call.
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body?.sca_authorization_id,
+    userId: user.id,
+    operation: "payment",
+    resource: "bridge_transfer",
+    request: body,
+  });
+  if (!sca.ok) return await failAfterAuth(sca.body, sca.status, profile.account_type);
+
   try {
     fxLog("bridge_request_sent", {
       user_id: user.id,
@@ -664,6 +690,13 @@ Deno.serve(async (req) => {
             ),
           }
         : undefined,
+      ...(sca.required ? {
+        sca_attestation: {
+          outcome: "sca_used" as const,
+          channel: "other" as const,
+          subchannel: "remote" as const,
+        },
+      } : {}),
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.

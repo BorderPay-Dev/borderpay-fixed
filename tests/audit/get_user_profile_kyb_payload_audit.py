@@ -49,7 +49,7 @@ def main() -> int:
     p3 = ("bridge_kyb_status:" in src
           and "bridgeKybStatus" in src
           and '.from("business_profiles")' in src
-          and '.select("bridge_kyb_status")' in src
+          and '.select("bridge_kyb_status, bridge_customer_id, country")' in src
           and 'accountType === "business"' in src)
     checks.append(("P3 payload returns bridge_kyb_status from business_profiles (business)",
                    p3,
@@ -58,6 +58,11 @@ def main() -> int:
     checks.append(("P4 payload still returns bridge_kyc_status (regression)",
                    "bridge_kyc_status:   profile?.bridge_kyc_status || null" in src,
                    "existing bridge_kyc_status field must be preserved"))
+
+    checks.append(("P5 business identity fields hydrate existing native clients",
+                   "businessBridgeCustomerId || profile?.bridge_customer_id || null" in src
+                   and "businessCountry || profile?.country || userData?.country || null" in src,
+                   "business-owned Bridge identity and country must be returned to native clients"))
 
     print("get_user_profile_kyb_payload_audit:")
     ok = True

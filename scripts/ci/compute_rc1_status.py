@@ -62,7 +62,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Compute RC1 certification status from audits.")
     parser.add_argument("--write", action="store_true", help="Write computed status file.")
     parser.add_argument("--check", action="store_true", help="Fail if committed status file does not match computed status.")
+    parser.add_argument(
+        "--require-pass",
+        action="store_true",
+        help="Fail unless both computed and committed RC1 status are valid and PASS.",
+    )
     args = parser.parse_args()
+    if args.require_pass and (args.write or args.check):
+        parser.error("--require-pass cannot be combined with --write or --check")
 
     status, failures = compute_status()
     desired = render(status)
@@ -79,6 +86,27 @@ def main() -> int:
     m = re.search(r"RC1_CERTIFICATION_STATUS:\s*RC1CertificationStatus\s*=\s*'(OPEN|PASS)'", current)
     current_status = m.group(1) if m else None
     matches = current_status == status
+
+    if args.require_pass:
+        if status != "PASS":
+            print(f"[rc1-status] FAIL: computed status must be PASS, got {status}")
+            if failures:
+                print("[rc1-status] gate failures:")
+                for failure in failures:
+                    print("---")
+                    print(failure)
+            return 1
+        if current_status != "PASS":
+            print(
+                "[rc1-status] FAIL: committed generated status must be valid and PASS, "
+                f"got {current_status or 'missing/invalid'}"
+            )
+            return 1
+        if not matches:
+            print("[rc1-status] FAIL: committed generated status does not match computed PASS")
+            return 1
+        print("[rc1-status] PASS: computed and committed generated status are PASS")
+        return 0
 
     if args.check:
         if not matches:

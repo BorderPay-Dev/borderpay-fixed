@@ -1,23 +1,4 @@
 export type YellowCardAccountType = "bank" | "momo";
-const REDUCED_KYC_EXCLUDED_CURRENCIES = new Set(["BWP", "NGN", "ZAR"]);
-export const YELLOW_CARD_REDUCED_KYC_MAX_USD = 20;
-
-export function yellowCardReducedKycEligible(input: {
-  direction: "receive" | "payout";
-  currency: string;
-  usdEquivalent: number | null;
-  missingFullKyc: boolean;
-  coreComplete: boolean;
-}): boolean {
-  return input.direction === "receive" &&
-    input.missingFullKyc &&
-    input.coreComplete &&
-    !REDUCED_KYC_EXCLUDED_CURRENCIES.has(String(input.currency || "").trim().toUpperCase()) &&
-    input.usdEquivalent !== null &&
-    Number.isFinite(input.usdEquivalent) &&
-    input.usdEquivalent > 0 &&
-    input.usdEquivalent < YELLOW_CARD_REDUCED_KYC_MAX_USD;
-}
 
 export type YellowCardSettlement =
   | { cryptoCurrency: "USDC"; cryptoNetwork: "BASE"; walletAddress: string }
@@ -41,6 +22,7 @@ export interface YellowCardRetailKyc {
 export interface YellowCardInstitutionKyc {
   businessName: string;
   businessId: string;
+  email: string;
 }
 
 export interface YellowCardReceivePayloadInput {
@@ -52,8 +34,8 @@ export interface YellowCardReceivePayloadInput {
   currency: string;
   reason: string;
   customerUID: string;
-  recipient: YellowCardRetailKyc;
-  kycTier?: "full" | "reduced";
+  customerType?: "retail" | "institution";
+  recipient: YellowCardRetailKyc | YellowCardInstitutionKyc;
   source: {
     accountType: YellowCardAccountType;
     accountNumber?: string;
@@ -114,14 +96,12 @@ function required(value: unknown, field: string): string {
 function retailKyc(
   input: YellowCardRetailKyc,
   prefix: "sender" | "recipient",
-  tier: "full" | "reduced" = "full",
 ) {
   const core = {
     name: required(input.name, `${prefix}_name`),
     country: required(input.country, `${prefix}_country`).toUpperCase(),
     email: required(input.email, `${prefix}_email`).toLowerCase(),
   };
-  if (tier === "reduced") return core;
   return {
     ...core,
     phone: required(input.phone, `${prefix}_phone`),
@@ -132,10 +112,11 @@ function retailKyc(
   };
 }
 
-function institutionKyc(input: YellowCardInstitutionKyc) {
+function institutionKyc(input: YellowCardInstitutionKyc, prefix: "sender" | "recipient") {
   return {
-    businessName: required(input.businessName, "sender_business_name"),
-    businessId: required(input.businessId, "sender_business_id"),
+    businessName: required(input.businessName, `${prefix}_business_name`),
+    businessId: required(input.businessId, `${prefix}_business_id`),
+    email: required(input.email, `${prefix}_email`).toLowerCase(),
   };
 }
 
@@ -182,7 +163,7 @@ export function buildYellowCardDirectSettlementSendPayload(
     // localAmount when directSettlement is true.
     reason,
     sender: customerType === "institution"
-      ? institutionKyc(input.sender as YellowCardInstitutionKyc)
+      ? institutionKyc(input.sender as YellowCardInstitutionKyc, "sender")
       : retailKyc(input.sender as YellowCardRetailKyc, "sender"),
     destination: {
       accountName: required(input.destination.accountName, "destination_account_name"),
@@ -274,11 +255,11 @@ export function buildYellowCardDirectSettlementReceivePayload(
   if (accountType === "momo" && !String(input.source.networkId || "").trim()) {
     throw new Error("yellow_card_missing_network_id");
   }
-  if (!String(input.source.accountNumber || "").trim()) {
-    throw new Error("yellow_card_missing_source_account_number");
-  }
 
-  const recipient = retailKyc(input.recipient, "recipient", input.kycTier);
+  const customerType = input.customerType === "institution" ? "institution" : "retail";
+  const recipient = customerType === "institution"
+    ? institutionKyc(input.recipient as YellowCardInstitutionKyc, "recipient")
+    : retailKyc(input.recipient as YellowCardRetailKyc, "recipient");
   const country = required(input.country, "country").toUpperCase();
   if (recipient.country !== country) {
     throw new Error("yellow_card_recipient_country_must_match_receive_country");
@@ -308,12 +289,14 @@ export function buildYellowCardDirectSettlementReceivePayload(
     recipient,
     source: {
       accountType,
-      accountNumber: required(input.source.accountNumber, "source_account_number"),
+      ...(input.source.accountNumber
+        ? { accountNumber: required(input.source.accountNumber, "source_account_number") }
+        : {}),
       ...(input.source.networkId
         ? { networkId: required(input.source.networkId, "network_id") }
         : {}),
     },
-    customerType: "retail",
+    customerType,
     customerUID: required(input.customerUID, "customer_uid"),
     country,
     currency: required(input.currency, "currency").toUpperCase(),

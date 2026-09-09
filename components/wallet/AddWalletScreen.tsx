@@ -18,6 +18,7 @@ import { virtualAccountActivationMessage } from '../../utils/virtualAccountActiv
 interface AddWalletScreenProps {
   userId: string;
   onBack: () => void;
+  onNavigate?: (screen: string) => void;
 }
 
 interface StableRow { id: string; currency: string; status?: string }
@@ -76,7 +77,7 @@ function countryAllowedVaCurrencies(country: string | null | undefined): BridgeV
   return bridgeVirtualAccountCurrenciesForCountry(country);
 }
 
-export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
+export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -224,6 +225,30 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     [country],
   );
 
+  const handleProvisioningSecurityRequired = (response: any): boolean => {
+    if (response?.code !== 'security_enrollment_required') return false;
+    const missing = Array.isArray(response?.missing) ? response.missing : [];
+    if (missing.includes('transaction_pin')) {
+      showToast.info({
+        title: 'Transaction PIN required',
+        message: 'Set your transaction PIN first, then enable your authenticator before requesting an account or wallet.',
+        duration: 7000,
+      });
+      onNavigate?.('pin-setup');
+      return true;
+    }
+    if (missing.includes('authenticator')) {
+      showToast.info({
+        title: 'Authenticator required',
+        message: 'Enable two-factor authentication before requesting an account or wallet.',
+        duration: 7000,
+      });
+      onNavigate?.('two-factor-setup');
+      return true;
+    }
+    return false;
+  };
+
   const requestWallet = async (card: WalletCard) => {
     if (creating) return;
     setCreating(card.code);
@@ -233,6 +258,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           currency: card.code as BridgeVirtualAccountCurrency,
         });
         if (!res?.success) {
+          if (handleProvisioningSecurityRequired(res)) return;
           const mapped = virtualAccountActivationMessage(res, card.code);
           showToast[mapped.type]({ title: mapped.title, message: mapped.message, duration: 6000 });
           if (mapped.type === 'info') await refresh();
@@ -243,6 +269,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         const chain = STABLE_CHAIN[card.code] || 'BASE';
         const res: any = await backendAPI.bridge.wallet.create({ symbol: card.code, chain });
         if (!res?.success) {
+          if (handleProvisioningSecurityRequired(res)) return;
           showToast.error(friendlyError(res?.error, `Could not add ${card.code} wallet.`));
           return;
         }
@@ -272,6 +299,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           created += 1;
           continue;
         }
+        if (handleProvisioningSecurityRequired(res)) return;
         const mapped = virtualAccountActivationMessage(res, currency);
         if (mapped.type === 'info') pending += 1;
         else failed += 1;

@@ -10,9 +10,10 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from 'sonner';
-import { supabase } from '../../utils/supabase/client';
+import { backendAPI } from '../../utils/api/backendAPI';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { useBridgeScaAction } from '../../utils/security/useBridgeScaAction';
 
 interface ChangePasswordProps {
   onBack: () => void;
@@ -21,6 +22,7 @@ interface ChangePasswordProps {
 export function ChangePassword({ onBack }: ChangePasswordProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const { authorize: authorizeBridgeSca, challenge: scaChallenge } = useBridgeScaAction();
   const [loading, setLoading] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -73,12 +75,20 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
     try {
       setLoading(true);
 
-      const { error } = await supabase.auth.updateUser({
-        password: formData.newPassword
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'security_change',
+        resource: 'change_password',
+        request: { action: 'change_password' },
+        title: 'Confirm password change',
+        description: 'Verify this security change with your transaction PIN and authenticator code.',
       });
-
-      if (error) {
-        toast.error(friendlyError(error));
+      const result: any = await backendAPI.auth.changePassword(
+        formData.currentPassword,
+        formData.newPassword,
+        authorizationId,
+      );
+      if (!result?.success) {
+        toast.error(friendlyError(result?.error));
         return;
       }
 
@@ -258,6 +268,7 @@ export function ChangePassword({ onBack }: ChangePasswordProps) {
           </Button>
         </div>
       </form>
+      {scaChallenge}
     </div>
   );
 }

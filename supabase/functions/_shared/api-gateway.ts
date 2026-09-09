@@ -20,7 +20,7 @@ export interface ApiGatewayContext {
   defaultMode: "sandbox" | "production";
   rateLimitPerMinute: number;
   betaAccessEnabled: boolean;
-  maxSingleTransferUsd: number | null;
+  maxSingleTransferUsd: string | null;
   tenantMetadata: Record<string, unknown>;
   scopes: string[];
 }
@@ -117,7 +117,7 @@ export async function resolveGatewayContext(
     betaAccessEnabled: Boolean(row.beta_access_enabled),
     maxSingleTransferUsd: row.max_single_transfer_usd == null
       ? null
-      : Number(row.max_single_transfer_usd),
+      : String(row.max_single_transfer_usd),
     tenantMetadata: row.tenant_metadata && typeof row.tenant_metadata === "object"
       ? row.tenant_metadata as Record<string, unknown>
       : {},

@@ -1,4 +1,4 @@
-import { htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { appDownloadLinksHtml, appDownloadLinksText, htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface BusinessFounderWelcomeProps {
   full_name?: string;
@@ -27,6 +27,7 @@ export function render(p: BusinessFounderWelcomeProps): RenderedEmail {
       <strong>Mark Ikaba</strong><br />
       Founder &amp; CEO, BorderPay
     </p>
+    ${appDownloadLinksHtml()}
   `;
 
   return {
@@ -37,7 +38,7 @@ export function render(p: BusinessFounderWelcomeProps): RenderedEmail {
       introText,
       body,
       ctaText: "Open BorderPay",
-      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
+      ctaUrl: BORDERPAY_BRAND.smartAppUrl,
       footerNote: "If you have any questions, just reply to this email.",
     }),
     text: textLayout({
@@ -46,9 +47,9 @@ export function render(p: BusinessFounderWelcomeProps): RenderedEmail {
         `Welcome to BorderPay for ${company}.\n\n` +
         "BorderPay helps businesses receive and move money internationally with reliable workflows.\n\n" +
         "Your feedback directly influences our roadmap.\n\n" +
-        "Warm regards,\nMark Ikaba\nFounder & CEO, BorderPay",
+        `Warm regards,\nMark Ikaba\nFounder & CEO, BorderPay\n\n${appDownloadLinksText()}`,
       ctaText: "Open BorderPay",
-      ctaUrl: `${BORDERPAY_BRAND.appUrl}/dashboard`,
+      ctaUrl: BORDERPAY_BRAND.smartAppUrl,
       footerNote: "If you have any questions, just reply to this email.",
     }),
   };

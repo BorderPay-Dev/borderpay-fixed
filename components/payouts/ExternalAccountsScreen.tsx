@@ -208,7 +208,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
         resource: 'bridge_external_account',
         request: { action: 'delete', external_account_id: extId },
         title: 'Confirm payout account removal',
-        description: 'Verify this beneficiary change with your account password and authenticator code.',
+        description: 'Verify this beneficiary change with your transaction PIN and authenticator code.',
       });
       await removeAuthorized(extId, authorizationId);
     } catch (error) {

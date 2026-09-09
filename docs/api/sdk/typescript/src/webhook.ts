@@ -5,7 +5,7 @@
  *   `${timestamp}.${rawBody}`
  *
  * Signature header format (recommended):
- *   x-borderpay-signature: sha256=<hex>
+ *   x-borderpay-signature: v1=<hex>
  *   x-borderpay-timestamp: <unix_seconds>
  */
 
@@ -48,6 +48,7 @@ async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
 function normalizeSignature(signatureHeader: string): string | null {
   const raw = signatureHeader.trim();
   if (!raw) return null;
+  if (raw.startsWith("v1=")) return raw.slice("v1=".length).trim().toLowerCase();
   if (raw.startsWith("sha256=")) return raw.slice("sha256=".length).trim().toLowerCase();
   return raw.toLowerCase();
 }

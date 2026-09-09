@@ -35,6 +35,11 @@ import { render as individualVirtualAccountInactive }      from "./individual/vi
 import { render as individualAccountVerifiedSubscription } from "./individual/account-verified-subscription.ts";
 import { render as individualSubscriptionMaintenanceAnnouncement } from "./individual/subscription-maintenance-announcement.ts";
 import { render as individualSubscriptionPaymentStatus } from "./individual/subscription-payment-status.ts";
+import { render as individualSubscriptionExternalInvoice } from "./individual/subscription-external-invoice.ts";
+import { render as individualAppStoreAnnouncement } from "./individual/app-store-announcement.ts";
+import { render as individualBusinessOnlyTransition } from "./individual/business-only-transition.ts";
+import { render as individualEurNamedAccountAnnouncement } from "./individual/eur-named-account-announcement.ts";
+import { render as individualAfricanRailsLive } from "./individual/african-rails-live.ts";
 
 import { render as businessEmailVerification }        from "./business/email-verification.ts";
 import { render as businessPinResetLink }            from "./business/pin-reset-link.ts";
@@ -61,7 +66,13 @@ import { render as businessVirtualAccountInactive }      from "./business/virtua
 import { render as businessAccountVerifiedSubscription } from "./business/account-verified-subscription.ts";
 import { render as businessSubscriptionMaintenanceAnnouncement } from "./business/subscription-maintenance-announcement.ts";
 import { render as businessSubscriptionPaymentStatus } from "./business/subscription-payment-status.ts";
+import { render as businessSubscriptionExternalInvoice } from "./business/subscription-external-invoice.ts";
+import { render as businessAppStoreAnnouncement } from "./business/app-store-announcement.ts";
+import { render as businessEurNamedAccountAnnouncement } from "./business/eur-named-account-announcement.ts";
+import { render as businessAfricanRailsLive } from "./business/african-rails-live.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
+import { render as adminProviderTransactionEvent }      from "./admin/provider-transaction-event.ts";
+import { render as accountEurNamedAccountAnnouncement } from "./account/eur-named-account-announcement.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -88,6 +99,11 @@ export type TemplateName =
   | "individual.account_verified_subscription"
   | "individual.subscription_maintenance_announcement"
   | "individual.subscription_payment_status"
+  | "individual.subscription_external_invoice"
+  | "individual.app_store_announcement"
+  | "individual.business_only_transition"
+  | "individual.eur_named_account_announcement"
+  | "individual.african_rails_live"
   | "business.email_verification"
   | "business.pin_reset_link"
   | "business.kyb_submitted"
@@ -113,7 +129,13 @@ export type TemplateName =
   | "business.account_verified_subscription"
   | "business.subscription_maintenance_announcement"
   | "business.subscription_payment_status"
-  | "admin.incident_alert";
+  | "business.subscription_external_invoice"
+  | "business.app_store_announcement"
+  | "business.eur_named_account_announcement"
+  | "business.african_rails_live"
+  | "admin.incident_alert"
+  | "admin.provider_transaction_event"
+  | "account.eur_named_account_announcement";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -142,6 +164,11 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.account_verified_subscription": individualAccountVerifiedSubscription,
   "individual.subscription_maintenance_announcement": individualSubscriptionMaintenanceAnnouncement,
   "individual.subscription_payment_status": individualSubscriptionPaymentStatus,
+  "individual.subscription_external_invoice": individualSubscriptionExternalInvoice,
+  "individual.app_store_announcement": individualAppStoreAnnouncement,
+  "individual.business_only_transition": individualBusinessOnlyTransition,
+  "individual.eur_named_account_announcement": individualEurNamedAccountAnnouncement,
+  "individual.african_rails_live": individualAfricanRailsLive,
   "business.email_verification":        businessEmailVerification,
   "business.pin_reset_link":            businessPinResetLink,
   "business.kyb_submitted":             businessKybSubmitted,
@@ -167,7 +194,13 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.account_verified_subscription": businessAccountVerifiedSubscription,
   "business.subscription_maintenance_announcement": businessSubscriptionMaintenanceAnnouncement,
   "business.subscription_payment_status": businessSubscriptionPaymentStatus,
+  "business.subscription_external_invoice": businessSubscriptionExternalInvoice,
+  "business.app_store_announcement": businessAppStoreAnnouncement,
+  "business.eur_named_account_announcement": businessEurNamedAccountAnnouncement,
+  "business.african_rails_live": businessAfricanRailsLive,
   "admin.incident_alert":                adminIncidentAlert,
+  "admin.provider_transaction_event":    adminProviderTransactionEvent,
+  "account.eur_named_account_announcement": accountEurNamedAccountAnnouncement,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {

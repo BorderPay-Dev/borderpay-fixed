@@ -65,9 +65,12 @@ def main() -> int:
                     and "kyc-submit" not in kycv),
                    "KYCVerification must read status AND start verification via bridge.kyc.startIndividual / kyb.startBusiness (canonical), never kyc-submit"))
 
-    checks.append(("K2 SignUpFlow onboarding uses the Bridge path",
-                   ("bridge-customer" in signup and "bridge-kyc-link" in signup and "bridge-kyb-link" in signup),
-                   "SignUpFlow must use bridge-customer + bridge-kyc-link/bridge-kyb-link"))
+    checks.append(("K2 SignUpFlow hands both account types to hosted verification",
+                   ("type SignUpStep = 'personal' | 'confirm-email';" in signup
+                    and "onSignUpSuccess(data.user);" in signup
+                    and "currentStep === 'identity'" not in signup
+                    and "currentStep === 'proof-of-address'" not in signup),
+                   "SignUpFlow must end after email confirmation and hand off to the dashboard hosted KYC/KYB flow; legacy in-app document steps must be unreachable"))
 
     # K3 — no component/util references the orphaned kyc-submit edge function.
     scan = list((ROOT / "components").rglob("*.tsx")) + list((ROOT / "components").rglob("*.ts"))

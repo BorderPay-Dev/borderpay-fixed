@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { isBridgeEeaScaCountry, resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -14,16 +15,107 @@ function equal(a: string, b: string): boolean {
   return x === 0;
 }
 
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const output = new Array<R>(values.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (cursor < values.length) {
+      const index = cursor++;
+      output[index] = await mapper(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return output;
+}
+
 async function billDue() {
   const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await db.from("subscriptions").select("id").eq("status", "active").lte("next_billing_date", today).limit(500);
+  const { data, error } = await db.from("subscriptions")
+    .select("id,user_id")
+    .eq("status", "active")
+    .lte("next_billing_date", today)
+    .limit(500);
   if (error) throw error;
   const results = [];
-  for (const row of data ?? []) {
-    const { data: result, error: chargeError } = await db.rpc("charge_internal_subscription", { p_subscription_id: row.id, p_billing_date: today });
-    results.push({ id: row.id, result, error: chargeError?.message ?? null });
+  const rows = data ?? [];
+  const scopedRows = await mapWithConcurrency(rows, 3, async (row) => ({
+    row,
+    scope: await resolveBridgeScaScope(db, row.user_id),
+  }));
+  for (const { row, scope } of scopedRows) {
+
+    // EEA maintenance is collected outside Bridge. Merely creating an invoice
+    // is not payment: a verified Flutterwave callback must complete it later.
+    if (isBridgeEeaScaCountry(scope.country)) {
+      const { data: result, error: invoiceError } = await db.rpc(
+        "queue_external_subscription_invoice",
+        {
+          p_subscription_id: row.id,
+          p_billing_date: today,
+          p_scope_country: scope.country,
+          p_provider: "flutterwave",
+        },
+      );
+      results.push({ id: row.id, route: "flutterwave_invoice", result, error: invoiceError?.message ?? null });
+      continue;
+    }
+
+    // Only an authoritative non-EEA result may enter the Bridge-backed path.
+    // Unknown, unavailable, or inconsistent identity data fails closed.
+    if (scope.reason !== "non_eea" || scope.status !== "not_required") {
+      results.push({
+        id: row.id,
+        route: "blocked",
+        result: null,
+        error: `maintenance_region_unresolved:${scope.reason}`,
+      });
+      continue;
+    }
+
+    try {
+      const response = await fetch(`${URL}/functions/v1/subscription-bridge-collection`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${WORKER_TOKEN || SERVICE_ROLE}`,
+        },
+        body: JSON.stringify({ subscription_id: row.id, billing_date: today }),
+      });
+      const body = await response.json().catch(() => ({}));
+      results.push({
+        id: row.id,
+        route: "bridge_non_eea",
+        result: response.ok ? body?.data ?? body : null,
+        error: response.ok ? null : body?.error || `HTTP ${response.status}`,
+      });
+    } catch (cause) {
+      results.push({
+        id: row.id,
+        route: "bridge_non_eea",
+        result: null,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    }
   }
   return { processed: results.length, results };
+}
+
+async function drainExternalInvoices() {
+  try {
+    const response = await fetch(`${URL}/functions/v1/flutterwave-subscription-collection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${WORKER_TOKEN || SERVICE_ROLE}` },
+      body: JSON.stringify({ mode: "drain" }),
+    });
+    const body = await response.json().catch(() => ({}));
+    return response.ok ? body?.data ?? body : { configured: false, error: body?.error || `HTTP ${response.status}` };
+  } catch (cause) {
+    return { configured: false, error: cause instanceof Error ? cause.message : String(cause) };
+  }
 }
 
 async function sendEmails() {
@@ -82,34 +174,51 @@ async function deliverEvents() {
   return { selected: data?.length ?? 0, delivered, failed };
 }
 
-async function queueAnnouncement() {
-  const { data: subs, error } = await db.from("subscriptions").select("user_id,account_type,next_billing_date").eq("status", "active");
+async function queueBusinessFeeAnnouncement() {
+  const { data: subs, error } = await db.from("subscriptions")
+    .select("user_id,account_type,next_billing_date")
+    .eq("status", "active")
+    .eq("account_type", "business");
   if (error) throw error;
   const ids = (subs ?? []).map((s) => s.user_id);
+  if (ids.length === 0) return { eligible: 0, queued: 0 };
   const [{ data: profiles, error: profileError }, { data: businesses, error: businessError }] = await Promise.all([
-    db.from("user_profiles").select("id,email,full_name").in("id", ids),
-    db.from("business_profiles").select("user_id,company_name").in("user_id", ids),
+    db.from("user_profiles").select("id,email,full_name,account_type,kyc_status").in("id", ids),
+    db.from("business_profiles").select("user_id,company_name,bridge_kyb_status").in("user_id", ids),
   ]);
   if (profileError) throw profileError;
   if (businessError) throw businessError;
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
   const businessById = new Map((businesses ?? []).map((b) => [b.user_id, b]));
   let queued = 0;
+  let eligible = 0;
   for (const sub of subs ?? []) {
     const profile = profileById.get(sub.user_id);
     const business = businessById.get(sub.user_id);
-    if (!profile?.email) continue;
+    const isVerifiedBusiness = profile?.account_type === "business"
+      && String(profile?.kyc_status ?? "").toLowerCase() === "verified"
+      && ["approved", "verified"].includes(String(business?.bridge_kyb_status ?? "").toLowerCase());
+    if (!isVerifiedBusiness || !profile?.email) continue;
+    eligible++;
+    const currentBillingDate = new Date(`${sub.next_billing_date}T00:00:00Z`);
+    const firstNewPriceBillingDate = sub.next_billing_date < "2026-09-01"
+      ? new Date(Date.UTC(currentBillingDate.getUTCFullYear(), currentBillingDate.getUTCMonth() + 2, 0)).toISOString().slice(0, 10)
+      : sub.next_billing_date;
     const { error: insertError } = await db.from("subscription_email_jobs").insert({
       user_id: sub.user_id,
-      template: `${sub.account_type}.subscription_maintenance_announcement`,
+      template: "business.subscription_maintenance_announcement",
       recipient: profile.email.trim().toLowerCase(),
-      props: { customer_name: business?.company_name ?? profile.full_name, billing_start_date: sub.next_billing_date },
-      idempotency_key: `subscription:maintenance_announcement:2026-08-31:${sub.user_id}`,
+      props: {
+        customer_name: business?.company_name ?? profile.full_name,
+        billing_start_date: firstNewPriceBillingDate,
+        effective_date: "September 1, 2026",
+      },
+      idempotency_key: `subscription:business_fee_change:2026-09-01:${sub.user_id}`,
     });
     if (!insertError) queued++;
     else if (insertError.code !== "23505") throw insertError;
   }
-  return { eligible: subs?.length ?? 0, queued };
+  return { eligible, queued };
 }
 
 Deno.serve(async (req) => {
@@ -124,12 +233,15 @@ Deno.serve(async (req) => {
   try {
     const { mode = "drain" } = await req.json().catch(() => ({}));
     const out: Record<string, unknown> = {};
-    if (["bill_due", "drain"].includes(mode)) out.billing = await billDue();
+    if (["bill_due", "drain"].includes(mode)) {
+      out.billing = await billDue();
+      out.external_invoices = await drainExternalInvoices();
+    }
     if (["grace", "drain"].includes(mode)) {
       const { data, error } = await db.rpc("apply_subscription_grace_controls"); if (error) throw error; out.grace = data;
     }
-    if (mode === "announcement") out.announcement = await queueAnnouncement();
-    if (["emails", "drain", "announcement"].includes(mode)) out.emails = await sendEmails();
+    if (["announcement", "business_fee_announcement"].includes(mode)) out.announcement = await queueBusinessFeeAnnouncement();
+    if (["emails", "drain", "announcement", "business_fee_announcement"].includes(mode)) out.emails = await sendEmails();
     if (["events", "drain"].includes(mode)) out.events = await deliverEvents();
     return json({ success: true, data: out });
   } catch (e) {

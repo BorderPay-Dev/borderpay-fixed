@@ -120,7 +120,7 @@ export function TreasuryCard({ totalUsd, wallets, transactions }: { totalUsd: nu
   };
 
   return (
-    <section className="px-5 sm:px-6">
+    <section className="mx-auto w-full max-w-4xl px-5 sm:px-6">
       <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
         {/* Header: label + balance + change */}
         <div className="p-5 pb-2">

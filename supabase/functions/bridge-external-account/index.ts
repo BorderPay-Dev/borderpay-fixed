@@ -20,7 +20,7 @@
 // This function is SOURCE ONLY in this PR — not deployed. It requires the
 // BRIDGE_API_KEY function secret (consumed by ../_shared/providers/
 // bridge-client.ts) and the public.bridge_external_accounts table from
-// 20260529_bridge_external_accounts.sql before it can run.
+// 20260529010000_bridge_external_accounts.sql before it can run.
 //
 // Deploy (later, operator):
 //   supabase functions deploy bridge-external-account --project-ref orwrcpwsffjlvzuraxjc
@@ -31,6 +31,8 @@ import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { normalizeBridgeExternalAccounts } from "../_shared/providers/bridge-external-account-list.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -90,7 +92,7 @@ Deno.serve(async (req) => {
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
-  let body: { action?: string; account?: CreateInput; external_account_id?: string };
+  let body: { action?: string; account?: CreateInput; external_account_id?: string; sca_authorization_id?: string };
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const action = String(body.action || "create");
 
@@ -122,6 +124,15 @@ Deno.serve(async (req) => {
       .eq("bridge_external_account_id", extId)
       .maybeSingle();
     if (!owned) return json({ success: false, error: "not found", code: "not_found" }, 404);
+    const sca = await consumeScaAuthorization({
+      supabase: supa,
+      authorizationId: body.sca_authorization_id,
+      userId: user.id,
+      operation: "beneficiary_change",
+      resource: "bridge_external_account",
+      request: body,
+    });
+    if (!sca.ok) return json(sca.body, sca.status);
     const r = await bridgeFetch({
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}/deactivate`,
@@ -134,14 +145,20 @@ Deno.serve(async (req) => {
     return json({ success: true, data: { deleted: true, external_account_id: extId } });
   }
 
-  // ── list (passthrough; dashboard normally reads the local mirror) ──────
+  // ── list ───────────────────────────────────────────────────────────────
   if (action === "list") {
     const r = await bridgeFetch({
       method: "GET",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
     });
     if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
-    return json({ success: true, data: (r.data as any)?.data ?? r.data });
+    // Bridge currently uses a paginated `data: []` envelope. Older versions
+    // of this function unwrapped that to a bare array while clients expected
+    // `data.external_accounts`, making valid destinations appear missing.
+    return json({
+      success: true,
+      data: { external_accounts: normalizeBridgeExternalAccounts(r.data) },
+    });
   }
 
   // ── capabilities ──────────────────────────────────────────────────────
@@ -274,6 +291,16 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "unsupported external account type" }, 400);
   }
 
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body.sca_authorization_id,
+    userId: user.id,
+    operation: "beneficiary_change",
+    resource: "bridge_external_account",
+    request: body,
+  });
+  if (!sca.ok) return json(sca.body, sca.status);
+
   const r = await bridgeFetch({
     method:         "POST",
     path:           `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
@@ -287,7 +314,7 @@ Deno.serve(async (req) => {
   if (!extId) return json({ success: false, error: "Bridge response missing external account id" }, 502);
 
   // Mirror locally — descriptors only, never full account / routing / IBAN.
-  await supa.from("bridge_external_accounts").upsert({
+  const { error: mirrorError } = await supa.from("bridge_external_accounts").upsert({
     user_id:                    user.id,
     bridge_external_account_id: extId,
     bridge_customer_id:         customerId,
@@ -306,6 +333,15 @@ Deno.serve(async (req) => {
     metadata:                   { validated: data?.account_validation != null },
     updated_at:                 new Date().toISOString(),
   }, { onConflict: "bridge_external_account_id" });
+  // The provider operation has already succeeded, so do not invite a duplicate
+  // retry. Surface the projection failure to logs for reconciliation instead.
+  if (mirrorError) {
+    console.error("bridge_external_account_mirror_failed", {
+      user_id: user.id,
+      external_account_id: extId,
+      code: mirrorError.code,
+    });
+  }
 
   return json({
     success: true,

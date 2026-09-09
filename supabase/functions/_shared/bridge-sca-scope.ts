@@ -50,25 +50,18 @@ export function isBridgeEeaScaCountry(value: unknown): boolean {
   return code !== null && BRIDGE_EEA_SCA_COUNTRIES.has(code);
 }
 
-/**
- * Make the cheapest authoritative decision from server-controlled onboarding
- * data. A verified, explicitly non-EEA profile must never lose account access
- * because Bridge's profile API is slow or temporarily unavailable. EEA and
- * missing-country profiles continue to Bridge for confirmation.
- */
-export function resolveLocalBridgeScaScope(
-  verificationStatus: unknown,
-  countryValue: unknown,
-): BridgeScaScope | null {
-  const verified = String(verificationStatus ?? '').trim().toLowerCase() === 'approved';
-  const country = normalizeBridgeScaCountry(countryValue);
-  if (!verified) {
-    return { required: false, status: "not_required", reason: "not_verified", country, verified: false, has_custodial_wallet: null };
-  }
-  if (country && !BRIDGE_EEA_SCA_COUNTRIES.has(country)) {
-    return { required: false, status: "not_required", reason: "non_eea", country, verified: true, has_custodial_wallet: null };
-  }
-  return null;
+export function bridgeEeaScaEnforcementEnabled(): boolean {
+  return Deno.env.get("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED") === "true";
+}
+
+const TERMINAL_WALLET_STATUSES = new Set(["closed", "deleted", "disabled", "deactivated", "inactive"]);
+
+export function isActiveBridgeCustodialWallet(wallet: { wallet_id?: unknown; status?: unknown }): boolean {
+  if (!String(wallet.wallet_id ?? "").trim()) return false;
+  const status = String(wallet.status ?? "").trim().toLowerCase();
+  // Bridge historically omitted status from list responses. A returned wallet
+  // remains in scope unless Bridge explicitly reports a terminal state.
+  return !TERMINAL_WALLET_STATUSES.has(status);
 }
 
 /**
@@ -91,10 +84,11 @@ export async function resolveBridgeScaScope(
     };
   }
 
-  const { bridge_customer_id: customerId, verification_status: verificationStatus, country: localCountry } = identity.context;
-  const localDecision = resolveLocalBridgeScaScope(verificationStatus, localCountry);
-  if (localDecision) return localDecision;
-  const verified = true;
+  const { bridge_customer_id: customerId, verification_status: verificationStatus } = identity.context;
+  const verified = verificationStatus === "approved";
+  if (!verified) {
+    return { required: false, status: "not_required", reason: "not_verified", country: null, verified, has_custodial_wallet: null };
+  }
   if (!customerId) {
     return { required: false, status: "unknown", reason: "no_bridge_customer", country: null, verified, has_custodial_wallet: null };
   }
@@ -108,8 +102,11 @@ export async function resolveBridgeScaScope(
     if (!BRIDGE_EEA_SCA_COUNTRIES.has(country)) {
       return { required: false, status: "not_required", reason: "non_eea", country, verified, has_custodial_wallet: null };
     }
+    // Custodial-wallet presence is relevant only after an authoritative EEA
+    // country match. Avoiding this second provider call for non-EEA customers
+    // keeps billing and access checks inside provider rate limits.
     const wallets = await bridgeProvider.listWallets(customerId);
-    const hasCustodialWallet = wallets.some((wallet) => Boolean(wallet.wallet_id));
+    const hasCustodialWallet = wallets.some(isActiveBridgeCustodialWallet);
     if (!hasCustodialWallet) {
       return { required: false, status: "not_required", reason: "no_custodial_wallet", country, verified, has_custodial_wallet: false };
     }

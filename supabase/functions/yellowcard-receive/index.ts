@@ -16,7 +16,7 @@ import { africanRailMarkupPercentForAccount } from "../_shared/fees/schedule.ts"
 import {
   buildYellowCardDirectSettlementReceivePayload,
   redactYellowCardReceivePayload,
-  yellowCardReducedKycEligible,
+  type YellowCardInstitutionKyc,
   type YellowCardRetailKyc,
   type YellowCardSettlement,
 } from "../_shared/providers/yellowcard-payload.ts";
@@ -72,21 +72,6 @@ function formatDob(value: unknown): string {
   if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`;
   const us = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return us ? raw : "";
-}
-
-function yellowCardBuyRate(payload: any, currency: string): number | null {
-  const rows = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.rates)
-      ? payload.rates
-      : Array.isArray(payload?.data)
-        ? payload.data
-        : Array.isArray(payload?.data?.rates)
-          ? payload.data.rates
-          : [];
-  const row = rows.find((item: any) => upper(item?.code || item?.currency) === currency);
-  const rate = Number(row?.buy);
-  return Number.isFinite(rate) && rate > 0 ? rate : null;
 }
 
 function profileAddress(profile: any, bridgeIdentity: any, webhookIdentity: any): string {
@@ -249,7 +234,17 @@ async function loadContext(userId: string, input: any) {
     }
   }
 
-  const kyc: YellowCardRetailKyc = {
+  const customerType = lower(profile.account_type) === "business" ? "institution" as const : "retail" as const;
+  let business: any = null;
+  if (customerType === "institution") {
+    const { data, error } = await supa.from("business_profiles")
+      .select("company_name,registration_number")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return { ok: false as const, status: 503, code: "business_identity_lookup_failed" };
+    business = data;
+  }
+  const retailKyc: YellowCardRetailKyc = {
     name: str(webhookEvidence.values.name || profile.full_name),
     country: normalizeYellowCardCountryCode(webhookEvidence.values.country || bridgeIdentity?.country || profile.country),
     phone: str(webhookEvidence.values.phone || bridgeIdentity?.phone || profile.phone),
@@ -262,7 +257,13 @@ async function loadContext(userId: string, input: any) {
     idNumber: str(webhookEvidence.values.idNumber || bridgeIdentity?.id_number),
     idType: str(webhookEvidence.values.idType || bridgeIdentity?.id_type),
   };
-  const kycFieldSources = {
+  const institutionKyc: YellowCardInstitutionKyc = {
+    businessName: str(business?.company_name),
+    businessId: str(business?.registration_number),
+    email: lower(webhookEvidence.values.email || profile.email),
+  };
+  const kyc = customerType === "institution" ? institutionKyc : retailKyc;
+  const retailKycFieldSources = {
     name: webhookEvidence.sources.name || "verified_local_profile",
     country: webhookEvidence.sources.country || (bridgeIdentity?.country ? "bridge_customer_api" : "verified_local_profile"),
     phone: webhookEvidence.sources.phone || (bridgeIdentity?.phone ? "bridge_customer_api" : "verified_local_profile"),
@@ -272,18 +273,19 @@ async function loadContext(userId: string, input: any) {
     idNumber: webhookEvidence.sources.idNumber || (bridgeIdentity?.id_number ? "bridge_customer_api" : "unavailable"),
     idType: webhookEvidence.sources.idType || (bridgeIdentity?.id_type ? "bridge_customer_api" : "unavailable"),
   };
+  const institutionKycFieldSources = {
+    businessName: business?.company_name ? "business_profiles" : "unavailable",
+    businessId: business?.registration_number ? "business_profiles" : "unavailable",
+    email: webhookEvidence.sources.email || "verified_local_profile",
+  };
+  const kycFieldSources = customerType === "institution" ? institutionKycFieldSources : retailKycFieldSources;
   const missingFullKyc = Object.entries(kyc).filter(([, value]) => !value).map(([key]) => key);
-  const reducedKycCoreComplete = Boolean(kyc.name && kyc.country && kyc.email);
-
   // These provider catalog calls are independent. Running them sequentially can
   // consume two full upstream timeout windows and makes the UI abandon a valid
   // preflight before it completes.
-  const [channelsResult, networksResult, ratesResult] = await Promise.all([
+  const [channelsResult, networksResult] = await Promise.all([
     yellowCardReadWithRetry({ method: "GET", path: "/channels", query: { country } }),
     yellowCardReadWithRetry({ method: "GET", path: "/networks", query: { country } }),
-    direction === "receive" && missingFullKyc.length > 0
-      ? yellowCardReadWithRetry({ method: "GET", path: "/rates", query: { currency }, timeoutMs: 10_000 })
-      : Promise.resolve(null),
   ]);
   if (!channelsResult.ok) {
     return { ok: false as const, status: 502, code: channelsResult.error || "yellow_card_channels_failed" };
@@ -291,21 +293,12 @@ async function loadContext(userId: string, input: any) {
   if (!networksResult.ok) {
     return { ok: false as const, status: 502, code: networksResult.error || "yellow_card_networks_failed" };
   }
-  const buyRate = ratesResult?.ok ? yellowCardBuyRate(ratesResult.data, currency) : null;
-  const usdEquivalent = buyRate === null ? null : localAmount / buyRate;
-  // Yellow Card's documented Tier 0 contract permits reduced KYC only below
-  // USD 20 equivalent, with customerUID, and excludes BWP/NGN/ZAR. Bridge
-  // approval remains mandatory above, proving that the customer was screened.
-  // Yellow Card independently enforces its USD 200 lifetime Tier 0 ceiling.
-  const reducedKycEligible = yellowCardReducedKycEligible({
-    direction,
-    currency,
-    usdEquivalent,
-    missingFullKyc: missingFullKyc.length > 0,
-    coreComplete: reducedKycCoreComplete,
-  });
-  const kycTier: "full" | "reduced" = reducedKycEligible ? "reduced" : "full";
-  const missingKyc = reducedKycEligible ? [] : missingFullKyc;
+  // Yellow Card confirmed that this production receive route requires the
+  // complete recipient object even when an amount would otherwise qualify for
+  // documented Tier 0. Never submit a reduced recipient from this endpoint.
+  const kycTier = "full" as const;
+  const missingKyc = missingFullKyc;
+  const usdEquivalent = null;
   const routing = resolveYellowCardRouting({
     channels: channelsResult.data,
     networks: networksResult.data,
@@ -350,6 +343,7 @@ async function loadContext(userId: string, input: any) {
     policy: policy.row,
     profile,
     kyc,
+    customerType,
     missingKyc,
     kycTier,
     usdEquivalent,
@@ -468,10 +462,9 @@ Deno.serve(async (req) => {
     kyc_complete: context.missingKyc.length === 0,
     missing_kyc_fields: context.missingKyc,
     kyc_tier: context.kycTier,
+    customer_type: context.customerType,
     usd_equivalent: context.usdEquivalent,
-    // loadContext fails closed unless it has resolved an active, authenticated
-    // Bridge USDC/Base or USDT/Tron wallet for this user.
-    bridge_settlement_wallet_ready: true,
+    bridge_settlement_wallet_ready: false,
     settlement_source: "yellow_card_production",
     provider_environment: "production",
     settlement_currency: context.settlementInfo.cryptoCurrency,
@@ -557,8 +550,8 @@ Deno.serve(async (req) => {
       currency: context.currency,
       reason: str(body?.reason),
       customerUID: access.user.id,
+      customerType: context.customerType,
       recipient: context.kyc,
-      kycTier: context.kycTier,
       source: {
         accountType: yellowCardPayloadAccountType(context.channel),
         accountNumber: str(body?.source_account),
@@ -594,6 +587,7 @@ Deno.serve(async (req) => {
       metadata: {
         source: "yellow_card_production",
         kyc_tier: context.kycTier,
+        customer_type: context.customerType,
         usd_equivalent: context.usdEquivalent,
         kyc_field_sources: context.kycFieldSources,
         bridge_evidence_event_ids: context.bridgeEvidenceEventIds,

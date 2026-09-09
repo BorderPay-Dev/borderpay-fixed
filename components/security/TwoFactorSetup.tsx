@@ -19,6 +19,7 @@ import {
   InputOTPSlot,
 } from '../ui/input-otp';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { useBridgeScaAction } from '../../utils/security/useBridgeScaAction';
 
 interface TwoFactorSetupProps {
   userId: string;
@@ -27,6 +28,7 @@ interface TwoFactorSetupProps {
 }
 
 export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupProps) {
+  const { authorize: authorizeBridgeSca, challenge: scaChallenge } = useBridgeScaAction();
   const locallyEnabled = TOTPManager.isEnabled(userId);
   const [step, setStep] = useState<'qr' | 'verify' | 'success'>('qr');
   const [qrCodeUri, setQrCodeUri] = useState('');
@@ -131,7 +133,14 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
     }
     setDisabling(true);
     try {
-      const r = await TOTPManager.disable(userId, disablePassword.trim());
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'security_change',
+        resource: 'disable_2fa',
+        request: { action: 'disable_2fa' },
+        title: 'Confirm authenticator removal',
+        description: 'Verify this security change before removing the authenticator factor.',
+      });
+      const r = await TOTPManager.disable(userId, disablePassword.trim(), authorizationId);
       if (!r.success) {
         toast.error(friendlyError(r.error, 'Could not disable 2FA'));
         return;
@@ -386,6 +395,7 @@ export function TwoFactorSetup({ userId, onBack, onComplete }: TwoFactorSetupPro
           </motion.div>
         )}
       </div>
+      {scaChallenge}
     </div>
   );
 }

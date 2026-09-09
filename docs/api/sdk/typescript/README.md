@@ -1,6 +1,6 @@
 # BorderPay SDK Starter (TypeScript)
 
-Starter SDK generated for Step 2G, aligned to `docs/api/openapi-v1.yaml` (`v1.0.1`).
+Starter SDK generated for Step 2G, aligned to `docs/api/openapi-v1.yaml` (`v1.0.2`).
 
 ## Structure
 
@@ -48,7 +48,7 @@ const health = await client.health();
 ## Webhook verification quick start
 
 Expected header pattern:
-- `x-borderpay-signature: sha256=<hex>`
+- `x-borderpay-signature: v1=<hex>`
 - `x-borderpay-timestamp: <unix_seconds>`
 
 ```ts

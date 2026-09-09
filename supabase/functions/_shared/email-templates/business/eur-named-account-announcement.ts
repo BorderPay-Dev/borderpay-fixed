@@ -1,0 +1,29 @@
+import { BORDERPAY_BRAND, escapeHtml, htmlLayout, textLayout, type RenderedEmail } from "../layout.ts";
+
+export interface Props { company_name?: string; full_name?: string }
+
+export function render(p: Props): RenderedEmail {
+  const companyName = String(p.company_name || p.full_name || "Your business").trim();
+  const body = `
+    <p>Hi ${escapeHtml(companyName)},</p>
+    <p>Starting <strong>September 2, 2026</strong>, your registered business name will appear as the account-holder name on eligible BorderPay EUR account details and outgoing EUR payments.</p>
+    <div style="border:1px solid ${BORDERPAY_BRAND.border};padding:16px;margin:20px 0;">
+      <strong>Your EUR IBAN is not changing.</strong><br /><br />
+      You can continue using the same account details. Pricing is also unchanged.
+    </div>
+    <p><strong>Maintenance window:</strong> September 2, 2026, from 8:00 AM to 2:00 PM Eastern Time. EUR deposits and payouts may be delayed during this window and for up to 12 hours afterward. Incoming deposits will still be received and will process after the upgrade completes.</p>
+    <p><strong>What your business needs to do:</strong></p>
+    <ul>
+      <li>Ask anyone sending EUR to use your registered business name as the beneficiary—not Bridge's name.</li>
+      <li>Refresh any saved deposit instructions after the upgrade.</li>
+      <li>If a recipient allowlists sender names, ask them to expect your registered business name on future EUR payouts.</li>
+    </ul>
+    <p>Deposits addressed to Bridge will continue to be accepted during a 30-day transition period, but a name mismatch after that period may cause a risk-related rejection.</p>
+    <p>Need help? Contact <a href="mailto:support@borderpayafrica.com">support@borderpayafrica.com</a>.</p>
+    <p>Kind regards,<br />BorderPay Operations</p>`;
+  return {
+    subject: "Action required: your EUR business account name changes September 2",
+    html: htmlLayout({ heading: "EUR business account-holder name update", preview: "Your IBAN and pricing are unchanged. Update the beneficiary name used for EUR payments.", body, ctaText: "Open BorderPay", ctaUrl: BORDERPAY_BRAND.smartAppUrl }),
+    text: textLayout({ heading: "EUR business account-holder name update", body, ctaText: "Open BorderPay", ctaUrl: BORDERPAY_BRAND.smartAppUrl }),
+  };
+}

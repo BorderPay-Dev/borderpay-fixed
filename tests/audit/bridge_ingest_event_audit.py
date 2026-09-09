@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 bridge_ingest_event_audit — structural audit of the ingest_bridge_event fix
-migration (20260529_bridge_ingest_event_webhook_logs_parent.sql).
+migration (20260529020000_bridge_ingest_event_webhook_logs_parent.sql).
 
 Proves the queue contract is preserved rather than cut around:
   1. ingest_bridge_event inserts into public.webhook_logs;
@@ -24,7 +24,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, "supabase", "migrations",
-                   "20260529_bridge_ingest_event_webhook_logs_parent.sql")
+                   "20260529020000_bridge_ingest_event_webhook_logs_parent.sql")
 
 
 def main() -> int:

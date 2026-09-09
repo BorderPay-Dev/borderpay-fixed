@@ -10,6 +10,7 @@ This gate is intentionally evidence-driven and fail-closed:
 """
 from __future__ import annotations
 
+import argparse
 import json
 import hashlib
 import os
@@ -467,7 +468,12 @@ def validate_onboarding_gate(failures: list[str]) -> None:
     ok("onboarding gate: certification account provenance validated")
 
 
-def validate_certification_manifest(failures: list[str], statuses: dict[str, str]) -> None:
+def validate_certification_manifest(
+    failures: list[str],
+    statuses: dict[str, str],
+    *,
+    verify_production: bool,
+) -> None:
     manifest_path = ARTIFACT_ROOT / MANIFEST_FILE
     data, err = read_json(manifest_path)
     if err:
@@ -555,25 +561,32 @@ def validate_certification_manifest(failures: list[str], statuses: dict[str, str
         if on_status not in {"approved", "kyb_approved", "business_verification_approved"}:
             local_fail("manifest gate: onboarding business_verification_status must be approved")
 
-    # Production tuple verification (fail-closed).
-    prod_ok, prod_msg = verify_manifest_against_production(data)
-    if not prod_ok:
-        local_fail(f"manifest gate: production verification failed ({prod_msg})")
+    # Production tuple verification is a separate, explicitly authorized gate.
+    # The local/static certification audit must never initiate linked production access.
+    if verify_production:
+        prod_ok, prod_msg = verify_manifest_against_production(data)
+        if not prod_ok:
+            local_fail(f"manifest gate: production verification failed ({prod_msg})")
+        else:
+            ok(f"manifest gate: {prod_msg}")
     else:
-        ok(f"manifest gate: {prod_msg}")
+        print(
+            "[INFO] manifest gate: production account-tuple verification was not run; "
+            "it requires separate explicit authorization"
+        )
 
     if local_failures == 0:
         ok("manifest gate: certification manifest and evidence hash validated")
 
 
-def main() -> int:
+def run_certification(*, verify_production: bool = False) -> int:
     failures: list[str] = []
     statuses: dict[str, str] = {}
 
     if not ARTIFACT_ROOT.is_dir():
-        print(f"[SKIP] missing artifact root: {ARTIFACT_ROOT.relative_to(ROOT)}")
-        print("\nrc1_business_certification_gate_audit: SKIP (no local artifacts)")
-        return 0
+        fail(f"missing artifact root: {ARTIFACT_ROOT.relative_to(ROOT)}", failures)
+        print("\nrc1_business_certification_gate_audit: FAIL (missing local evidence)")
+        return 1
 
     validate_surface_artifacts(failures)
     # Re-read statuses from classification files for manifest consistency.
@@ -586,7 +599,11 @@ def main() -> int:
             statuses[slug] = status
     validate_performance_gate(failures)
     validate_onboarding_gate(failures)
-    validate_certification_manifest(failures, statuses)
+    validate_certification_manifest(
+        failures,
+        statuses,
+        verify_production=verify_production,
+    )
 
     if failures:
         print(f"\nrc1_business_certification_gate_audit: FAIL ({len(failures)} checks)")
@@ -596,7 +613,25 @@ def main() -> int:
     print(" - Required evidence artifacts exist for all business surfaces")
     print(" - LIVE classifications are strictly evidence-backed")
     print(" - Performance thresholds and onboarding provenance are satisfied")
+    if verify_production:
+        print(" - Production account tuple was explicitly verified")
+    else:
+        print(" - Production account-tuple verification remains separately required")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--verify-production",
+        action="store_true",
+        help=(
+            "explicitly verify the manifest account tuple against linked production; "
+            "requires separate authorization and production credentials"
+        ),
+    )
+    args = parser.parse_args()
+    return run_certification(verify_production=args.verify_production)
 
 
 if __name__ == "__main__":

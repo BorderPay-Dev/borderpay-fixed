@@ -36,12 +36,31 @@ where active
 on conflict (asset, network) do update
 set whitelist_wallet_id=excluded.whitelist_wallet_id, status='active', updated_at=now();
 
-do $required_revenue_wallets$
+-- Do not require environment-specific wallet rows while provisioning schema.
+-- Real wallet addresses are operational configuration and must never be
+-- replaced with replay-only placeholders.  Deployment/worker readiness calls
+-- this assertion after the environment's genuine whitelist is configured.
+create or replace function public.assert_subscription_revenue_wallets_ready()
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $required_revenue_wallets$
 begin
-  if (select count(*) from public.billing_revenue_wallets where status='active') <> 2 then
+  if not exists (
+    select 1 from public.billing_revenue_wallets
+    where status='active' and asset='USDC' and network='BASE'
+  ) or not exists (
+    select 1 from public.billing_revenue_wallets
+    where status='active' and asset='USDT' and network='TRON'
+  ) then
     raise exception 'Active BorderPay whitelist wallets for USDC/Base and USDT/Tron are required';
   end if;
-end $required_revenue_wallets$;
+end;
+$required_revenue_wallets$;
+
+revoke all on function public.assert_subscription_revenue_wallets_ready() from public;
+grant execute on function public.assert_subscription_revenue_wallets_ready() to service_role;
 
 create table if not exists public.subscriptions (
   id uuid primary key default gen_random_uuid(),
@@ -444,46 +463,76 @@ end $retire_legacy_jobs$;
 
 -- Keep historical functions for auditability, but make every legacy charge
 -- path non-executable. The new service-role RPCs below are the only writers.
-revoke all on function public.run_monthly_billing_cycle(date,text) from public,anon,authenticated,service_role;
-revoke all on function public.enforce_maintenance_grace(integer) from public,anon,authenticated,service_role;
-revoke all on function public.charge_va_maintenance(uuid) from public,anon,authenticated,service_role;
-revoke all on function public.charge_wallet_maintenance(uuid,text) from public,anon,authenticated,service_role;
+do $revoke_legacy_functions$
+declare signature text;
+begin
+  foreach signature in array array[
+    'public.run_monthly_billing_cycle(date,text)',
+    'public.enforce_maintenance_grace(integer)',
+    'public.charge_va_maintenance(uuid)',
+    'public.charge_wallet_maintenance(uuid,text)'
+  ] loop
+    if to_regprocedure(signature) is not null then
+      execute format(
+        'revoke all on function %s from public,anon,authenticated,service_role',
+        signature
+      );
+    end if;
+  end loop;
+end $revoke_legacy_functions$;
+
+-- Resolve environment-specific URL/token at invocation time.  A fresh or
+-- disaster-recovery database has no production hostname or secret embedded in
+-- schema.  Missing configuration fails closed by leaving work queued.
+create or replace function public.invoke_subscription_billing_worker(p_mode text)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $invoke_subscription_worker$
+declare
+  v_url text := coalesce(
+    nullif(current_setting('app.subscription_billing_worker_url', true), ''),
+    nullif(public.app_config_get('subscription_billing_worker_url'), '')
+  );
+  v_token text := coalesce(
+    nullif(current_setting('app.subscription_billing_worker_token', true), ''),
+    nullif(public.app_config_get('worker_auth_token'), '')
+  );
+begin
+  if p_mode not in ('bill_due','grace','emails','events') then
+    raise exception 'Unsupported subscription worker mode: %', p_mode;
+  end if;
+  if v_url is null or v_token is null then
+    return;
+  end if;
+  perform net.http_post(
+    url := v_url,
+    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || v_token),
+    body := jsonb_build_object('mode', p_mode),
+    timeout_milliseconds := 120000
+  );
+end;
+$invoke_subscription_worker$;
+
+revoke all on function public.invoke_subscription_billing_worker(text) from public;
+grant execute on function public.invoke_subscription_billing_worker(text) to service_role;
 
 select cron.schedule(
   'subscription-billing-daily', '10 0 * * *',
-  $job$select net.http_post(
-    url := 'https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/subscription-billing-worker',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || public.app_config_get('worker_auth_token')),
-    body := '{"mode":"bill_due"}'::jsonb,
-    timeout_milliseconds := 120000
-  );$job$
+  $job$select public.invoke_subscription_billing_worker('bill_due');$job$
 );
 select cron.schedule(
   'subscription-grace-daily', '25 0 * * *',
-  $job$select net.http_post(
-    url := 'https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/subscription-billing-worker',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || public.app_config_get('worker_auth_token')),
-    body := '{"mode":"grace"}'::jsonb,
-    timeout_milliseconds := 120000
-  );$job$
+  $job$select public.invoke_subscription_billing_worker('grace');$job$
 );
 select cron.schedule(
   'subscription-delivery-drain', '*/5 * * * *',
-  $job$select net.http_post(
-    url := 'https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/subscription-billing-worker',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || public.app_config_get('worker_auth_token')),
-    body := '{"mode":"emails"}'::jsonb,
-    timeout_milliseconds := 120000
-  );$job$
+  $job$select public.invoke_subscription_billing_worker('emails');$job$
 );
 select cron.schedule(
   'subscription-webhook-drain', '*/5 * * * *',
-  $job$select net.http_post(
-    url := 'https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/subscription-billing-worker',
-    headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer ' || public.app_config_get('worker_auth_token')),
-    body := '{"mode":"events"}'::jsonb,
-    timeout_milliseconds := 120000
-  );$job$
+  $job$select public.invoke_subscription_billing_worker('events');$job$
 );
 
 create or replace function public.apply_subscription_grace_controls()

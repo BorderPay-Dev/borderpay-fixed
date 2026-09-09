@@ -62,16 +62,32 @@ Deno.test("Yellow Card Send rejects an incomplete corridor body", () => {
   if (!threw) throw new Error("missing channel routing must fail closed");
 });
 
+Deno.test("Yellow Card retail Send rejects every missing sender KYC field", () => {
+  for (const field of ["phone", "address", "dob", "idNumber", "idType"] as const) {
+    const input = base();
+    input.sender[field] = "";
+    let threw = false;
+    try {
+      buildYellowCardDirectSettlementSendPayload(input);
+    } catch (error) {
+      const suffix = field === "idNumber" ? "id_number" : field === "idType" ? "id_type" : field;
+      threw = String(error).includes(`yellow_card_missing_sender_${suffix}`);
+    }
+    if (!threw) throw new Error(`missing sender ${field} must fail closed`);
+  }
+});
+
 Deno.test("Yellow Card business Send uses institution identity", () => {
   const payload = buildYellowCardDirectSettlementSendPayload({
     ...base(),
     customerType: "institution",
-    sender: { businessName: "Example Limited", businessId: "REG-123" },
+    sender: { businessName: "Example Limited", businessId: "REG-123", email: "treasury@example.com" },
   }) as Record<string, any>;
   if (payload.customerType !== "institution") throw new Error("business sender classified as retail");
   if (payload.sender.businessName !== "Example Limited" || payload.sender.businessId !== "REG-123") {
     throw new Error("institution identity missing");
   }
+  if (payload.sender.email !== "treasury@example.com") throw new Error("institution sender email missing");
   if ("dob" in payload.sender || "idNumber" in payload.sender) {
     throw new Error("retail identity leaked into institution payload");
   }

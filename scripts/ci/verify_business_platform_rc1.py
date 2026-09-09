@@ -40,6 +40,7 @@ def main() -> int:
     bulk_payout = read("components/business/BulkPayoutScreen.tsx")
     identity = read("supabase/functions/_shared/bridge-identity-invariant.ts")
     worker = read("supabase/functions/process-pending-events/index.ts")
+    send_capability_timeout = read("components/send/sendCapabilityTimeout.ts")
 
     # Route coverage for business flows.
     required_routes = [
@@ -102,18 +103,32 @@ def main() -> int:
         )
 
     # No perpetual-loading guardrails on major business screens.
+    institutions_load_start = send_flow.find("const loadInstitutions = async () =>")
+    institutions_load_end = send_flow.find("// Validate transfer limits", institutions_load_start)
+    institutions_load = send_flow[
+        institutions_load_start : institutions_load_end if institutions_load_end >= 0 else len(send_flow)
+    ] if institutions_load_start >= 0 else ""
+    capability_timeout_call = institutions_load.find("await withSendCapabilityTimeout(")
+    capability_discovery_call = institutions_load.find("loadYellowCardCapability('routing'", capability_timeout_call)
+    capability_finally = institutions_load.find("finally", capability_discovery_call)
+    capability_loading_clear = institutions_load.find("setLoadingInstitutions(false)", capability_finally)
     send_timeout_guard = (
-        ("SNAPSHOT_READY_TIMEOUT_MS" in send_flow and "timedOut" in send_flow)
-        or (
-            ("institutionsLoadInFlightRef" in send_flow or "institutionsLoadRequestIdRef" in send_flow)
-            and "finally" in send_flow
-            and "setLoadingInstitutions(false)" in send_flow
-        )
+        capability_timeout_call >= 0
+        and capability_discovery_call > capability_timeout_call
+        and capability_finally > capability_discovery_call
+        and capability_loading_clear > capability_finally
+        and "SendCapabilityTimeoutError" in send_flow
+        and "setInstitutionsLoadError" in send_flow
+        and "Retry payout rails" in send_flow
+        and "SEND_CAPABILITY_DISCOVERY_TIMEOUT_MS = 15_000" in send_capability_timeout
+        and "Promise.race([operation, timeout])" in send_capability_timeout
+        and "setTimeout(" in send_capability_timeout
+        and "clearTimeout(" in send_capability_timeout
     )
     must(
-        "Send snapshot timeout guard present",
+        "Send capability timeout guard present",
         send_timeout_guard,
-        "Send flow must hard-stop loading waits",
+        "Send capability discovery must use a real bounded timeout with retryable failure UI",
         failures,
     )
     for name, src in [
@@ -139,6 +154,18 @@ def main() -> int:
         ("operator_account_excluded" in identity and "operator_bridge_accounts" in identity)
         or ("operator_bridge_accounts" in worker)
     )
+    provision_start = worker.find("async function ensureStablecoinWalletsProvisioned")
+    provision_end = worker.find("\nasync function ", provision_start + 1) if provision_start >= 0 else -1
+    provision = worker[
+        provision_start : provision_end if provision_end >= 0 else len(worker)
+    ] if provision_start >= 0 else ""
+    capture_pos = provision.find("const { data: operatorRow, error: operatorLookupError }")
+    error_guard_pos = provision.find("if (operatorLookupError)", capture_pos)
+    error_throw_pos = provision.find("operator_bridge_accounts lookup failed", error_guard_pos)
+    operator_guard_pos = provision.find("if (operatorRow?.bridge_customer_id)", error_throw_pos)
+    operator_return_pos = provision.find("return;", operator_guard_pos)
+    profile_pos = provision.find("const profileTable", operator_return_pos)
+    wallet_create_pos = provision.find("bridgeProvider.createWallet(", profile_pos)
     must(
         "Identity invariant excludes operator accounts",
         identity_operator_guard,
@@ -147,8 +174,21 @@ def main() -> int:
     )
     must(
         "Worker skips provisioning for operator accounts",
-        "operator_bridge_accounts" in worker and "Skip auto-provisioning entirely" in worker,
+        operator_guard_pos >= 0
+        and operator_return_pos > operator_guard_pos
+        and profile_pos > operator_return_pos,
         "process-pending-events missing operator provisioning skip",
+        failures,
+    )
+    must(
+        "Worker operator lookup fails closed",
+        capture_pos >= 0
+        and error_guard_pos > capture_pos
+        and error_throw_pos > error_guard_pos
+        and operator_guard_pos > error_throw_pos
+        and profile_pos > operator_guard_pos
+        and wallet_create_pos > profile_pos,
+        "operator registry errors must throw before customer provisioning",
         failures,
     )
 

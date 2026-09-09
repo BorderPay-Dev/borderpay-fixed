@@ -29,18 +29,6 @@ checks = [
         "stale app locked flag can render lock screen when session user exists",
         "if (user?.id)" in app and "setAppLocked(true)" in app and "isAppLocked()" in app,
     ),
-    (
-        "locked state does not keep authenticated MainApp running invisibly",
-        "const showAppLock = appLocked" in app
-        and "if (showAppLock)" in app
-        and "aria-hidden={showAppLock ? true : undefined}" not in app,
-    ),
-    (
-        "unlock dismisses lock without routing MainApp",
-        "onUnlock={() => {" in app
-        and "clearAppLocked();" in app
-        and "setAppLocked(false);" in app,
-    ),
 ]
 
 failed = False

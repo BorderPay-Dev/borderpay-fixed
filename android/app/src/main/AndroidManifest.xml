@@ -58,8 +58,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- BorderPay uses system document/photo pickers. Remove broad media access,
-         including declarations introduced transitively by native plugins. -->
+    <!-- Uploads use Android's system document/photo picker. Explicit removals
+         prevent transitive plugins from reintroducing broad media access. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" tools:node="remove" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" tools:node="remove" />

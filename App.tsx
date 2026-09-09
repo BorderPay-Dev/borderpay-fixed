@@ -23,6 +23,11 @@ import { useInactivityTimer } from './utils/auth/useInactivityTimer';
 import { PINManager } from './utils/security/SecurityManager';
 import { AppLockScreen } from './components/security/AppLockScreen';
 import { isNativeRuntime } from './utils/native/mobileRuntime';
+import { unregisterNativePush } from './utils/notifications/nativePush';
+import { captureReferralAttributionFromLocation } from './utils/affiliate/referralAttribution';
+
+// Capture shared affiliate links before the auth router can replace the route.
+captureReferralAttributionFromLocation();
 
 type AppState =
   | 'splash'
@@ -102,6 +107,10 @@ function trustCurrentDevice() {
 
 function AppContent() {
   const [appState, setAppState] = useState<AppState>('loading');
+  const [requestedPublicSignup, setRequestedPublicSignup] = useState(() => {
+    try { return String(window.location.pathname || '').replace(/\/+$/, '') === '/signup'; }
+    catch { return false; }
+  });
   const [skipSplashOnce] = useState(() => {
     try {
       const path = String(window.location.pathname || '').replace(/\/+$/, '');
@@ -321,6 +330,14 @@ function AppContent() {
       return;
     }
 
+    // Shared affiliate links land on signup, while authenticated users stay
+    // in their existing account instead of being sent through registration.
+    if (requestedPublicSignup) {
+      setRequestedPublicSignup(false);
+      setAppState(isAuthenticated && user ? 'dashboard' : 'signup');
+      return;
+    }
+
     // P0 hotfix: do not override an in-flight out-of-band auth screen.
     //
     // The general invariant is "if the user has actively navigated to one
@@ -481,7 +498,7 @@ function AppContent() {
     };
 
     determineRoute();
-  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingTeamInvite, pendingResetPassword, pendingResetPin, appState]);
+  }, [effectiveAuthLoading, isAuthenticated, user, showSplash, hasSeenOnboarding, pendingVerify, pendingTeamInvite, pendingResetPassword, pendingResetPin, requestedPublicSignup, appState]);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
@@ -604,6 +621,7 @@ function AppContent() {
   const handleLogout = async () => {
     try {
       setIsLoggingOut(true);
+      await unregisterNativePush();
       await signOut();
       await sessionAPI.destroy();
       setNewDeviceDetected(false);
@@ -698,10 +716,13 @@ function AppContent() {
   // P0: startup must always render branded splash while auth/route bootstrap is unresolved.
   // `skipSplashOnce` should only skip the extra animation hop, never force the app
   // into the generic loading fallback.
-  const showSplashScreen =
+  // Android's mandatory system launch frame is intentionally unbranded; React
+  // owns the single visible BorderPay animation on every platform.
+  const showSplashScreen = (
     appState === 'loading' ||
     effectiveAuthLoading ||
-    (!skipSplashOnce && showSplash);
+    (!skipSplashOnce && showSplash)
+  );
   if (showSplashScreen) {
     return (
       <SplashScreen onComplete={handleSplashComplete} />
@@ -814,31 +835,33 @@ function AppContent() {
   if (appState === 'dashboard' && user?.id) {
     const showAppLock = appLocked && PINManager.hasPIN(user.id);
 
-    if (showAppLock) {
-      return (
-        <AppLockScreen
-          userId={user.id}
-          onUnlock={() => {
-            clearAppLocked();
-            setAppLocked(false);
-            setLockChecked(true);
-          }}
-          onLogout={handleLogout}
-          onForgotPIN={handleNavigateToForgotPin}
-        />
-      );
-    }
-
     return (
       <>
-        <MainApp
-          userId={user.id}
-          onLogout={handleLogout}
-          onLock={handleLock}
-          newDeviceDetected={newDeviceDetected}
-          onDismissNewDevice={() => setNewDeviceDetected(false)}
-          onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
-        />
+        <div
+          aria-hidden={showAppLock ? true : undefined}
+          style={showAppLock ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
+        >
+          <MainApp
+            userId={user.id}
+            onLogout={handleLogout}
+            onLock={handleLock}
+            newDeviceDetected={newDeviceDetected}
+            onDismissNewDevice={() => setNewDeviceDetected(false)}
+            onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
+          />
+        </div>
+        {showAppLock && (
+          <AppLockScreen
+            userId={user.id}
+            onUnlock={() => {
+              clearAppLocked();
+              setAppLocked(false);
+              setLockChecked(true);
+            }}
+            onLogout={handleLogout}
+            onForgotPIN={handleNavigateToForgotPin}
+          />
+        )}
         {/* Android PWA Install Banner */}
         {showInstallBanner && (
           <div className="fixed bottom-20 left-4 right-4 z-[200] animate-in slide-in-from-bottom duration-300">
@@ -895,18 +918,6 @@ export default function App() {
           position="top-center"
           theme="dark"
           richColors
-          offset={{
-            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
-            right: 16,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
-            left: 16,
-          }}
-          mobileOffset={{
-            top: 'calc(env(safe-area-inset-top, 0px) + 16px)',
-            right: 16,
-            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 16px)',
-            left: 16,
-          }}
           toastOptions={{
             style: {
               background: '#1A1F26',
@@ -920,6 +931,7 @@ export default function App() {
           }}
           gap={8}
           visibleToasts={3}
+          offset={16}
         />
       </ThemeLanguageProvider>
     </ErrorBoundary>

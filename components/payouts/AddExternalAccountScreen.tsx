@@ -254,7 +254,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         resource: 'bridge_external_account',
         request: { action: 'create', account },
         title: 'Confirm payout account',
-        description: 'Verify this beneficiary change with your account password and authenticator code.',
+        description: 'Verify this beneficiary change with your transaction PIN and authenticator code.',
       });
       await createAuthorized(account, authorizationId);
     } catch (e: any) {

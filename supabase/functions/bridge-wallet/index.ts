@@ -18,6 +18,11 @@ import {
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import {
+  loadBridgeEeaWalletSecurityEnrollment,
+  walletSecurityEnrollmentResponse,
+} from "../_shared/wallet-security-enrollment.ts";
+import { bridgeEeaScaEnforcementEnabled } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -121,6 +126,20 @@ Deno.serve(async (req) => {
       code: "wallet_not_active",
       error: `Existing ${symbol}/${chain} wallet is ${existing.status || "not active"}.`,
     }, 409);
+  }
+
+  if (bridgeEeaScaEnforcementEnabled()) {
+    let enrollment;
+    try {
+      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
+    } catch (error) {
+      console.error("bridge_wallet_security_enrollment_lookup_failed", {
+        user_id: user.id,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
+    }
+    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
   }
 
   try {

@@ -1,8 +1,9 @@
 import {
   BRIDGE_EEA_SCA_COUNTRIES,
+  bridgeEeaScaEnforcementEnabled,
   isBridgeEeaScaCountry,
+  isActiveBridgeCustodialWallet,
   normalizeBridgeScaCountry,
-  resolveLocalBridgeScaScope,
 } from "../supabase/functions/_shared/bridge-sca-scope.ts";
 
 function assertEquals(actual: unknown, expected: unknown, label = "value") {
@@ -30,22 +31,32 @@ Deno.test("EEA SCA scope includes EFTA EEA states and excludes UK and Switzerlan
   }
 });
 
+Deno.test("SCA starts only when a non-terminal Bridge custodial wallet exists", () => {
+  assertEquals(isActiveBridgeCustodialWallet({ wallet_id: "wal_active", status: "active" }), true);
+  assertEquals(isActiveBridgeCustodialWallet({ wallet_id: "wal_legacy" }), true);
+  for (const status of ["closed", "deleted", "disabled", "deactivated", "inactive"]) {
+    assertEquals(isActiveBridgeCustodialWallet({ wallet_id: "wal_terminal", status }), false, status);
+  }
+  assertEquals(isActiveBridgeCustodialWallet({ wallet_id: "", status: "active" }), false);
+});
+
 Deno.test("EEA SCA country normalization is deterministic", () => {
   assertEquals(normalizeBridgeScaCountry(" fra "), "FR");
   assertEquals(normalizeBridgeScaCountry("no"), "NO");
   assertEquals(normalizeBridgeScaCountry(""), null);
 });
 
-Deno.test("verified non-EEA accounts bypass provider-dependent SCA scope", () => {
-  const us = resolveLocalBridgeScaScope("approved", "US");
-  assertEquals(us?.status, "not_required");
-  assertEquals(us?.reason, "non_eea");
-  assertEquals(us?.country, "US");
-
-  const kenya = resolveLocalBridgeScaScope("approved", "KEN");
-  assertEquals(kenya?.status, "not_required");
-  assertEquals(kenya?.reason, "non_eea");
-
-  assertEquals(resolveLocalBridgeScaScope("approved", "FR"), null, "EEA continues to provider confirmation");
-  assertEquals(resolveLocalBridgeScaScope("approved", null), null, "missing country continues to provider confirmation");
+Deno.test("SCA rollout remains disabled unless explicitly enabled", () => {
+  const previous = Deno.env.get("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED");
+  try {
+    Deno.env.delete("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED");
+    assertEquals(bridgeEeaScaEnforcementEnabled(), false, "missing flag");
+    Deno.env.set("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED", "false");
+    assertEquals(bridgeEeaScaEnforcementEnabled(), false, "false flag");
+    Deno.env.set("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED", "true");
+    assertEquals(bridgeEeaScaEnforcementEnabled(), true, "true flag");
+  } finally {
+    if (previous === undefined) Deno.env.delete("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED");
+    else Deno.env.set("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED", previous);
+  }
 });

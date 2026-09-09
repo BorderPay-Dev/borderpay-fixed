@@ -2,6 +2,17 @@
 
 Environment: Yellow Card sandbox. Tester: `adhiamboadhiambo22@gmail.com`.
 
+## Benin provider incident - 10 August 2026
+
+Both signed Benin mobile-money directions passed BorderPay routing and pricing preflight but Yellow Card did not create either transaction.
+
+| Direction | BorderPay sequence | Channel | Network | Yellow Card create response | Sequence reconciliation |
+| --- | --- | --- | --- | --- | --- |
+| Send | `c4806a82-6d9e-4932-b1f5-a3c1c0e92c99` | `1997a129-32f1-4aa7-8f2a-edaf3a0bb0a5` | `0fa8a1ec-0919-4261-877e-0046f98767d8` | HTTP 500 `InternalServerError` | HTTP 404 `PaymentNotFound` |
+| Receive | `d697cb49-5e54-4f6f-afae-ef5b67c212a1` | `13ba87e5-cfce-4380-90cd-76f41d05c419` | `0fa8a1ec-0919-4261-877e-0046f98767d8` | HTTP 500 `InternalServerError` | HTTP 404 `CollectionNotFoundError` |
+
+Yellow Card `/channels` and `/networks` reported both selected channels active and linked to `Mtn Mobile Money BJ`. The unlinked active payout channel `2005a129-32f1-4aa7-8f2a-edaf3a0bb0a5` was not substituted because no returned Benin network advertises it. BorderPay classified both attempts as `failed / not_created`; no provider transaction ID exists and neither attempt appeared in the Yellow Card dashboard.
+
 ## End-to-end transaction evidence
 
 | Flow | Expected result | Yellow Card transaction ID | Sequence ID | Final provider status |

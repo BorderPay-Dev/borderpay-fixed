@@ -139,7 +139,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         resource: 'external_wallet',
         request,
         title: 'Confirm withdrawal wallet',
-        description: 'Verify this beneficiary change with your account password and authenticator code.',
+        description: 'Verify this beneficiary change with your transaction PIN and authenticator code.',
       });
       await saveAuthorized(authorizationId);
     } catch (error) {
@@ -171,7 +171,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         resource: 'external_wallet',
         request: { action: 'remove', id },
         title: 'Confirm withdrawal wallet removal',
-        description: 'Verify this beneficiary change with your account password and authenticator code.',
+        description: 'Verify this beneficiary change with your transaction PIN and authenticator code.',
       });
       await removeAuthorized(id, authorizationId);
     } catch (error) {

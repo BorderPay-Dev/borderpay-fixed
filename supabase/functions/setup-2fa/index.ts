@@ -16,7 +16,7 @@
 //     (the GCM 16-byte tag is appended to the ciphertext by crypto.subtle).
 //   • Persists ONLY the encrypted bytes via the
 //     `set_totp_secret_encrypted_b64` RPC (added in migration
-//     20260520_totp_secret_b64_rpcs.sql). The RPC accepts the cipher as a
+//     20260520000000_totp_secret_b64_rpcs.sql). The RPC accepts the cipher as a
 //     base64 string and decodes to bytea inside Postgres, so the wire
 //     format stays text-clean. The RPC also nulls out the legacy
 //     plaintext column atomically.

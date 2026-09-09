@@ -41,7 +41,10 @@ def main() -> int:
     require("rounded-3xl border border-white/[0.06] bg-gradient-to-br" in dashboard, "Business balance hero must be mobile-native")
     require("md:rounded-2xl md:border" not in dashboard, "Business balance card must not rely on desktop-only styling")
 
-    require("Developer API" in settings and "https://docs.borderpayafrica.com" in settings, "Settings must expose developer docs")
+    require(
+        "Developer API" in settings and "onNavigate('partner-api')" in settings,
+        "Settings must expose the internal Developer API portal",
+    )
     require("Developer API" in shell and "closeDrawerThen(openDeveloperDocs)" in shell, "Drawer must expose developer docs")
 
     require("TX_FETCH_TIMEOUT_MS" not in transactions and "withTimeout(" not in transactions, "Transactions must not use short timeout races")

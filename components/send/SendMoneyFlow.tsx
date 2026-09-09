@@ -31,6 +31,7 @@ import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
+import { BRIDGE_DEVELOPER_FEE_PERCENT } from '../../utils/fees/schedule';
 import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import { convertYellowCardLocalFeeToFunding } from '../../utils/fees/yellowCardMath';
 import { classifyCorridor } from '../../utils/payouts/corridor';
@@ -41,7 +42,6 @@ import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { buildReceiptPdf } from '../../utils/receipts/buildReceiptPdf';
 import { exportReceiptPdf } from '../../utils/receipts/exportReceiptPdf';
-import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 import {
   hasFreshAfricanPolicyRows,
   loadAfricanPolicyRows,
@@ -50,6 +50,7 @@ import {
   type AfricanRailChannel,
 } from '../../utils/africanRailsPolicyCache';
 import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
+import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
 import {
   SendCapabilityTimeoutError,
   withSendCapabilityTimeout,
@@ -301,6 +302,14 @@ function formatMoney(amount: number, currency: string, options?: Intl.NumberForm
 function displayMoneyCurrency(currency: string) {
   const c = String(currency || '').toUpperCase();
   return c === 'USDC' || c === 'USDT' ? 'USD' : c;
+}
+
+function routeDeveloperFeePercent(wallet: ExternalWallet | null | undefined): number {
+  void wallet;
+  // Customer disclosure follows the current BorderPay product policy. Existing
+  // Bridge routes are not mutated here; operations reconciles legacy routes
+  // separately. New routes are created with this same canonical zero rate.
+  return BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route;
 }
 
 function formatDisplayMoney(amount: number, currency: string, options?: Intl.NumberFormatOptions) {
@@ -861,14 +870,16 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!num || num <= 0) return null;
     if (isAfricanPayout) return null;
     if (method === 'stablecoin') {
+      const feePercent = routeDeveloperFeePercent(selectedCryptoExternalWallet);
+      const totalFee = feePercent > 0 ? (num * feePercent) / 100 : 0;
       const free = computePayoutFee({ corridor: 'stablecoin', accountType, amount: num, passThroughCost: 0 });
       return {
         ...free,
-        feePercent: 0,
-        percentFee: 0,
-        totalFee: 0,
-        netAmount: num,
-        breakdown: [{ label: 'Transaction fee', amount: 0 }],
+        feePercent,
+        percentFee: totalFee,
+        totalFee,
+        netAmount: Math.max(0, num - totalFee),
+        breakdown: [{ label: 'Transaction fee', amount: totalFee }],
       };
     }
     const country = SUPPORTED_CURRENCIES.find(c => c.code === selectedCurrency)?.country;
@@ -877,7 +888,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ? 'international'                                    // ACH/SEPA external bank
           : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
-  }, [amount, selectedCurrency, accountType, method, isAfricanPayout]);
+  }, [amount, selectedCurrency, accountType, method, isAfricanPayout, selectedCryptoExternalWallet]);
   useEffect(() => {
     const num = parseFloat(amount);
     if (!isAfricanPayout || !selectedAfricanCountryCode || !selectedAfricanRail || !activeFundingCurrency || !Number.isFinite(num) || num <= 0) {
@@ -1004,12 +1015,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // PIN & result
   const [pin, setPin] = useState('');
-  const [scaPassword, setScaPassword] = useState('');
   const [scaTotp, setScaTotp] = useState('');
+  const [scaFactorStep, setScaFactorStep] = useState<'knowledge' | 'possession'>('knowledge');
   const [bridgeScaScope, setBridgeScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>('loading');
   useEffect(() => {
     if (step !== 'pin') {
       setPin('');
+      setScaTotp('');
+      setScaFactorStep('knowledge');
     }
   }, [step]);
   const [snapshotReady, setSnapshotReady] = useState(true);
@@ -1036,10 +1049,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const hasAnyAuthFactor = hasPinFactor;
 
   useEffect(() => {
-    if (isNativeRuntime()) {
-      setBridgeScaScope('not_required');
-      return;
-    }
     let cancelled = false;
     backendAPI.auth.getScaScope().then((result: any) => {
       if (cancelled) return;
@@ -1265,6 +1274,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         seededLimitsFromCache = true;
       }
     } catch { /* noop */ }
+    if (!seededLimitsFromCache && selectedAfricanCountryCode && (method === 'bank' || method === 'mobile_money')) {
+      const fallback = yellowCardProviderBounds(selectedAfricanCountryCode, selectedCurrency, method, 'payout');
+      if (fallback) {
+        setAfricanProviderChannels([{
+          id: `manual:${selectedAfricanCountryCode}:${selectedCurrency}:${method}:payout`,
+          minimum: fallback.minimum,
+          maximum: fallback.maximum,
+        }]);
+        seededLimitsFromCache = true;
+      }
+    }
     if (!seededFromCache) setInstitutions([]);
     // Throttle duplicate rail fetches on quick step toggles.
     try {
@@ -1654,15 +1674,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
       let scaAuthorizationId = '';
       if (paymentNeedsSca && paymentContext) {
-        if (scaPassword.length < 8 || !/^\d{6}$/.test(scaTotp)) {
-          toast.error('Enter your account password and 6-digit authenticator code.');
+        if (!/^\d{6}$/.test(pin) || !/^\d{6}$/.test(scaTotp)) {
+          toast.error('Enter your 6-digit transaction PIN and authenticator code.');
           return;
         }
         const authorized: any = await backendAPI.auth.authorizeSCA({
           operation: 'payment',
           resource: paymentContext.resource,
           request: paymentContext.request,
-          password: scaPassword,
+          pin,
           totp: scaTotp,
         });
         if (!authorized?.success || !authorized?.data?.authorization_id) {
@@ -1678,7 +1698,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
       }
       setPin('');
-      setScaPassword('');
       setScaTotp('');
       await processTransaction(scaAuthorizationId);
     } finally {
@@ -3149,19 +3168,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </p>
             </div>
 
-            {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') ? (
-              <div className="px-5 mb-6">
-                <label htmlFor="bridge-sca-password" className={`mb-2 block text-xs ${tc.textMuted}`}>Account password</label>
-                <input
-                  id="bridge-sca-password"
-                  type="password"
-                  value={scaPassword}
-                  onChange={(event) => setScaPassword(event.target.value)}
-                  autoComplete="current-password"
-                  className={`w-full rounded-2xl border ${tc.borderLight} bg-black px-4 py-3 ${tc.text}`}
-                />
+            {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') && (
+              <div className={`mb-5 flex items-center justify-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] ${tc.textMuted}`} aria-label={`Strong authentication step ${scaFactorStep === 'knowledge' ? '1' : '2'} of 2`}>
+                <span className={scaFactorStep === 'knowledge' ? 'text-[#C7FF00]' : tc.text}>1. Transaction PIN</span>
+                <span aria-hidden="true">→</span>
+                <span className={scaFactorStep === 'possession' ? 'text-[#C7FF00]' : ''}>2. Authenticator</span>
               </div>
-            ) : (
+            )}
+
+            {(bridgeScaScope !== 'required' || (method !== 'stablecoin' && method !== 'us_ach_wire') || scaFactorStep === 'knowledge') && (
               <div className="flex justify-center mb-8">
                 <InputOTP
                   maxLength={6}
@@ -3183,8 +3198,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </InputOTP>
               </div>
             )}
-            {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') && (
+            {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') && scaFactorStep === 'possession' && (
               <div className="px-5 mb-6">
+                <p className={`mb-4 rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3 text-xs ${tc.textSecondary}`}>
+                  Transaction PIN entered. Complete the independent possession check with your authenticator app.
+                </p>
                 <label htmlFor="bridge-sca-totp" className={`mb-2 block text-xs ${tc.textMuted}`}>Authenticator code</label>
                 <input
                   id="bridge-sca-totp"
@@ -3199,21 +3217,37 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               </div>
             )}
             <div className="px-5 space-y-3">
-              <button
-                type="button"
-                onClick={() => void authorizeAndProcess()}
-                disabled={transactionAuthorizationRef.current || (
-                  bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire')
-                    ? scaPassword.length < 8 || !/^\d{6}$/.test(scaTotp)
-                    : !/^\d{4,6}$/.test(pin)
-                )}
-                className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Verify and send
-              </button>
+              {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') && scaFactorStep === 'knowledge' ? (
+                <button
+                  type="button"
+                  onClick={() => setScaFactorStep('possession')}
+                  disabled={!/^\d{6}$/.test(pin)}
+                  className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Continue to authenticator
+                </button>
+              ) : (
+                <div className={bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') ? 'grid grid-cols-[auto_1fr] gap-2' : ''}>
+                  {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire') && (
+                    <button type="button" onClick={() => { setScaTotp(''); setScaFactorStep('knowledge'); }} disabled={transactionAuthorizationRef.current} className={`rounded-2xl border ${tc.cardBorder} px-4 py-3.5 text-sm font-semibold ${tc.text}`}>Back</button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void authorizeAndProcess()}
+                    disabled={transactionAuthorizationRef.current || (
+                      bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire')
+                        ? !/^\d{6}$/.test(pin) || !/^\d{6}$/.test(scaTotp)
+                        : !/^\d{4,6}$/.test(pin)
+                    )}
+                    className="w-full rounded-2xl bg-[#C7FF00] px-4 py-3.5 text-sm font-bold text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Verify and send
+                  </button>
+                </div>
+              )}
               <p className={`text-center text-xs ${tc.textMuted}`}>
                 {bridgeScaScope === 'required' && (method === 'stablecoin' || method === 'us_ach_wire')
-                  ? 'Verified EEA custodial-wallet payments require account password and authenticator verification.'
+                  ? 'Verified EEA custodial-wallet payments require transaction PIN and authenticator verification.'
                   : 'Money movement requires your server-verified transaction PIN.'}
               </p>
             </div>

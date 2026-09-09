@@ -356,7 +356,7 @@ export const authSecurityAPI = {
     operation: 'wallet_access' | 'payment' | 'beneficiary_change' | 'security_change';
     resource: string;
     request: Record<string, unknown>;
-    password: string;
+    pin: string;
     totp: string;
   }) {
     return apiCall<{ required: boolean; authorization_id: string | null; expires_at?: string }>('sca-authorize', {
@@ -2728,9 +2728,6 @@ export const subscriptionAPI = {
         completed_at: string | null;
         created_at: string;
       }>;
-      payment_invoice?: {
-        payment_link?: string | null;
-      } | null;
     }>('subscription-current', { method: 'POST', body: JSON.stringify({}) }),
 
 };

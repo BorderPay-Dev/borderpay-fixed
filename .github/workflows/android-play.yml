@@ -7,6 +7,10 @@ on:
         description: "Marketing version shown in Google Play"
         required: true
         default: "1.0.2"
+      build_number:
+        description: "Google Play version code. Must be 52 or higher."
+        required: true
+        default: "52"
       upload_to_play:
         description: "Upload the signed AAB to Google Play internal track"
         required: true
@@ -29,7 +33,7 @@ jobs:
     env:
       PACKAGE_NAME: com.borderpayafrica.app
       APP_VERSION: ${{ inputs.app_version }}
-      BUILD_NUMBER: ${{ github.run_number }}
+      BUILD_NUMBER: ${{ inputs.build_number }}
       UPLOAD_TO_PLAY: ${{ inputs.upload_to_play }}
       ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
       ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
@@ -58,8 +62,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ten-gate store release audit
-        run: bash scripts/ci/store-release-ten-gate.sh
+      - name: Validate Android version code
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]
+          if (( BUILD_NUMBER < 52 )); then
+            echo "Android version code must be 52 or higher."
+            exit 1
+          fi
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Verify Bridge EEA SCA compliance contract
+        run: npm run audit:bridge-sca
+
+      - name: Verify native App Check release contract
+        run: python3 tests/audit/native_app_check_release_audit.py
+
+      - name: Verify iOS and Android mobile release source
+        run: python3 tests/audit/mobile_store_source_audit.py
+
+      - name: Verify signup, countries, and fee policy
+        run: |
+          python3 tests/audit/signup_country_audit.py
+          python3 tests/audit/signup_hosted_verification_handoff_audit.py
+          python3 tests/audit/signup_phone_optional_app_review_audit.py
+          python3 tests/audit/borderpay_fee_schedule_audit.py
+
+      - name: Build web app
+        run: npm run build
 
       - name: Install Firebase Android configuration
         shell: bash
@@ -79,6 +112,9 @@ jobs:
 
       - name: Sync Capacitor Android project
         run: npx cap sync android
+
+      - name: Verify packaged store UI
+        run: python3 tests/audit/store_release_bundle_audit.py android
 
       - name: Verify Play Integrity App Check dependency
         shell: bash
@@ -194,6 +230,13 @@ jobs:
           : "${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:?Missing GOOGLE_PLAY_SERVICE_ACCOUNT_JSON GitHub secret}"
           echo "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/google-play-service-account.json"
 
+      - name: Install Google Play listing uploader
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        run: |
+          set -euo pipefail
+          gem install --user-install fastlane --no-document
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
+
       - name: Upload to Google Play internal testing
         if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
         uses: r0adkll/upload-google-play@eb49699984a39f23558439581660aa6f088acfd6 # v1
@@ -204,3 +247,21 @@ jobs:
           mappingFile: android/app/build/outputs/mapping/release/mapping.txt
           track: internal
           status: draft
+
+      - name: Publish Google Play name and icon
+        if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p android/fastlane/metadata/android/en-US/images
+          cp public/icons/icon-512x512.png android/fastlane/metadata/android/en-US/images/icon.png
+          fastlane supply \
+            --json_key "$RUNNER_TEMP/google-play-service-account.json" \
+            --package_name "$PACKAGE_NAME" \
+            --metadata_path android/fastlane/metadata/android \
+            --track internal \
+            --version_code "$BUILD_NUMBER" \
+            --skip_upload_apk true \
+            --skip_upload_aab true \
+            --skip_upload_changelogs true \
+            --skip_upload_screenshots true

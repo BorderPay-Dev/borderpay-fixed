@@ -7,7 +7,6 @@ import {
   resolveYellowCardRouting,
   yellowCardProviderChannelType,
 } from "../_shared/providers/yellowcard-routing.ts";
-import { yellowCardDestinationAmount } from "../_shared/providers/yellowcard-rate.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -223,13 +222,7 @@ Deno.serve(async (req) => {
     if (!res.ok) return json({ success: false, code: res.error || "yellow_card_rate_unavailable", error: "Unable to load the current exchange rate." }, 502);
     const quote = normalizedRate(res.data, currency, direction);
     if (!quote) return json({ success: false, code: "yellow_card_rate_missing", error: "The current exchange rate is unavailable." }, 502);
-    return json({ success: true, data: { quote: {
-      ...quote,
-      source_amount: amount,
-      destination_amount: yellowCardDestinationAmount(amount, quote.rate, direction as "receive" | "payout"),
-      source_currency: direction === "receive" ? currency : "USD",
-      destination_currency: direction === "receive" ? "USD" : currency,
-    } } });
+    return json({ success: true, data: { quote: { ...quote, source_amount: amount, destination_amount: amount * quote.rate } } });
   }
   const paths: Record<string, { path: string; query?: Record<string, string> }> = {
     channels: { path: "/channels", query: country ? { country } : undefined },

@@ -13,6 +13,7 @@ import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguag
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINSetup } from '../security/PINSetup';
 import { backendAPI } from '../../utils/api/backendAPI';
+import { useBridgeScaAction } from '../../utils/security/useBridgeScaAction';
 
 interface ChangePINProps {
   userId: string;
@@ -22,6 +23,7 @@ interface ChangePINProps {
 export function ChangePIN({ userId, onBack }: ChangePINProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const { authorize: authorizeBridgeSca, challenge: scaChallenge } = useBridgeScaAction();
   const [loading, setLoading] = useState(false);
   const [showCurrentPIN, setShowCurrentPIN] = useState(false);
   const [showNewPIN, setShowNewPIN] = useState(false);
@@ -78,8 +80,19 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
 
     try {
       setLoading(true);
-
-      const result = await PINManager.changePIN(userId, formData.currentPIN, formData.newPIN);
+      const authorizationId = await authorizeBridgeSca({
+        operation: 'security_change',
+        resource: 'change_pin',
+        request: { action: 'change_pin' },
+        title: 'Confirm transaction PIN change',
+        description: 'Verify this security change with your transaction PIN and authenticator code.',
+      });
+      const result = await PINManager.changePIN(
+        userId,
+        formData.currentPIN,
+        formData.newPIN,
+        authorizationId,
+      );
 
       if (result.success) {
         toast.success('PIN changed successfully');
@@ -296,6 +309,7 @@ export function ChangePIN({ userId, onBack }: ChangePINProps) {
           </Button>
         </div>
       </form>
+      {scaChallenge}
     </div>
   );
 }

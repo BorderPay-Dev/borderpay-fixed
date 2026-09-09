@@ -13,14 +13,12 @@ checks = {
     "Bridge wallet id is mandatory": 'if (!destinationBridgeWalletId || !destinationRail || !input.destination?.currency)' in provider,
     "provider sends Bridge wallet id": 'bridge_wallet_id: destinationBridgeWalletId' in provider,
     "provider does not send destination address": '{ address: destinationAddress }' not in provider,
-    "USD direct VA fee is 3%": 'USD: "3"' in endpoint,
-    "EUR direct VA fee is 2.98%": 'EUR: "2.98"' in endpoint,
-    "GBP direct VA fee is 2.98%": 'GBP: "2.98"' in endpoint,
-    "currency selects the fee": 'DIRECT_VA_DEVELOPER_FEE_PERCENT[currency as "USD" | "EUR" | "GBP"]' in endpoint,
-    "account type does not select the fee": 'BUSINESS_VA_DEVELOPER_FEE_PERCENT' not in endpoint and 'INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT' not in endpoint,
+    "VA endpoint imports direct BorderPay currency fee resolver": 'import { borderPayDirectVaDeveloperFeePercent } from "../_shared/fees/schedule.ts";' in endpoint,
+    "VA fee resolves from source currency": "borderPayDirectVaDeveloperFeePercent(currency)" in endpoint,
+    "account type does not change direct fee": "BUSINESS_VA_DEVELOPER_FEE_PERCENT" not in endpoint and "INDIVIDUAL_VA_DEVELOPER_FEE_PERCENT" not in endpoint,
     "old USD incident gate removed": 'usdLimitIncident' not in endpoint,
     "old provider incident does not suppress capability": 'providerUnavailableCurrencies' not in endpoint,
-    "source currency remains request currency": 'source:      { currency: input.currency.toLowerCase() }' in provider,
+    "source currency remains request currency": "currency: input.currency.toLowerCase()" in provider,
 }
 
 failed = [name for name, passed in checks.items() if not passed]

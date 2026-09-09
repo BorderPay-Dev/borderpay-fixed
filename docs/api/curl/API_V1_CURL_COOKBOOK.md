@@ -9,6 +9,9 @@ export ADMIN_URL="https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/api-gate
 export API_KEY="<issued_plain_api_key>"
 export ADMIN_JWT="<admin_jwt_or_service_role>"
 export MODE="sandbox"
+export SOURCE_WALLET_ID="<owned_bridge_wallet_id>"
+export DESTINATION_WALLET_ID="<owned_destination_bridge_wallet_id>"
+export EXTERNAL_ACCOUNT_ID="<owned_bridge_external_account_id>"
 ```
 
 ## 1) Gateway health
@@ -71,9 +74,9 @@ curl -s "$GATEWAY_URL" \
     \"customer_id\":\"$CUSTOMER_ID\",
     \"currency\":\"USD\",
     \"destination\":{
-      \"rail\":\"base\",
-      \"currency\":\"usdc\",
-      \"address\":\"0x0000000000000000000000000000000000000001\"
+      \"payment_rail\":\"base\",
+      \"currency\":\"USDC\",
+      \"bridge_wallet_id\":\"$SOURCE_WALLET_ID\"
     }
   }"
 ```
@@ -89,17 +92,15 @@ curl -s "$GATEWAY_URL" \
   -H "Idempotency-Key: idem-transfer-001" \
   -d "{
     \"source\":{
-      \"payment_rail\":\"stablecoin\",
+      \"payment_rail\":\"bridge_wallet\",
       \"currency\":\"USDC\",
-      \"chain\":\"BASE\",
       \"amount\":\"10.00\",
-      \"customer_id\":\"$CUSTOMER_ID\"
+      \"bridge_wallet_id\":\"$SOURCE_WALLET_ID\"
     },
     \"destination\":{
-      \"payment_rail\":\"stablecoin\",
+      \"payment_rail\":\"bridge_wallet\",
       \"currency\":\"USDC\",
-      \"chain\":\"BASE\",
-      \"address\":\"0x0000000000000000000000000000000000000002\"
+      \"bridge_wallet_id\":\"$DESTINATION_WALLET_ID\"
     },
     \"idempotency_key\":\"idem-transfer-001\"
   }"
@@ -116,17 +117,15 @@ curl -s "$GATEWAY_URL" \
   -H "Idempotency-Key: idem-payout-001" \
   -d "{
     \"source\":{
-      \"payment_rail\":\"stablecoin\",
+      \"payment_rail\":\"bridge_wallet\",
       \"currency\":\"USDT\",
-      \"chain\":\"TRON\",
       \"amount\":\"15.00\",
-      \"customer_id\":\"$CUSTOMER_ID\"
+      \"bridge_wallet_id\":\"$SOURCE_WALLET_ID\"
     },
     \"destination\":{
-      \"payment_rail\":\"stablecoin\",
-      \"currency\":\"USDT\",
-      \"chain\":\"TRON\",
-      \"address\":\"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE\"
+      \"payment_rail\":\"ach\",
+      \"currency\":\"USD\",
+      \"external_account_id\":\"$EXTERNAL_ACCOUNT_ID\"
     },
     \"idempotency_key\":\"idem-payout-001\"
   }"
@@ -143,6 +142,14 @@ curl -s "$GATEWAY_URL" \
   -H "Idempotency-Key: idem-webhook-001" \
   -d '{"endpoint_url":"https://example.com/borderpay/webhooks"}'
 ```
+
+The response returns the signing secret once. BorderPay signs the exact raw
+request body using HMAC-SHA256 over `<unix_timestamp>.<raw_body>` and sends
+`X-BorderPay-Delivery-Id`, `X-BorderPay-Event-Id`,
+`X-BorderPay-Timestamp`, and `X-BorderPay-Signature: v1=<hex>`.
+
+Return any `2xx` response within 10 seconds. Timeouts, `408`, `429`, and `5xx`
+are retried with bounded exponential backoff; other `4xx` responses are terminal.
 
 ## 8) Admin: create tenant
 ```bash

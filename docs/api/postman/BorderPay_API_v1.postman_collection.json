@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "bf1e2050-95c4-4cdc-90a7-f20f7757467c",
     "name": "BorderPay API v1",
-    "description": "Partner-ready collection aligned to docs/api/openapi-v1.yaml (v1.0.1).\n\nAuth model:\n- public-api-gateway uses API key bearer token\n- api-gateway-admin uses admin JWT or service-role bearer\n\nSet collection variables before use.",
+    "description": "Partner-ready collection aligned to docs/api/openapi-v1.yaml (v1.0.2).\n\nAuth model:\n- public-api-gateway uses API key bearer token\n- api-gateway-admin uses admin JWT or service-role bearer\n\nSet collection variables before use.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -82,7 +82,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"currency\": \"USD\",\n  \"destination\": {\n    \"rail\": \"base\",\n    \"currency\": \"usdc\",\n    \"address\": \"0x0000000000000000000000000000000000000001\"\n  }\n}"
+          "raw": "{\n  \"customer_id\": \"{{customer_id}}\",\n  \"currency\": \"USD\",\n  \"destination\": {\n    \"payment_rail\": \"base\",\n    \"currency\": \"USDC\",\n    \"bridge_wallet_id\": \"{{wallet_id}}\"\n  }\n}"
         },
         "url": "{{base_url}}"
       }
@@ -100,7 +100,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"source\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDC\",\n    \"chain\": \"BASE\",\n    \"amount\": \"10.00\",\n    \"customer_id\": \"{{customer_id}}\"\n  },\n  \"destination\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDC\",\n    \"chain\": \"BASE\",\n    \"address\": \"0x0000000000000000000000000000000000000002\"\n  },\n  \"idempotency_key\": \"idem-transfer-001\"\n}"
+          "raw": "{\n  \"source\": {\n    \"payment_rail\": \"bridge_wallet\",\n    \"currency\": \"USDC\",\n    \"amount\": \"10.00\",\n    \"bridge_wallet_id\": \"{{wallet_id}}\"\n  },\n  \"destination\": {\n    \"payment_rail\": \"bridge_wallet\",\n    \"currency\": \"USDC\",\n    \"bridge_wallet_id\": \"{{destination_wallet_id}}\"\n  },\n  \"idempotency_key\": \"idem-transfer-001\"\n}"
         },
         "url": "{{base_url}}"
       }
@@ -118,7 +118,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"source\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDT\",\n    \"chain\": \"TRON\",\n    \"amount\": \"15.00\",\n    \"customer_id\": \"{{customer_id}}\"\n  },\n  \"destination\": {\n    \"payment_rail\": \"stablecoin\",\n    \"currency\": \"USDT\",\n    \"chain\": \"TRON\",\n    \"address\": \"TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE\"\n  },\n  \"idempotency_key\": \"idem-payout-001\"\n}"
+          "raw": "{\n  \"source\": {\n    \"payment_rail\": \"bridge_wallet\",\n    \"currency\": \"USDT\",\n    \"amount\": \"15.00\",\n    \"bridge_wallet_id\": \"{{wallet_id}}\"\n  },\n  \"destination\": {\n    \"payment_rail\": \"ach\",\n    \"currency\": \"USD\",\n    \"external_account_id\": \"{{external_account_id}}\"\n  },\n  \"idempotency_key\": \"idem-payout-001\"\n}"
         },
         "url": "{{base_url}}"
       }

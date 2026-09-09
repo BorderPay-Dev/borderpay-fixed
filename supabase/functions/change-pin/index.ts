@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { derivePinHashV2, derivePinHashV2FromStored, hashLegacyPin } from '../_shared/security/pin.ts';
+import { consumeScaAuthorization } from '../_shared/sca.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,7 +40,7 @@ serve(async (req) => {
       );
     }
 
-    const { old_pin, new_pin } = await req.json();
+    const { old_pin, new_pin, sca_authorization_id } = await req.json();
     if (!old_pin || !/^\d{4,6}$/.test(old_pin)) {
       return new Response(
         JSON.stringify({ success: false, error: 'Current PIN must be 4-6 digits' }),
@@ -79,6 +80,20 @@ serve(async (req) => {
     const candidateV2 = storedV2 ? await derivePinHashV2FromStored(old_pin, storedV2) : null;
     const candidateLegacy = storedLegacy ? await hashLegacyPin(old_pin, user.id) : null;
     const newHashV2 = await derivePinHashV2(new_pin);
+    const sca = await consumeScaAuthorization({
+      supabase,
+      authorizationId: sca_authorization_id,
+      userId: user.id,
+      operation: 'security_change',
+      resource: 'change_pin',
+      request: { action: 'change_pin' },
+    });
+    if (!sca.ok) {
+      return new Response(JSON.stringify(sca.body), {
+        status: sca.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     const { data: changeData, error: changeErr } = await supabase.rpc('change_user_pin_atomic', {
       p_user_id: user.id,
       p_candidate_hash_v2: candidateV2,
@@ -118,7 +133,7 @@ serve(async (req) => {
     );
   } catch (err) {
     return new Response(
-      JSON.stringify({ success: false, error: err.message }),
+      JSON.stringify({ success: false, error: (err as Error).message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

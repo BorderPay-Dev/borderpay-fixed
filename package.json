@@ -15,6 +15,7 @@
     "predeploy": "npm run predeploy:gate",
     "live:bridge:validate": "python3 scripts/live_bridge/run_live_bridge_validation.py",
     "type-check": "tsc --noEmit",
+    "audit:bridge-sca": "python3 tests/audit/web_sca_regression_audit.py && python3 tests/audit/universal_sca_audit.py && python3 tests/audit/bridge_sca_activation_gate_audit.py && python3 tests/audit/bridge_sca_recovery_monitoring_audit.py && python3 tests/audit/bridge_sca_retention_audit.py && python3 tests/audit/wallet_security_enrollment_audit.py",
     "ci:financial-schema-contract": "python3 scripts/ci/verify_financial_schema_contract.py",
     "ci:financial-value-propagation": "python3 scripts/ci/verify_financial_value_propagation.py",
     "ci:provider-adapter-boundary": "python3 scripts/ci/verify_provider_adapter_boundaries.py",

@@ -1,5 +1,8 @@
 export type ScaOperation = "wallet_access" | "payment" | "beneficiary_change" | "security_change";
-import { resolveBridgeScaScope } from "./bridge-sca-scope.ts";
+import {
+  bridgeEeaScaEnforcementEnabled,
+  resolveBridgeScaScope,
+} from "./bridge-sca-scope.ts";
 
 type ScaDatabaseClient = {
   from: (table: string) => any;
@@ -53,6 +56,10 @@ export async function consumeScaAuthorization(params: {
   resource: string;
   request: unknown;
 }): Promise<{ ok: true; required: boolean } | { ok: false; status: number; body: Record<string, unknown> }> {
+  // Deploy the approved implementation before Bridge activates the account
+  // without changing any live customer's behavior. Activation is explicit.
+  if (!bridgeEeaScaEnforcementEnabled()) return { ok: true, required: false };
+
   const scope = await resolveBridgeScaScope(params.supabase, params.userId);
   if (scope.status === "not_required") return { ok: true, required: false };
   if (scope.status === "unknown") {
@@ -60,16 +67,6 @@ export async function consumeScaAuthorization(params: {
       ok: false,
       status: 503,
       body: { success: false, code: "sca_scope_unavailable", error: "We could not determine the regulatory authentication requirement. Nothing was changed." },
-    };
-  }
-
-  // Bridge prohibits EEA testing before QA approval. Keep the server rollout
-  // switch off until Bridge approves the submitted implementation package.
-  if (Deno.env.get("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED") !== "true") {
-    return {
-      ok: false,
-      status: 503,
-      body: { success: false, code: "sca_approval_pending", error: "This EEA wallet action is unavailable while strong-authentication approval is pending." },
     };
   }
 

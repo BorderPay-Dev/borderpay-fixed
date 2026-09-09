@@ -1,4 +1,4 @@
-import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, firstName, RenderedEmail } from "../layout.ts";
+import { appDownloadLinksHtml, appDownloadLinksText, htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, firstName, RenderedEmail } from "../layout.ts";
 
 /**
  * Individual KYC decision — terminal approve/reject only (per the webhook-email
@@ -32,12 +32,12 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
     : `If you believe this is a mistake, contact ${BORDERPAY_BRAND.supportEmail}. If additional information is required, our compliance team will send the next secure verification step.`;
 
   const body = approved
-    ? `<p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">${escapeHtml(closing)}</p>`
+    ? `<p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">${escapeHtml(closing)}</p>${appDownloadLinksHtml()}`
     : `${reasonBlock}
        <p style="margin:14px 0 0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">${escapeHtml(closing)}</p>`;
 
   const ctaText = approved ? "Open BorderPay" : "Contact support";
-  const ctaUrl  = approved ? BORDERPAY_BRAND.appUrl
+  const ctaUrl  = approved ? BORDERPAY_BRAND.smartAppUrl
                 : `mailto:${BORDERPAY_BRAND.supportEmail}`;
 
   return {
@@ -49,7 +49,7 @@ export function render(p: IndividualKycDecisionProps): RenderedEmail {
     text: textLayout({
       heading,
       body: approved
-        ? "Identity verified. Open BorderPay to view the services available for your account."
+        ? `Identity verified. Open BorderPay to view the services available for your account.\n\n${appDownloadLinksText()}`
         : `Verification didn't pass.\nReason: ${p.reason || "—"}\n${closing}`,
       ctaText, ctaUrl,
     }),

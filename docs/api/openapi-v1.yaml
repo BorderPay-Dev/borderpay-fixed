@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: BorderPay Public API
-  version: 1.0.1
+  version: 1.0.2
   summary: BorderPay API v1 (gateway-enforced contract)
   description: |
     Public partner API contract aligned to live gateway validators (Step 2D, 2026-07-06).
@@ -11,6 +11,7 @@ info:
     - Strict request validation at gateway boundary.
     - Required idempotency for all mutating endpoints.
     - Stable error code envelope for machine handling.
+    - Tenant-scoped, signed webhook delivery with bounded retries.
 servers:
   - url: https://api.borderpayafrica.com
     description: Production
@@ -146,7 +147,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateTransferRequest'
+              $ref: '#/components/schemas/CreatePayoutRequest'
       responses:
         '201':
           description: Payout created
@@ -338,11 +339,12 @@ components:
           enum: [USD, EUR, GBP]
         destination:
           type: object
-          required: [rail, currency, address]
+          required: [payment_rail, currency, bridge_wallet_id]
+          additionalProperties: false
           properties:
-            rail: { type: string }
-            currency: { type: string }
-            address: { type: string }
+            payment_rail: { type: string, enum: [base, tron] }
+            currency: { type: string, enum: [USDC, USDT] }
+            bridge_wallet_id: { type: string }
 
     CreateVirtualAccountResponse:
       type: object
@@ -361,41 +363,54 @@ components:
             bic: { type: [string, 'null'] }
             bank_name: { type: [string, 'null'] }
 
-    TransferParty:
+    BridgeWalletSource:
       type: object
-      required: [payment_rail, currency]
+      additionalProperties: false
+      required: [payment_rail, currency, amount, bridge_wallet_id]
       properties:
-        payment_rail: { type: string }
-        currency: { type: string }
-        chain: { type: string }
+        payment_rail: { type: string, enum: [bridge_wallet] }
+        currency: { type: string, enum: [USDC, USDT] }
         amount: { type: string }
-        customer_id: { type: string }
-        from_address: { type: string }
-        address: { type: string }
         bridge_wallet_id: { type: string }
+
+    BridgeWalletDestination:
+      type: object
+      additionalProperties: false
+      required: [payment_rail, currency, bridge_wallet_id]
+      properties:
+        payment_rail: { type: string, enum: [bridge_wallet] }
+        currency: { type: string, enum: [USDC, USDT] }
+        bridge_wallet_id: { type: string }
+
+    ExternalAccountDestination:
+      type: object
+      additionalProperties: false
+      required: [payment_rail, currency, external_account_id]
+      properties:
+        payment_rail: { type: string, enum: [ach, wire, sepa, faster_payments] }
+        currency: { type: string, enum: [USD, EUR, GBP] }
         external_account_id: { type: string }
-        deposit_id: { type: string }
-        bank_account:
-          type: object
-          properties:
-            account_number: { type: string }
-            routing_number: { type: string }
-            iban: { type: string }
-            bic: { type: string }
 
     CreateTransferRequest:
       type: object
       required: [source, destination, idempotency_key]
       properties:
         source:
-          $ref: '#/components/schemas/TransferParty'
+          $ref: '#/components/schemas/BridgeWalletSource'
         destination:
-          $ref: '#/components/schemas/TransferParty'
-        developer_fee:
-          type: object
-          properties:
-            percentage: { type: number }
-            flat_amount: { type: string }
+          $ref: '#/components/schemas/BridgeWalletDestination'
+        idempotency_key:
+          type: string
+
+    CreatePayoutRequest:
+      type: object
+      additionalProperties: false
+      required: [source, destination, idempotency_key]
+      properties:
+        source:
+          $ref: '#/components/schemas/BridgeWalletSource'
+        destination:
+          $ref: '#/components/schemas/ExternalAccountDestination'
         idempotency_key:
           type: string
 
@@ -414,11 +429,14 @@ components:
 
     CreateWebhookRequest:
       type: object
+      additionalProperties: false
       required: [endpoint_url]
       properties:
         endpoint_url:
           type: string
           format: uri
+          pattern: '^https://'
+          description: Public HTTPS endpoint. Local, private, credential-bearing, and redirect targets are rejected.
 
     CreateWebhookResponse:
       type: object
@@ -433,5 +451,15 @@ components:
             endpoint_url: { type: string, format: uri }
             signing_secret:
               type: string
-              description: Returned once at creation.
+              description: Returned once at creation. Store securely and verify X-BorderPay-Signature over `<timestamp>.<raw_body>`.
             created_at: { type: string, format: date-time }
+
+    WebhookEvent:
+      type: object
+      additionalProperties: false
+      required: [id, type, occurred_at, data]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, example: transfer.updated }
+        occurred_at: { type: string, format: date-time }
+        data: { type: object }

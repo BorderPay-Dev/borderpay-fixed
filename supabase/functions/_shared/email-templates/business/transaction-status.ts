@@ -1,6 +1,7 @@
 import { htmlLayout, textLayout, escapeHtml, fmtMoney, fmtReceiptMoney, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { renderReceiptTraceHtml, renderReceiptTraceText, type ReceiptTraceProps } from "../receipt-trace.ts";
 
-export interface TransactionStatusProps {
+export interface TransactionStatusProps extends ReceiptTraceProps {
   company_name?: string | null;
   status: "in_review" | "approved" | "canceled" | "refunded" | "refund_in_flight";
   amount: number;
@@ -86,6 +87,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
   const grossAmount = Number(p.gross_amount ?? p.amount);
   const netAmount = Number(p.net_amount ?? p.amount);
   const hasFeeBreakdown =
+    p.status !== "in_review" &&
     Number.isFinite(grossAmount) &&
     Number.isFinite(netAmount) &&
     (transactionFeeAmount > 0 || exchangeFeeAmount > 0 || Math.abs(grossAmount - netAmount) > 0.000001);
@@ -99,7 +101,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
   const sourceAmount = Number(p.source_amount ?? grossAmount);
   const serviceChargeAmount = Number(p.service_charge_amount ?? transactionFeeAmount);
   const availableAmount = Number(p.available_amount ?? netAmount);
-  const hasReceipt = Boolean(destinationCurrency && Number.isFinite(destinationAmount) && destinationAmount > 0);
+  const hasReceipt = Boolean(p.status !== "in_review" && destinationCurrency && Number.isFinite(destinationAmount) && destinationAmount > 0);
   const isMoneyInConversion = hasReceipt && p.receipt_kind === "money_in_conversion";
   const outgoing = hasReceipt ? (isMoneyInConversion ? fmtReceiptMoney(destinationAmount, destinationCurrency) : fmtMoney(destinationAmount, destinationCurrency)) : amount;
   const destinationRail = String(p.destination_rail || "").trim().toLowerCase();
@@ -141,7 +143,8 @@ export function render(p: TransactionStatusProps): RenderedEmail {
       <tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">${isMoneyInConversion ? "Converted amount / added to wallet" : "Outgoing funds"}</td>
           <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:13px;font-weight:700;font-family:'DM Mono',monospace;text-align:right;">${escapeHtml(isMoneyInConversion ? walletAmount : outgoing)}</td></tr>
       ${p.destination_address ? `<tr><td style="padding:8px 0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;">Destination</td>
-          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.destination_address))}</td></tr>` : ""}`
+          <td style="padding:8px 0;color:${BORDERPAY_BRAND.text};font-size:12px;font-family:'DM Mono',monospace;text-align:right;word-break:break-all;">${escapeHtml(String(p.destination_address))}</td></tr>` : ""}
+      ${renderReceiptTraceHtml(p)}`
     : null;
   const amountRows = hasFeeBreakdown
     ? `
@@ -210,7 +213,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
     text: textLayout({
       heading: displayHeading,
       body: hasReceipt
-        ? `${company}\n${displayHeading}\n\n${isRefund ? `Return reason: ${p.refund_return_reason || p.description || "Payment refunded"}\n${refundReturnedAt ? `Returned at: ${refundReturnedAt}\n` : ""}${p.refund_risk_rejection_reason ? `Risk rejection reason: ${p.refund_risk_rejection_reason}\n` : ""}The payment has been refunded to the original destination.\n${p.refund_rail ? `Refund rail: ${p.refund_rail}\n` : ""}${p.refund_beneficiary_name ? `Refund beneficiary name: ${p.refund_beneficiary_name}\n` : ""}${p.refund_reference_id ? `Refund reference ID: ${p.refund_reference_id}\n` : ""}` : (isMoneyInConversion ? receiptSummary : isApprovedReceipt ? "Expected same day" : `What this means: ${receiptSummary}`)}\n\n${p.deposit_id ? `Deposit #${p.deposit_id}\n` : ""}Incoming funds: ${isMoneyInConversion ? fmtReceiptMoney(sourceAmount, sourceCurrency) : fmtMoney(sourceAmount, sourceCurrency)}\n${p.source_rail ? `Payment rail: ${String(p.source_rail).toUpperCase()}\n` : ""}${serviceChargeAmount > 0 ? `${isMoneyInConversion ? "Transaction fee" : "Service charge"}: -${isMoneyInConversion ? fmtReceiptMoney(serviceChargeAmount, sourceCurrency) : fmtMoney(serviceChargeAmount, sourceCurrency)}\nBorderPay\n` : ""}${isMoneyInConversion ? "" : `Available for conversion: ${fmtMoney(availableAmount, sourceCurrency)}\n`}${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `Exchange rate: 1 ${sourceCurrency} = ${p.exchange_rate} ${destinationCurrency}\n` : ""}${isMoneyInConversion ? "Converted amount / added to wallet" : "Outgoing funds"}: ${isMoneyInConversion ? walletAmount : outgoing}\n${p.destination_address ? `Destination: ${p.destination_address}\n` : ""}Status: ${isMoneyInConversion ? "Approved / Completed" : displayHeading}\nReference: ${p.reference}\nWhen: ${occurredAt}`
+        ? `${company}\n${displayHeading}\n\n${isRefund ? `Return reason: ${p.refund_return_reason || p.description || "Payment refunded"}\n${refundReturnedAt ? `Returned at: ${refundReturnedAt}\n` : ""}${p.refund_risk_rejection_reason ? `Risk rejection reason: ${p.refund_risk_rejection_reason}\n` : ""}The payment has been refunded to the original destination.\n${p.refund_rail ? `Refund rail: ${p.refund_rail}\n` : ""}${p.refund_beneficiary_name ? `Refund beneficiary name: ${p.refund_beneficiary_name}\n` : ""}${p.refund_reference_id ? `Refund reference ID: ${p.refund_reference_id}\n` : ""}` : (isMoneyInConversion ? receiptSummary : isApprovedReceipt ? "Expected same day" : `What this means: ${receiptSummary}`)}\n\n${p.deposit_id ? `Deposit #${p.deposit_id}\n` : ""}Incoming funds: ${isMoneyInConversion ? fmtReceiptMoney(sourceAmount, sourceCurrency) : fmtMoney(sourceAmount, sourceCurrency)}\n${p.source_rail ? `Payment rail: ${String(p.source_rail).toUpperCase()}\n` : ""}${serviceChargeAmount > 0 ? `${isMoneyInConversion ? "Transaction fee" : "Service charge"}: -${isMoneyInConversion ? fmtReceiptMoney(serviceChargeAmount, sourceCurrency) : fmtMoney(serviceChargeAmount, sourceCurrency)}\nBorderPay\n` : ""}${isMoneyInConversion ? "" : `Available for conversion: ${fmtMoney(availableAmount, sourceCurrency)}\n`}${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `Exchange rate: 1 ${sourceCurrency} = ${p.exchange_rate} ${destinationCurrency}\n` : ""}${isMoneyInConversion ? "Converted amount / added to wallet" : "Outgoing funds"}: ${isMoneyInConversion ? walletAmount : outgoing}\n${p.destination_address ? `Destination: ${p.destination_address}\n` : ""}${renderReceiptTraceText(p)}Status: ${isMoneyInConversion ? "Approved / Completed" : displayHeading}\nReference: ${p.reference}\nWhen: ${occurredAt}`
         : `${company}\n${c.intro}\n${hasFeeBreakdown ? `Full amount received: ${gross}\n${transactionFeeAmount > 0 ? `Transaction fee: -${transactionFee}\n` : ""}${exchangeFeeAmount > 0 ? `Exchange fee: -${exchangeFee}\n` : ""}Net amount: ${amount}` : `Amount: ${amount}`}\nStatus: ${c.heading}\nReference: ${p.reference}\n${p.description ? "Description: " + p.description + "\n" : ""}When: ${occurredAt}`,
       ctaText: "Open BorderPay",
       ctaUrl,

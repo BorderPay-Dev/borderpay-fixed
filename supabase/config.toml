@@ -53,6 +53,16 @@ verify_jwt = true
 [functions.sca-wallet-access]
 verify_jwt = true
 
+# Internal Bridge EEA SCA monitoring worker. Authentication uses a dedicated
+# worker bearer token and all customer identifiers remain server-side.
+[functions.sca-monitoring]
+verify_jwt = false
+
+# Internal immutable-audit delivery worker. It authenticates a dedicated worker
+# token in code and requires an HTTPS sink with signed receipt verification.
+[functions.certification-audit-delivery]
+verify_jwt = false
+
 # Bridge external accounts — authenticated payout destination endpoint.
 [functions.bridge-external-account]
 verify_jwt = true
@@ -201,6 +211,15 @@ verify_jwt = false
 # Internal custodial subscription billing worker. Authenticates the dedicated
 # worker token (or service-role bearer) in code.
 [functions.subscription-billing-worker]
+verify_jwt = false
+
+# EEA maintenance collection. Internal drains authenticate with the billing
+# worker token; public callbacks authenticate with Flutterwave's verif-hash and
+# are re-verified against Flutterwave before settlement.
+[functions.flutterwave-subscription-collection]
+verify_jwt = false
+
+[functions.subscription-bridge-collection]
 verify_jwt = false
 
 [functions.push-delivery-worker]

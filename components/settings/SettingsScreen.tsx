@@ -25,7 +25,6 @@ import {
   Users,
   KeyRound,
   BookOpen,
-  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { authAPI } from '../../utils/supabase/client';
@@ -299,25 +298,15 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     }
   };
 
-  const openDeveloperDocs = () => {
-    try {
-      window.open('https://docs.borderpayafrica.com', '_blank', 'noopener,noreferrer');
-    } catch {
-      window.location.href = 'https://docs.borderpayafrica.com';
-    }
-  };
-
-
   const handleDisable2FA = async () => {
     const password = prompt(t('settings.enterPasswordFor2fa'));
     if (!password) return;
-
     setSuspending(true);
     try {
       // Server-side disable: TOTPManager.disable now rounds-trips to
       // disable-2fa with the user's password. Local cache is updated only
       // on success so we don't lie about state if the server refuses.
-      const r = await TOTPManager.disable(userId, password);
+      const r = await TOTPManager.disable(userId, password, '');
       if (r.success) {
         toast.success(t('settings.2faDisabled'));
         setHas2FA(false);
@@ -381,12 +370,12 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
                 </p>
                 <button
                   type="button"
-                  onClick={openDeveloperDocs}
+                  onClick={() => onNavigate('partner-api')}
                   className="mt-3 h-10 rounded-xl bg-[#C7FF00] px-4 text-sm font-semibold text-black inline-flex items-center gap-2 hover:brightness-95"
                 >
                   <BookOpen className="w-4 h-4" />
-                  Docs
-                  <ExternalLink className="w-3.5 h-3.5" />
+                  Open portal
+                  <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>

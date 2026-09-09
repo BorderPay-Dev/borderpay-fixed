@@ -22,6 +22,12 @@ import {
   loadVirtualAccountDestinationConfig,
   type VaCurrency,
 } from "../_shared/providers/virtual-account-config.ts";
+import { borderPayDirectVaDeveloperFeePercent } from "../_shared/fees/schedule.ts";
+import {
+  loadBridgeEeaWalletSecurityEnrollment,
+  walletSecurityEnrollmentResponse,
+} from "../_shared/wallet-security-enrollment.ts";
+import { bridgeEeaScaEnforcementEnabled } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -42,19 +48,6 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const ALLOWED_CURRENCIES = new Set(["USD", "EUR", "GBP"]);
 const RAIL_BY_CCY: Record<string, string> = { USD: "ach_push", EUR: "sepa", GBP: "faster_payments" };
 const DEFAULT_ZERO_FEE_EMAILS = new Set(["adhiamboadhiambo22@gmail.com"]);
-const BLOCKED_ACCOUNT_STATUSES = new Set(["frozen", "paused", "suspended", "offboarded", "deactivated", "closed"]);
-// Direct BorderPay VA pricing is currency-based, never account-type based.
-// Keep this beside the provider call so stale database/operator settings cannot
-// silently alter the fee sent to Bridge for a newly-created VA.
-const DIRECT_VA_DEVELOPER_FEE_PERCENT: Record<"USD" | "EUR" | "GBP", string> = {
-  USD: "3",
-  EUR: "2.98",
-  GBP: "2.98",
-};
-
-function isBlockedAccountStatus(value: unknown): boolean {
-  return BLOCKED_ACCOUNT_STATUSES.has(String(value || "").trim().toLowerCase());
-}
 
 function normalizeLocalVaStatus(value: unknown): "active" | "suspended" | "deactivated" | "closed" {
   const status = String(value || "").trim().toLowerCase();
@@ -284,28 +277,6 @@ Deno.serve(async (req) => {
         code: "invalid_auth_token",
       },
     }, 401);
-  }
-
-  // Enforce before capabilities, writes, destination resolution, or Bridge.
-  const { data: accessProfile, error: accessProfileError } = await supa
-    .from("user_profiles")
-    .select("account_status,bridge_account_status")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (accessProfileError) {
-    return json({
-      success: false,
-      code: "account_status_unavailable",
-      error: "Account access status is temporarily unavailable.",
-    }, 503);
-  }
-  if (isBlockedAccountStatus(accessProfile?.account_status) || isBlockedAccountStatus(accessProfile?.bridge_account_status)) {
-    return json({
-      success: false,
-      code: "account_frozen",
-      error: "This account is frozen. Virtual account access is unavailable.",
-      summary: { code: "account_frozen" },
-    }, 423);
   }
 
   let body: { action?: string; currency?: string };
@@ -683,6 +654,21 @@ Deno.serve(async (req) => {
     }));
   }
 
+  if (bridgeEeaScaEnforcementEnabled()) {
+    let enrollment;
+    try {
+      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
+    } catch (error) {
+      console.error("bridge_va_security_enrollment_lookup_failed", {
+        user_id: user.id,
+        currency,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
+    }
+    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
+  }
+
   let destination: Awaited<ReturnType<typeof loadVirtualAccountDestinationConfig>>;
   let developerFeePercent: string;
   let idempotencyKey: string;
@@ -691,7 +677,7 @@ Deno.serve(async (req) => {
       userId: user.id,
       bridgeCustomerId: profile.bridge_customer_id,
     });
-    developerFeePercent = DIRECT_VA_DEVELOPER_FEE_PERCENT[currency as "USD" | "EUR" | "GBP"];
+    developerFeePercent = String(borderPayDirectVaDeveloperFeePercent(currency));
     idempotencyKey = await deterministicIdempotencyKey({
       customerId: profile.bridge_customer_id,
       currency: currency as VaCurrency,

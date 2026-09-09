@@ -144,8 +144,8 @@ create table if not exists public.business_profiles (
 -- ─── 6a. user_security (PIN / TOTP / WebAuthn pivot) ────────────────────────
 -- Authoritative server-side store for security factors. The previous
 -- client-side flow stored hashes/secrets in localStorage; that is gone.
--- See migrations 20260518_user_security_hardening.sql and
--- 20260518_webauthn_credentials.sql for the canonical DDL.
+-- See migrations 20260518030000_user_security_hardening.sql and
+-- 20260518050000_webauthn_credentials.sql for the canonical DDL.
 -- Live PK shape (captured from pg_constraint 2026-05-19): the PK is
 -- on `id` (uuid, gen_random_uuid()) with a UNIQUE on `user_id`. The
 -- previous version of this declaration put the PK on `user_id` — that
@@ -154,7 +154,7 @@ create table if not exists public.business_profiles (
 -- Several columns (backup_codes, failed_pin_attempts,
 -- failed_2fa_attempts, two_factor_locked_until) pre-date the round-3
 -- hardening migration and were applied via dashboard DDL; they are
--- now backed by 20260519_schema_reconcile_bridge_partner_columns.sql.
+-- now backed by 20260519000000_schema_reconcile_bridge_partner_columns.sql.
 create table if not exists public.user_security (
   id                            uuid        primary key default gen_random_uuid(),
   user_id                       uuid        not null unique references auth.users(id) on delete cascade,
@@ -250,7 +250,7 @@ create policy admin_update_profiles     on public.user_profiles for update to au
   using (public.is_borderpay_admin())
   with check (public.is_borderpay_admin());
 
--- business_profiles  (LOCKED DOWN — see migration 20260507_lock_down_business_promotion.sql)
+-- business_profiles  (LOCKED DOWN — see migration 20260507030000_lock_down_business_promotion.sql)
 --
 --   • SELECT/UPDATE for owner
 --   • ALL  for admin (is_borderpay_admin) and service_role
@@ -311,6 +311,6 @@ end $$;
 -- ============================================================================
 -- For the full set of triggers (sync_account_type_to_business,
 -- guard_user_profile_account_type, mirror_user_profile_to_users,
--- is_borderpay_admin), see migrations/20260507_account_type_business_profiles.sql
--- and migrations/20260409_fix_rls_admin_policies.sql.
+-- is_borderpay_admin), see migrations/20260507010000_account_type_business_profiles.sql
+-- and migrations/20260409000000_fix_rls_admin_policies.sql.
 -- ============================================================================

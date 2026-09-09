@@ -3,7 +3,7 @@
 Wallet active-row regression audit.
 
 Production contract:
-- WalletScreen shows only active USD/EUR/GBP virtual accounts and USDC/USDT wallets.
+- WalletScreen shows only active USD/EUR/GBP virtual accounts and USDC/USDT/EURC wallets.
 - WalletScreen must not render missing/unavailable account rows.
 - AddWalletScreen is the only place that shows inactive or unavailable wallet options.
 - Dashboard wallet chips keep centered balances; dashboard VA chips show no balance.
@@ -55,7 +55,7 @@ def block_between(text: str, start: str, end: str, label: str) -> str:
 
 def assert_wallet_screen(src: str) -> None:
     for marker in [
-        "const SUPPORTED_STABLES = new Set(['USDC', 'USDT'])",
+        "const SUPPORTED_STABLES = new Set(['USDC', 'USDT', 'EURC'])",
         "const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP'])",
         "const ACTIVE_WALLET_STATUSES",
         "const ACTIVE_VA_STATUSES",

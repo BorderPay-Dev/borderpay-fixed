@@ -1,67 +1,21 @@
 import { validateBridgePayloadContract } from "./bridge-payload-contract.ts";
-
-export type IngressDecision = "accept" | "reject" | "duplicate" | "retryable_fail";
-export type IngressRoutingTarget = "queue" | "drop" | "log_only";
-export const BRIDGE_INGRESS_DECISION_SOURCE = "bridge_ingress_evaluator_v1" as const;
-export type BridgeRouteBucket =
-  | "bridge.kyc"
-  | "bridge.virtual_account"
-  | "bridge.wallet"
-  | "bridge.external_account"
-  | "bridge.transfer"
-  | "bridge.liquidation_address"
-  | "bridge.customer"
-  | "bridge.unknown";
-
-export interface BridgeIngressEvaluationInput {
-  source: "bridge" | "bridge_test";
-  eventIdRaw: string | null | undefined;
-  eventTypeRaw: string | null | undefined;
-  payload: unknown;
-  signatureOk: boolean;
-  replayWindowOk: boolean;
-  parseOk: boolean;
-  knownDuplicate?: boolean;
-}
-
-export interface BridgeIngressDecision {
-  _decision_source: typeof BRIDGE_INGRESS_DECISION_SOURCE;
-  decision: IngressDecision;
-  reason_code: string;
-  derived_event_type: string;
-  normalized_payload: Record<string, unknown>;
-  idempotency_key: string;
-  routing_target: IngressRoutingTarget;
-  route_bucket: BridgeRouteBucket;
-}
-
-function normalizeEventType(value: string | null | undefined): string {
+export const BRIDGE_INGRESS_DECISION_SOURCE = "bridge_ingress_evaluator_v1";
+function normalizeEventType(value) {
   const v = String(value ?? "").trim().toLowerCase();
   return v || "unknown";
 }
-
-function normalizePayload(payload: unknown): Record<string, unknown> {
+function normalizePayload(payload) {
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-    return payload as Record<string, unknown>;
+    return payload;
   }
   return {};
 }
-
-function deriveEventId(
-  explicitId: string | null | undefined,
-  payload: Record<string, unknown>,
-): string {
-  const fromPayload = String(
-    payload.id
-      ?? payload.event_id
-      ?? (payload.data && typeof payload.data === "object" ? (payload.data as Record<string, unknown>).id : "")
-      ?? "",
-  ).trim();
+function deriveEventId(explicitId, payload) {
+  const fromPayload = String(payload.id ?? payload.event_id ?? (payload.data && typeof payload.data === "object" ? payload.data.id : "") ?? "").trim();
   const raw = String(explicitId ?? fromPayload).trim();
   return raw || "unknown_event";
 }
-
-function routeBucketForEventType(eventType: string): BridgeRouteBucket {
+function routeBucketForEventType(eventType) {
   const t = eventType.toLowerCase();
   if (t.startsWith("kyc_link.") || t.startsWith("kyb_link.") || t.startsWith("customer.kyc") || t.startsWith("customer.kyb")) return "bridge.kyc";
   if (t.startsWith("virtual_account.")) return "bridge.virtual_account";
@@ -72,20 +26,17 @@ function routeBucketForEventType(eventType: string): BridgeRouteBucket {
   if (t.startsWith("customer.")) return "bridge.customer";
   return "bridge.unknown";
 }
-
-export function assertBridgeIngressDecision(decision: BridgeIngressDecision): void {
+export function assertBridgeIngressDecision(decision) {
   if (decision?._decision_source !== BRIDGE_INGRESS_DECISION_SOURCE) {
     throw new Error("bridge_ingress_decision_boundary_violation");
   }
 }
-
-export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput): BridgeIngressDecision {
+export function evaluateBridgeIngressEvent(input) {
   const normalizedPayload = normalizePayload(input.payload);
   const eventType = normalizeEventType(input.eventTypeRaw);
   const eventId = deriveEventId(input.eventIdRaw, normalizedPayload);
   const idempotencyKey = `${input.source}:${eventId}`;
   const routeBucket = routeBucketForEventType(eventType);
-
   if (!input.signatureOk) {
     return {
       _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
@@ -95,7 +46,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "drop",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
   if (!input.replayWindowOk) {
@@ -107,7 +58,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "drop",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
   if (!input.parseOk) {
@@ -119,7 +70,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "drop",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
   if (routeBucket === "bridge.unknown") {
@@ -131,12 +82,13 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "log_only",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
-  const contract = input.source === "bridge"
-    ? validateBridgePayloadContract(routeBucket, eventType, normalizedPayload)
-    : { valid: true, reason_code: "payload_contract_skipped_for_bridge_test" };
+  const contract = input.source === "bridge" ? validateBridgePayloadContract(routeBucket, eventType, normalizedPayload) : {
+    valid: true,
+    reason_code: "payload_contract_skipped_for_bridge_test"
+  };
   if (!contract.valid) {
     return {
       _decision_source: BRIDGE_INGRESS_DECISION_SOURCE,
@@ -146,7 +98,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "drop",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
   if (contract.routing_target === "log_only") {
@@ -158,7 +110,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "log_only",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
   if (input.knownDuplicate) {
@@ -170,7 +122,7 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
       normalized_payload: normalizedPayload,
       idempotency_key: idempotencyKey,
       routing_target: "log_only",
-      route_bucket: routeBucket,
+      route_bucket: routeBucket
     };
   }
   return {
@@ -181,6 +133,6 @@ export function evaluateBridgeIngressEvent(input: BridgeIngressEvaluationInput):
     normalized_payload: normalizedPayload,
     idempotency_key: idempotencyKey,
     routing_target: "queue",
-    route_bucket: routeBucket,
+    route_bucket: routeBucket
   };
 }

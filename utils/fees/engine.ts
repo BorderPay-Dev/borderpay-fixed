@@ -7,14 +7,14 @@
  *
  * Tiers (exact figures):
  *   International (US / EU / LatAm — international fiat payout):
- *     0.35% orchestration + 0.999 fixed trade rate + 1.0% Bridge developer fee,
+ *     0.35% orchestration + 0.999 fixed trade rate + 1.0% BorderPay developer fee,
  *     for BOTH individual and business. Third-party/network costs pass through.
  *   African (EXTERNAL STABLECOIN withdrawal — USDT/USDC over TRON/Polygon/
  *     Solana/Arbitrum/Base):
  *     0.10% Bridge USDT support cost + 0.90% BorderPay markup = 1.00% flat,
  *     both account types.
  *
- * NOTE: the 2.5% virtual-account developer fee is intentionally NOT shown at
+ * NOTE: the 3.0% virtual-account developer fee is intentionally NOT shown at
  * payout. It is applied/mapped at virtual-account creation and never surfaced
  * to the user at withdrawal — a deliberate trust/pricing decision.
  */
@@ -74,7 +74,7 @@ export function computePayoutFee(input: PayoutFeeInput): PayoutFeeResult {
     }
   } else {
     // African → external stablecoin. 0.10% Bridge USDT + 0.90% markup = 1.00%,
-    // disclosed as a single combined line (the 2.5% VA dev fee is NOT shown).
+    // disclosed as a single combined line (the 3.0% VA dev fee is NOT shown).
     feePercent += STABLECOIN_TOTAL_PERCENT;
     breakdown.push({
       label:   'BorderPay Network Fee',

@@ -78,9 +78,9 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
     setBiometricAvailable(Boolean(supported && (serverEnrolled || BiometricManager.isEnrolled(userId))));
   };
 
-  // A persisted app lock may outlive the short-lived access token. Restore the
-  // authenticated session before invoking server-backed PIN/WebAuthn checks;
-  // this never unlocks the UI by itself.
+  // Locking intentionally removes the active access token. Restore a session
+  // behind the still-active lock before calling authenticated PIN/WebAuthn APIs.
+  // This does not unlock or navigate; only a successful factor can do that.
   const restoreLockedSession = async (): Promise<boolean> => {
     const existing = localStorage.getItem('borderpay_token');
     if (existing) {
@@ -89,11 +89,11 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
         const normalized = encodedPayload.replace(/-/g, '+').replace(/_/g, '/');
         const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
         const payload = JSON.parse(atob(padded));
+        // Leave enough time for the authenticated verify-pin request itself.
         if (Number(payload?.exp || 0) * 1000 > Date.now() + 30_000) return true;
-      } catch { /* malformed or stale token: refresh below */ }
+      } catch { /* malformed/stale token: refresh below */ }
       localStorage.removeItem('borderpay_token');
     }
-
     const refreshToken = localStorage.getItem('borderpay_refresh_token');
     if (!refreshToken) return false;
     const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
@@ -232,12 +232,12 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
                 disabled={verifying || locked}
               >
                 <InputOTPGroup>
-                  <InputOTPSlot index={0} />
-                  <InputOTPSlot index={1} />
-                  <InputOTPSlot index={2} />
-                  <InputOTPSlot index={3} />
-                  <InputOTPSlot index={4} />
-                  <InputOTPSlot index={5} />
+                  <InputOTPSlot index={0} mask />
+                  <InputOTPSlot index={1} mask />
+                  <InputOTPSlot index={2} mask />
+                  <InputOTPSlot index={3} mask />
+                  <InputOTPSlot index={4} mask />
+                  <InputOTPSlot index={5} mask />
                 </InputOTPGroup>
               </InputOTP>
             </div>

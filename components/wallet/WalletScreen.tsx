@@ -50,13 +50,17 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
-const SUPPORTED_STABLES = new Set(['USDC', 'USDT']);
+const SUPPORTED_STABLES = new Set(['USDC', 'USDT', 'EURC']);
 const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP']);
 const ACTIVE_WALLET_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 const ACTIVE_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 
 function normalizedStatus(row: any): string {
   return String(row?.status || row?.state || '').trim().toLowerCase();
+}
+
+function stablecoinFiatSymbol(currency: string): string {
+  return String(currency || '').toUpperCase() === 'EURC' ? '€' : '$';
 }
 
 function latestByCurrency<T extends { currency?: string }>(rows: T[]): T[] {
@@ -517,7 +521,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                     </div>
                     <div className="text-right">
                       <div className={`text-[15px] font-bold ${tc.text}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
-                        ${stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {stablecoinFiatSymbol(sym)}{stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                       <div className={`text-[11px] ${tc.textMuted}`} style={{ fontVariantNumeric: 'tabular-nums' }}>
                         {stableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} {sym}

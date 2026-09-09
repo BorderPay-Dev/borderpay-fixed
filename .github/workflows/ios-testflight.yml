@@ -71,8 +71,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run ten-gate store release audit
-        run: bash scripts/ci/store-release-ten-gate.sh
+      - name: Type check
+        run: npm run type-check
+
+      - name: Verify Bridge EEA SCA compliance contract
+        run: npm run audit:bridge-sca
+
+      - name: Verify native App Check release contract
+        run: python3 tests/audit/native_app_check_release_audit.py
+
+      - name: Verify iOS and Android mobile release source
+        run: python3 tests/audit/mobile_store_source_audit.py
+
+      - name: Verify signup, countries, and fee policy
+        run: |
+          python3 tests/audit/signup_country_audit.py
+          python3 tests/audit/signup_hosted_verification_handoff_audit.py
+          python3 tests/audit/signup_phone_optional_app_review_audit.py
+          python3 tests/audit/borderpay_fee_schedule_audit.py
+
+      - name: Build web app
+        run: npm run build
 
       - name: Install Firebase iOS configuration
         shell: bash
@@ -91,6 +110,9 @@ jobs:
 
       - name: Sync Capacitor iOS project
         run: npx cap sync ios
+
+      - name: Verify packaged store UI
+        run: python3 tests/audit/store_release_bundle_audit.py ios
 
       - name: Verify generated iOS launch configuration
         run: |

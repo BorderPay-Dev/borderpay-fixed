@@ -180,6 +180,20 @@ python3 "$ROOT/tests/audit/wallet_active_rows_audit.py" >/dev/null \
 python3 "$ROOT/tests/audit/current_access_model_regression_audit.py" >/dev/null \
   || fail "Current access model regression audit failed."
 
+python3 "$ROOT/tests/audit/web_sca_regression_audit.py" >/dev/null \
+  || fail "Bridge EEA SCA scope regression audit failed."
+python3 "$ROOT/tests/audit/bridge_sca_activation_gate_audit.py" >/dev/null \
+  || fail "Bridge EEA SCA activation gate audit failed."
+python3 "$ROOT/tests/audit/bridge_sca_recovery_monitoring_audit.py" >/dev/null \
+  || fail "Bridge EEA SCA recovery/monitoring audit failed."
+python3 "$ROOT/tests/audit/bridge_sca_retention_audit.py" >/dev/null \
+  || fail "Bridge EEA SCA retention audit failed."
+python3 "$ROOT/tests/audit/wallet_security_enrollment_audit.py" >/dev/null \
+  || fail "Wallet security-enrollment audit failed."
+
+python3 "$ROOT/tests/audit/borderpay_fee_schedule_audit.py" >/dev/null \
+  || fail "BorderPay fee schedule / Bridge payload contract audit failed."
+
 python3 "$ROOT/tests/audit/signup_abuse_protection_audit.py" >/dev/null \
   || fail "Signup abuse protection / RPC availability audit failed."
 
@@ -189,14 +203,15 @@ python3 "$ROOT/tests/audit/bridge_kyc_state_regression_audit.py" >/dev/null \
 python3 "$ROOT/tests/audit/app_store_exchange_navigation_audit.py" >/dev/null \
   || fail "App Store exchange navigation regression audit failed."
 
-python3 "$ROOT/tests/audit/yellowcard_sandbox_outcome_regression_audit.py" >/dev/null \
-  || fail "Yellow Card sandbox outcome audit failed."
+python3 "$ROOT/tests/audit/yellowcard_production_receive_audit.py" >/dev/null \
+  || fail "Yellow Card production Receive audit failed."
 
 python3 "$ROOT/tests/audit/yellowcard_commercial_scope_audit.py" >/dev/null \
   || fail "Yellow Card commercial scope audit failed."
 
-python3 "$ROOT/tests/audit/yellowcard_send_execution_audit.py" >/dev/null \
-  || fail "Yellow Card send execution audit failed."
+python3 "$ROOT/tests/audit/yellowcard_receive_identity_and_webhook_audit.py" >/dev/null \
+  || fail "Yellow Card receive identity/webhook audit failed."
+
 
 # 10) Pricing route/runtime guard:
 #    PricingScreen and /pricing route are retired. Any reintroduction must fail CI.

@@ -16,13 +16,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { verifyRegistrationResponse } from "https://esm.sh/@simplewebauthn/server@10.0.0";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-const json = (b, s = 200) =>
+const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 const RP_ID  = Deno.env.get('WEBAUTHN_RP_ID') || 'app.borderpayafrica.com';
@@ -32,7 +33,7 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST')   return json({ success: false, error: 'POST only' }, 405);
 
-  const supa = createClient(Deno.env.get('SUPABASE_URL'), Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
+  const supa = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
   const token = (req.headers.get('Authorization') || '').replace('Bearer ', '');
   const { data: { user }, error: authError } = await supa.auth.getUser(token);
   if (authError || !user) return json({ success: false, error: 'Unauthorized' }, 401);
@@ -65,7 +66,7 @@ Deno.serve(async (req) => {
       requireUserVerification: true,
     });
   } catch (e) {
-    return json({ success: false, error: `Verification failed: ${e.message}` }, 400);
+    return json({ success: false, error: `Verification failed: ${(e as Error).message}` }, 400);
   }
 
   if (!verification.verified || !verification.registrationInfo) {
@@ -85,6 +86,16 @@ Deno.serve(async (req) => {
   // atob() (standard base64), so the two MUST stay consistent.
   const pubKeyB64  = btoa(String.fromCharCode(...new Uint8Array(credentialPublicKey)));
   const transports = (response.response?.transports as string[] | undefined) || ['internal'];
+
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body?.sca_authorization_id,
+    userId: user.id,
+    operation: 'security_change',
+    resource: 'biometric_change',
+    request: { action: 'enable_biometric' },
+  });
+  if (!sca.ok) return json(sca.body, sca.status);
 
   const { error: insErr } = await supa.from('webauthn_credentials').insert({
     user_id:       user.id,

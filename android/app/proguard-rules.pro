@@ -12,8 +12,8 @@
 #   public *;
 #}
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
+# Preserve source and line metadata so obfuscated production crashes remain
+# actionable with the generated mapping file.
 -keepattributes SourceFile,LineNumberTable
 
 # If you keep the line number information, uncomment this to

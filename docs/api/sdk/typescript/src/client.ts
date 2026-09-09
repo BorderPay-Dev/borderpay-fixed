@@ -6,6 +6,7 @@ import type {
   CreateCustomerRequest,
   CreateCustomerResponseData,
   CreateTransferRequest,
+  CreatePayoutRequest,
   CreateTransferResponseData,
   CreateVirtualAccountRequest,
   CreateVirtualAccountResponseData,
@@ -96,7 +97,7 @@ export class BorderPayClient {
     });
   }
 
-  async createPayout(input: CreateTransferRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateTransferResponseData>> {
+  async createPayout(input: CreatePayoutRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateTransferResponseData>> {
     return this.call<CreateTransferResponseData>({
       method: "POST",
       route: "/v1/payouts",

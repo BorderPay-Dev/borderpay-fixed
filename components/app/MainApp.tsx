@@ -64,7 +64,6 @@ import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 import { canDiscoverAfricanRails } from '../../utils/africanRailsAccess';
 import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
 import { initializeNativePush } from '../../utils/notifications/nativePush';
-import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 import { SCAChallengeDialog } from '../security/SCAChallengeDialog';
 import { friendlyError } from '../../utils/errors/friendlyError';
 
@@ -212,26 +211,6 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
     default:
       return 'dashboard';
   }
-}
-
-const lastScreenStorageKey = (userId: string) =>
-  `borderpay_last_screen_v1:${String(userId || '').trim()}`;
-
-function readLastScreen(userId: string): AppScreen {
-  if (!userId) return 'dashboard';
-  try {
-    const stored = sessionStorage.getItem(lastScreenStorageKey(userId));
-    return stored ? canonicalizeScreen(stored) : 'dashboard';
-  } catch {
-    return 'dashboard';
-  }
-}
-
-function writeLastScreen(userId: string, screen: AppScreen): void {
-  if (!userId) return;
-  try {
-    sessionStorage.setItem(lastScreenStorageKey(userId), canonicalizeScreen(screen));
-  } catch { /* session storage can be unavailable in hardened browsers */ }
 }
 
 function getBusinessDisplayName(profile: any): string {
@@ -415,15 +394,6 @@ const BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS: ReadonlySet<AppScreen> = new Set([
   'dashboard', 'home', 'wallet-detail', 'transactions',
 ]);
 
-// Maintenance restrictions apply only after the server records the end of the
-// seven-day grace period. Authentication, profile, support, and invoice access
-// remain available so a customer can recover without operator intervention.
-const SUBSCRIPTION_RESTRICTED_SCREENS: ReadonlySet<AppScreen> = new Set([
-  'send-money', 'receive-money', 'ramps', 'wallet-detail', 'add-wallet',
-  'external-wallets', 'external-accounts', 'add-external-account',
-  'bulk-payout', 'payroll',
-]);
-
 const SHELL_TO_SCREEN: Record<AppRoute, AppScreen> = {
   dashboard:     'dashboard',
   send:          'send-money',
@@ -466,10 +436,6 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
-  // Bridge has not approved the native SCA implementation yet. Keep the
-  // account-access challenge web-only so App Store/Play builds cannot strand
-  // customers behind an unavailable regulatory flow.
-  const bridgeScaUiEnabled = !isNativeRuntime();
   const africanRailsProfile = authAPI.getStoredUser() as any;
   const africanRailsDiscoveryAllowed = canDiscoverAfricanRails({
     id: userId || africanRailsProfile?.id,
@@ -481,8 +447,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       const postCallback = sessionStorage.getItem('borderpay_post_callback_screen');
       if (postCallback === 'kyc') return 'kyc';
     } catch { /* noop */ }
-    return readLastScreen(userId);
-  }, [userId]);
+    return 'dashboard';
+  }, []);
   const [currentScreen, setCurrentScreen] = useState<AppScreen>(initialScreenFromCallback);
   const [navigationStack, setNavigationStack] = useState<AppScreen[]>(
     initialScreenFromCallback === 'dashboard'
@@ -490,15 +456,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
-  const [subscriptionAccess, setSubscriptionAccess] = useState<{
-    restricted: boolean;
-    amount: number | null;
-    paymentLink: string | null;
-  }>({ restricted: false, amount: null, paymentLink: null });
-  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>(
-    bridgeScaUiEnabled ? 'loading' : 'not_required',
-  );
+  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>('loading');
   const [scaCountry, setScaCountry] = useState<string | null>(null);
+  const [scaMissingSecurityFactors, setScaMissingSecurityFactors] = useState<string[]>([]);
+  const [scaEnrollmentReturnScreen, setScaEnrollmentReturnScreen] = useState<AppScreen | null>(null);
   const [walletAccessUntil, setWalletAccessUntil] = useState(0);
   const [scaDialogOpen, setScaDialogOpen] = useState(false);
   const tc = useThemeClasses();
@@ -518,11 +479,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
 
   const refreshScaScope = useCallback(async () => {
-    if (!bridgeScaUiEnabled) {
-      setScaScope('not_required');
-      setScaCountry(null);
-      return;
-    }
     setScaScope('loading');
     try {
       const response: any = await backendAPI.auth.getScaScope();
@@ -531,30 +487,18 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return;
       }
       setScaCountry(response.data.country || null);
+      setScaMissingSecurityFactors(
+        response.data.security_enrollment_required === true && Array.isArray(response.data.missing_security_factors)
+          ? response.data.missing_security_factors
+          : [],
+      );
       setScaScope(response.data.required === true ? 'required' : 'not_required');
     } catch {
       setScaScope('unknown');
     }
-  }, [bridgeScaUiEnabled]);
+  }, []);
 
   useEffect(() => { void refreshScaScope(); }, [refreshScaScope]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void backendAPI.subscription.current().then((response: any) => {
-      if (cancelled || !response?.success) return;
-      const subscription = response?.data?.subscription;
-      setSubscriptionAccess({
-        restricted: Boolean(subscription?.restricted_at),
-        amount: Number.isFinite(Number(subscription?.monthly_fee)) ? Number(subscription.monthly_fee) : null,
-        paymentLink: String(response?.data?.payment_invoice?.payment_link || '').trim() || null,
-      });
-    }).catch(() => {
-      // Fail open on read outages. A network incident must not lock customers;
-      // only an explicit, persisted server restriction may hide services.
-    });
-    return () => { cancelled = true; };
-  }, [refreshKey]);
 
   const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
     try {
@@ -826,10 +770,6 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
   }, [currentScreen]);
 
   useEffect(() => {
-    writeLastScreen(userId, currentScreen);
-  }, [currentScreen, userId]);
-
-  useEffect(() => {
     const handler = (e: Event) => {
       const ce = e as CustomEvent<{ open?: boolean; title?: string; returnEnabled?: boolean }>;
       const open = Boolean(ce?.detail?.open);
@@ -1091,29 +1031,31 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
 
   const renderScreen = () => {
     const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
-    if (subscriptionAccess.restricted && SUBSCRIPTION_RESTRICTED_SCREENS.has(currentScreen)) {
+    const protectedAccountAccess = BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
+    const accessGranted = walletAccessUntil > Date.now();
+    if (protectedAccountAccess && scaMissingSecurityFactors.length > 0) {
+      const needsPin = scaMissingSecurityFactors.includes('transaction_pin');
       return (
-        <div className="mx-auto mt-10 max-w-md rounded-3xl border border-amber-400/20 bg-white/[0.03] p-6 text-white">
-          <h2 className="font-bold">Account maintenance payment required</h2>
+        <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white">
+          <h2 className="font-bold">Secure your financial account</h2>
           <p className="mt-2 text-sm text-gray-400">
-            Sending, receiving, and wallet services are unavailable until your overdue
-            {subscriptionAccess.amount !== null ? ` $${subscriptionAccess.amount.toFixed(2)}` : ''} maintenance invoice is paid and verified.
+            {needsPin
+              ? 'Set your transaction PIN first. You will enable your authenticator next.'
+              : 'Enable your authenticator to finish securing sensitive account access.'}
           </p>
-          {subscriptionAccess.paymentLink && (
-            <a
-              href={subscriptionAccess.paymentLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-5 inline-flex rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black"
-            >
-              Pay invoice
-            </a>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              setScaEnrollmentReturnScreen(currentScreen);
+              navigateTo(needsPin ? 'pin-setup' : 'two-factor-setup');
+            }}
+            className="mt-5 rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black"
+          >
+            {needsPin ? 'Set transaction PIN' : 'Enable authenticator'}
+          </button>
         </div>
       );
     }
-    const protectedAccountAccess = bridgeScaUiEnabled && BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
-    const accessGranted = walletAccessUntil > Date.now();
     if (protectedAccountAccess && scaScope !== 'not_required' && !accessGranted) {
       if (scaScope === 'loading') {
         return <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-sm text-gray-400">Checking account-access requirements…</div>;
@@ -1130,7 +1072,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       return (
         <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white">
           <h2 className="font-bold">Unlock financial information</h2>
-          <p className="mt-2 text-sm text-gray-400">Verified EEA custodial-wallet accounts{scaCountry ? ` in ${scaCountry}` : ''} must complete account-password and authenticator verification before balances, wallet details, or transaction history are shown.</p>
+          <p className="mt-2 text-sm text-gray-400">For verified EEA custodial-wallet accounts{scaCountry ? ` in ${scaCountry}` : ''}, Bridge requires transaction-PIN and authenticator verification before balances, wallet details, or transaction history are shown.</p>
           <button type="button" onClick={() => setScaDialogOpen(true)} className="mt-5 rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black">Verify access</button>
         </div>
       );
@@ -1212,7 +1154,19 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <TwoFactorSetup
             userId={userId}
             onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
+            onComplete={() => {
+              if (scaEnrollmentReturnScreen) {
+                const target = scaEnrollmentReturnScreen;
+                setScaEnrollmentReturnScreen(null);
+                setCurrentScreen(target);
+                setNavigationStack(target === 'dashboard' ? ['dashboard'] : ['dashboard', target]);
+                scrollToTop();
+              } else {
+                navigateBack();
+              }
+              handleRefresh();
+              void refreshScaScope();
+            }}
           />
         );
 
@@ -1221,7 +1175,23 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <PINSetup
             userId={userId}
             onBack={navigateBack}
-            onComplete={() => { navigateBack(); handleRefresh(); }}
+            onComplete={() => {
+              if (scaEnrollmentReturnScreen && scaMissingSecurityFactors.includes('authenticator')) {
+                setCurrentScreen('two-factor-setup');
+                setNavigationStack((previous) => [...previous.slice(0, -1), 'two-factor-setup']);
+                scrollToTop();
+              } else if (scaEnrollmentReturnScreen) {
+                const target = scaEnrollmentReturnScreen;
+                setScaEnrollmentReturnScreen(null);
+                setCurrentScreen(target);
+                setNavigationStack(target === 'dashboard' ? ['dashboard'] : ['dashboard', target]);
+                scrollToTop();
+              } else {
+                navigateBack();
+              }
+              handleRefresh();
+              void refreshScaScope();
+            }}
           />
         );
 
@@ -1262,6 +1232,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           <AddWalletScreen
             userId={userId}
             onBack={navigateBack}
+            onNavigate={navigateTo}
           />
         );
 
@@ -1392,9 +1363,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       </div>
 
       <SCAChallengeDialog
-        open={bridgeScaUiEnabled && scaDialogOpen}
+        open={scaDialogOpen}
         title="Unlock financial information"
-        description="Confirm with your account password and authenticator code. Access lasts five minutes."
+        description="Confirm with your transaction PIN and authenticator code. Access lasts five minutes."
         operation="wallet_access"
         resource="financial_account_access"
         request={{ purpose: 'financial_account_access' }}

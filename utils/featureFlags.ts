@@ -68,7 +68,7 @@ export const BRIDGE_ONBOARDING_LIVE: boolean = true;
  *
  * Default OFF. Flip to true only after ALL of these are done in the
  * SAME release:
- *   1. Migration `20260529_bridge_external_accounts.sql` applied
+ *   1. Migration `20260529010000_bridge_external_accounts.sql` applied
  *      (creates public.bridge_external_accounts + RLS).
  *   2. `bridge-external-account` edge function deployed (verify_jwt=true).
  *   3. `BRIDGE_API_KEY` function secret confirmed present.

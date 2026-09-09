@@ -27,7 +27,7 @@ const faqItems = [
   },
   {
     question: 'What is the account maintenance fee?',
-    answer: 'Verified Individual accounts cost $5 per month and verified Business accounts cost $15 per month. Billing starts from the next billing cycle and is deducted from your BorderPay wallet in USDC first, then USDT if needed.',
+    answer: 'Verified Individual accounts remain $5 per month. Verified Business accounts are $29.99 per month for billing periods from September 1, 2026; August 2026 remains $15. Billing starts from the applicable next billing cycle and is deducted from your BorderPay wallet in USDC first, then USDT if needed.',
   },
   {
     question: 'How do I get a virtual card?',

@@ -15,11 +15,11 @@ export interface BridgeFetchOptions {
   path:         string;                     // e.g. "/v0/customers"
   query?:       Record<string, string | number | boolean | undefined>;
   body?:        unknown;
-  idempotencyKey?: string;                  // required for POST per Bridge docs
+  idempotencyKey?: string | null;           // null explicitly disables it for endpoints that reject the header
   retryable?:   boolean;
 }
 
-export interface BridgeResponse<T = unknown> {
+export interface BridgeResponse<T = any> {
   ok:        boolean;
   status:    number;
   data:      T | null;
@@ -42,7 +42,7 @@ function buildUrl(path: string, query?: Record<string, string | number | boolean
   return url.toString();
 }
 
-export async function bridgeFetch<T = unknown>(opts: BridgeFetchOptions): Promise<BridgeResponse<T>> {
+export async function bridgeFetch<T = any>(opts: BridgeFetchOptions): Promise<BridgeResponse<T>> {
   if (!BRIDGE_API_KEY) {
     return { ok: false, status: 0, data: null, raw_text: "", error: "BRIDGE_API_KEY missing" };
   }
@@ -56,7 +56,7 @@ export async function bridgeFetch<T = unknown>(opts: BridgeFetchOptions): Promis
 
   // Bridge requires Idempotency-Key on POST/PUT. If caller didn't pass one,
   // mint a deterministic-ish one from path + body.
-  if ((opts.method === "POST" || opts.method === "PUT") && !opts.idempotencyKey) {
+  if ((opts.method === "POST" || opts.method === "PUT") && opts.idempotencyKey === undefined) {
     opts.idempotencyKey = crypto.randomUUID();
   }
   if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;

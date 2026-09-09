@@ -77,6 +77,12 @@
       .react-loaded #initial-splash {
         display: none;
       }
+
+      /* Native Android already owns the OS launch screen. Do not render the
+         PWA bootstrap splash after it. Browser/PWA and iOS are unchanged. */
+      .native-app #initial-splash {
+        display: none;
+      }
       
       /* Pulsing logo animation */
       @keyframes pulse-logo {
@@ -137,6 +143,16 @@
 
     <script>
       (function () {
+        try {
+          var cap = window.Capacitor;
+          var nativePlatform = cap && typeof cap.getPlatform === 'function' ? cap.getPlatform() : '';
+          var nativeApp = nativePlatform === 'android' || nativePlatform === 'ios';
+          if (!nativeApp && location.hostname === 'localhost') {
+            nativeApp = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+          }
+          if (nativeApp) document.documentElement.classList.add('native-app');
+        } catch (_) {}
+
         var BOOT_KEY = 'borderpay_boot_recovery_once_v1';
         window.__BORDERPAY_BOOT_OK__ = false;
 

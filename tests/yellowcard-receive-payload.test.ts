@@ -1,7 +1,6 @@
 import {
   buildYellowCardDirectSettlementReceivePayload,
   redactYellowCardReceivePayload,
-  yellowCardReducedKycEligible,
 } from "../supabase/functions/_shared/providers/yellowcard-payload.ts";
 
 function assertEqual(actual: unknown, expected: unknown) {
@@ -23,6 +22,32 @@ function assertThrows(fn: () => unknown, expected: RegExp) {
   }
   throw new Error("Expected function to throw");
 }
+
+const baseReceive = () => ({
+  sequenceId: "11111111-1111-4111-8111-111111111111",
+  channelType: "momo" as const,
+  localAmount: 1_000,
+  country: "CM",
+  currency: "XAF",
+  reason: "other",
+  customerUID: "verified-customer-id",
+  recipient: {
+    name: "Verified Customer",
+    country: "CM",
+    email: "verified@example.com",
+    phone: "+237600000000",
+    address: "Verified address",
+    dob: "01/02/1990",
+    idNumber: "ID-123",
+    idType: "national_id",
+  },
+  source: { accountType: "momo" as const, accountNumber: "+237600000000", networkId: "network-id" },
+  settlementInfo: {
+    cryptoCurrency: "USDC" as const,
+    cryptoNetwork: "BASE" as const,
+    walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe",
+  },
+});
 
 for (const settlement of [
   { cryptoCurrency: "USDC" as const, cryptoNetwork: "BASE" as const, walletAddress: "0x1111111111111111111111111111111111111111" },
@@ -90,58 +115,32 @@ Deno.test("Yellow Card production receive fails closed without full KYC", () => 
   }), /yellow_card_missing_recipient_id_number/);
 });
 
-Deno.test("Yellow Card reduced KYC sends only the documented Tier 0 identity fields", () => {
-  const payload = buildYellowCardDirectSettlementReceivePayload({
-    sequenceId: "11111111-1111-4111-8111-111111111111",
-    channelType: "momo",
-    localAmount: 1_000,
-    country: "KE",
-    currency: "KES",
-    reason: "other",
-    customerUID: "verified-customer-id",
-    kycTier: "reduced",
-    recipient: {
-      name: "Verified Customer",
-      country: "KE",
-      email: "verified@example.com",
-      phone: "",
-      address: "",
-      dob: "",
-      idNumber: "",
-      idType: "",
-    },
-    source: { accountType: "momo", accountNumber: "+2541111111111", networkId: "network-id" },
-    settlementInfo: {
-      cryptoCurrency: "USDC",
-      cryptoNetwork: "BASE",
-      walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe",
-    },
-  }) as any;
-  const recipient = payload.recipient as Record<string, unknown>;
-  assertEqual(recipient.name, "Verified Customer");
-  assertEqual(recipient.country, "KE");
-  assertEqual(recipient.email, "verified@example.com");
-  for (const forbidden of ["phone", "address", "dob", "idNumber", "idType"]) {
-    if (forbidden in recipient) throw new Error(`reduced KYC leaked ${forbidden}`);
+Deno.test("Yellow Card receive rejects every missing full-KYC field at every amount", () => {
+  for (const field of ["phone", "address", "dob", "idNumber", "idType"] as const) {
+    const input = baseReceive();
+    input.localAmount = 1;
+    input.recipient[field] = "";
+    assertThrows(
+      () => buildYellowCardDirectSettlementReceivePayload(input),
+      new RegExp(`yellow_card_missing_recipient_${field === "idNumber" ? "id_number" : field === "idType" ? "id_type" : field}`),
+    );
   }
 });
 
-Deno.test("Yellow Card reduced KYC eligibility is fail closed at every documented boundary", () => {
-  const base = {
-    direction: "receive" as const,
-    currency: "KES",
-    usdEquivalent: 19.99,
-    missingFullKyc: true,
-    coreComplete: true,
-  };
-  if (!yellowCardReducedKycEligible(base)) throw new Error("eligible Tier 0 receive was rejected");
-  for (const currency of ["BWP", "NGN", "ZAR"]) {
-    if (yellowCardReducedKycEligible({ ...base, currency })) throw new Error(`${currency} must require full KYC`);
+Deno.test("Yellow Card business Receive uses institution identity", () => {
+  const input = baseReceive();
+  const payload = buildYellowCardDirectSettlementReceivePayload({
+    ...input,
+    customerType: "institution",
+    recipient: { businessName: "Example Limited", businessId: "REG-123", email: "treasury@example.com" },
+  }) as Record<string, any>;
+  assertEqual(payload.customerType, "institution");
+  assertEqual(payload.recipient.businessName, "Example Limited");
+  assertEqual(payload.recipient.businessId, "REG-123");
+  assertEqual(payload.recipient.email, "treasury@example.com");
+  if ("dob" in payload.recipient || "idNumber" in payload.recipient) {
+    throw new Error("retail identity leaked into institution receive payload");
   }
-  if (yellowCardReducedKycEligible({ ...base, usdEquivalent: 20 })) throw new Error("USD 20 boundary must require full KYC");
-  if (yellowCardReducedKycEligible({ ...base, usdEquivalent: null })) throw new Error("missing rate must require full KYC");
-  if (yellowCardReducedKycEligible({ ...base, direction: "payout" })) throw new Error("payout must retain full KYC");
-  if (yellowCardReducedKycEligible({ ...base, coreComplete: false })) throw new Error("incomplete core identity must fail closed");
 });
 
 Deno.test("Yellow Card receive supports provider channelType auto-routing", () => {
@@ -163,7 +162,7 @@ Deno.test("Yellow Card receive supports provider channelType auto-routing", () =
       idNumber: "ID-123",
       idType: "license",
     },
-    source: { accountType: "bank", accountNumber: "1111111111" },
+    source: { accountType: "bank" },
     settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0x1111111111111111111111111111111111111111" },
   });
   assertEqual(payload.channelType, "bank");
@@ -190,44 +189,6 @@ Deno.test("Yellow Card receive includes a redirect URL for redirect-based channe
     redirectUrl: "https://app.borderpayafrica.com/?screen=receive",
   });
   assertEqual(payload.redirectUrl, "https://app.borderpayafrica.com/?screen=receive");
-});
-
-Deno.test("Yellow Card mobile-money receive requires the payer account number", () => {
-  assertThrows(() => buildYellowCardDirectSettlementReceivePayload({
-    sequenceId: "33333333-3333-4333-8333-333333333333",
-    channelType: "momo",
-    localAmount: 1_000,
-    country: "ZM",
-    currency: "ZMW",
-    reason: "other",
-    customerUID: "verified-zambia-user",
-    recipient: {
-      name: "Verified Zambia User", country: "ZM", phone: "+260971111111",
-      address: "Lusaka", dob: "01/01/1990", email: "verified@example.com",
-      idNumber: "ZMB-123", idType: "national_id",
-    },
-    source: { accountType: "momo", networkId: "zambia-mobile-network" },
-    settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe" },
-  }), /yellow_card_missing_source_account_number/);
-});
-
-Deno.test("Yellow Card bank receive requires the payer account number", () => {
-  assertThrows(() => buildYellowCardDirectSettlementReceivePayload({
-    sequenceId: "44444444-4444-4444-8444-444444444444",
-    channelType: "bank",
-    localAmount: 1_000,
-    country: "ZM",
-    currency: "ZMW",
-    reason: "other",
-    customerUID: "verified-zambia-user",
-    recipient: {
-      name: "Verified Zambia User", country: "ZM", phone: "+260971111111",
-      address: "Lusaka", dob: "01/01/1990", email: "verified@example.com",
-      idNumber: "ZMB-123", idType: "national_id",
-    },
-    source: { accountType: "bank" },
-    settlementInfo: { cryptoCurrency: "USDC", cryptoNetwork: "BASE", walletAddress: "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe" },
-  }), /yellow_card_missing_source_account_number/);
 });
 
 Deno.test("Yellow Card receive rejects KYC from another country", () => {

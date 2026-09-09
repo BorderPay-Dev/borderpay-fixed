@@ -1,4 +1,4 @@
-import { htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
+import { appDownloadLinksHtml, appDownloadLinksText, htmlLayout, textLayout, firstName, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface IndividualFounderWelcomeProps {
   full_name?: string;
@@ -14,6 +14,7 @@ export function render(p: IndividualFounderWelcomeProps): RenderedEmail {
     <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
       BorderPay was built to make moving money across borders simple, fast, and accessible for individuals and businesses across Africa and beyond.
     </p>
+    ${appDownloadLinksHtml()}
     <p style="margin:0 0 12px;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
       Whether you’re using BorderPay to receive international payments, send money globally, or manage multiple currencies, we’re committed to building a platform you can rely on.
     </p>
@@ -38,7 +39,7 @@ export function render(p: IndividualFounderWelcomeProps): RenderedEmail {
       introText,
       body,
       ctaText: "Open BorderPay",
-      ctaUrl: BORDERPAY_BRAND.appUrl,
+      ctaUrl: BORDERPAY_BRAND.smartAppUrl,
       footerNote: "If you have any questions, just reply to this email.",
     }),
     text: textLayout({
@@ -47,9 +48,9 @@ export function render(p: IndividualFounderWelcomeProps): RenderedEmail {
         "Welcome to BorderPay.\n\n" +
         "BorderPay was built to make moving money across borders simple, fast, and accessible for individuals and businesses across Africa and beyond.\n\n" +
         "We’re still early, and your feedback directly shapes what we build next.\n\n" +
-        "Warm regards,\nMark Ikaba\nFounder & CEO, BorderPay",
+        `Warm regards,\nMark Ikaba\nFounder & CEO, BorderPay\n\n${appDownloadLinksText()}`,
       ctaText: "Open BorderPay",
-      ctaUrl: BORDERPAY_BRAND.appUrl,
+      ctaUrl: BORDERPAY_BRAND.smartAppUrl,
       footerNote: "If you have any questions, just reply to this email.",
     }),
   };

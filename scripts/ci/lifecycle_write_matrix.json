@@ -30,6 +30,26 @@
   ],
   "rules": [
     {
+      "id": "BASELINE_LEGACY_QUEUE_LIFECYCLE_RPCS",
+      "path_regex": "^supabase/migrations/20251231000000_legacy_dashboard_schema_baseline\\.sql$",
+      "table": "pending_events",
+      "ops": [
+        "update"
+      ],
+      "classification": "legacy_baseline_rpc_superseded",
+      "future_rpc": "claim/complete/fail/reap (20260620 replacement)"
+    },
+    {
+      "id": "BASELINE_LEGACY_QUEUE_WEBHOOK_LOG_RPCS",
+      "path_regex": "^supabase/migrations/20251231000000_legacy_dashboard_schema_baseline\\.sql$",
+      "table": "webhook_logs",
+      "ops": [
+        "update"
+      ],
+      "classification": "legacy_baseline_rpc_superseded",
+      "future_rpc": "claim/complete/fail/reap (20260620 replacement)"
+    },
+    {
       "id": "RUNTIME_PROCESS_PENDING_EVENTS_PENDING_CLAIM",
       "path_regex": "^supabase/functions/process-pending-events/index\\.ts$",
       "table": "pending_events",
@@ -113,7 +133,7 @@
     },
     {
       "id": "DBFN_INGEST_BRIDGE_EVENT",
-      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "path_regex": "^supabase/migrations/20260529020000_bridge_ingest_event_webhook_logs_parent\\.sql$",
       "table": "bridge_webhook_events",
       "ops": [
         "insert",
@@ -124,7 +144,7 @@
     },
     {
       "id": "DBFN_INGEST_BRIDGE_EVENT_QUEUE",
-      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "path_regex": "^supabase/migrations/20260529020000_bridge_ingest_event_webhook_logs_parent\\.sql$",
       "table": "pending_events",
       "ops": [
         "insert"
@@ -134,7 +154,7 @@
     },
     {
       "id": "DBFN_INGEST_BRIDGE_EVENT_LOGS",
-      "path_regex": "^supabase/migrations/20260529_bridge_ingest_event_webhook_logs_parent\\.sql$",
+      "path_regex": "^supabase/migrations/20260529020000_bridge_ingest_event_webhook_logs_parent\\.sql$",
       "table": "webhook_logs",
       "ops": [
         "insert",
@@ -165,7 +185,7 @@
     },
     {
       "id": "DBFN_BRIDGE_WALLET_CREDIT_COMPLETE",
-      "path_regex": "^supabase/migrations/20260510_bridge_wallet_credit_rpc\\.sql$",
+      "path_regex": "^supabase/migrations/20260510040000_bridge_wallet_credit_rpc\\.sql$",
       "table": "pending_events",
       "ops": [
         "update"
@@ -175,7 +195,7 @@
     },
     {
       "id": "HISTORICAL_DBFN_INGEST_V0_BWE",
-      "path_regex": "^supabase/migrations/20260510_bridge_webhook_atomic_ingest\\.sql$",
+      "path_regex": "^supabase/migrations/20260510050000_bridge_webhook_atomic_ingest\\.sql$",
       "table": "bridge_webhook_events",
       "ops": [
         "insert",
@@ -186,7 +206,7 @@
     },
     {
       "id": "HISTORICAL_DBFN_INGEST_V0_PE",
-      "path_regex": "^supabase/migrations/20260510_bridge_webhook_atomic_ingest\\.sql$",
+      "path_regex": "^supabase/migrations/20260510050000_bridge_webhook_atomic_ingest\\.sql$",
       "table": "pending_events",
       "ops": [
         "insert"

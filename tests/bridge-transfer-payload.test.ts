@@ -35,3 +35,32 @@ Deno.test("Bridge transfer payload never serializes source.chain or destination.
     to_address: "0x1111111111111111111111111111111111111111",
   });
 });
+
+Deno.test("Bridge EEA SCA attestation uses the corrected nested initiation contract", () => {
+  const body = buildBridgeTransferBody({
+    on_behalf_of: "customer_eea",
+    source: {
+      payment_rail: "bridge_wallet",
+      currency: "USDC",
+      amount: "10.0",
+      bridge_wallet_id: "wallet_eea",
+    },
+    destination: {
+      payment_rail: "base",
+      currency: "USDC",
+      address: "0x1111111111111111111111111111111111111111",
+    },
+    sca_attestation: {
+      outcome: "sca_used",
+      channel: "other",
+      subchannel: "remote",
+    },
+    idempotency_key: "bridge-eea-sca-payload-test",
+  });
+
+  assert.deepEqual(body.initiation, {
+    channel: "other",
+    subchannel: "remote",
+    attestations: { sca: { outcome: "sca_used" } },
+  });
+});

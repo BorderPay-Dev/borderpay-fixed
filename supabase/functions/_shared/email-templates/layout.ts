@@ -20,9 +20,40 @@ export const BORDERPAY_BRAND = {
   success:   "#067647",
   warning:   "#B54708",
   appUrl:    "https://app.borderpayafrica.com",
+  smartAppUrl: "https://www.borderpayafrica.com/api/open-borderpay",
+  appStoreUrl: "https://apps.apple.com/app/borderpay/id6791659887",
+  playStoreUrl: "https://play.google.com/store/apps/details?id=com.borderpayafrica.app&pcampaignid=web_share",
   supportEmail: "support@borderpayafrica.com",
   heroUrl:   "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logo.png",
 };
+
+export function appDownloadLinksHtml(): string {
+  return `<p style="margin:18px 0 0;text-align:center;font-size:13px;line-height:1.6;">
+    Prefer the mobile app?<br />
+    <a href="${BORDERPAY_BRAND.appStoreUrl}" style="color:${BORDERPAY_BRAND.success};font-weight:700;text-decoration:none;">Download for iPhone or iPad</a>
+    &nbsp;&middot;&nbsp;
+    <a href="${BORDERPAY_BRAND.playStoreUrl}" style="color:${BORDERPAY_BRAND.success};font-weight:700;text-decoration:none;">Download for Android</a>
+  </p>`;
+}
+
+export function appDownloadLinksText(): string {
+  return `iPhone/iPad: ${BORDERPAY_BRAND.appStoreUrl}\nAndroid: ${BORDERPAY_BRAND.playStoreUrl}`;
+}
+
+export function appDownloadButtonsHtml(): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 0;">
+    <tr>
+      <td align="center" style="padding:0 0 10px;">
+        <a href="${BORDERPAY_BRAND.appStoreUrl}" target="_blank" style="display:block;padding:14px 22px;background-color:${BORDERPAY_BRAND.accent};color:#000000;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">Download on the App Store</a>
+      </td>
+    </tr>
+    <tr>
+      <td align="center">
+        <a href="${BORDERPAY_BRAND.playStoreUrl}" target="_blank" style="display:block;padding:14px 22px;background-color:#111513;color:#FFFFFF;font-size:15px;font-weight:700;text-decoration:none;border-radius:8px;">Get it on Google Play</a>
+      </td>
+    </tr>
+  </table>`;
+}
 
 export interface RenderedEmail {
   subject: string;

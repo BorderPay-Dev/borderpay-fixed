@@ -5,8 +5,8 @@ BorderPay fee-schedule audit (fail-closed).
 Guards the money-math invariants for the BorderPay fee schedule:
 
   F1  Edge canonical schedule exists with the Bridge developer-fee rates
-      (virtual-account fiat individual 2.5%, business 2.0%,
-      external-account off-ramp 1.0%, crypto-to-crypto saved route 1.0%;
+      (virtual-account fiat individual 3.0%, business 3.0%,
+      external-account off-ramp 1.0%, crypto-to-crypto saved route 0.0%;
       same-token crypto payout 0.0%).
       USDT 0.999 is a fixed trade rate, not a developer fee.
   F2  Edge African payout markup is 2% for every individual and business plan.
@@ -57,13 +57,18 @@ gateway_validators = read(GATEWAY_VALIDATORS)
 
 # Canonical expected numbers ------------------------------------------------
 DEV_FEE = {
-    "virtual_account_fiat_individual": 2.5,
-    "virtual_account_fiat_business": 2.0,
+    "virtual_account_fiat_individual": 3.0,
+    "virtual_account_fiat_business": 3.0,
     "external_account_offramp": 1.0,
-    "crypto_to_crypto_route": 1.0,
+    "crypto_to_crypto_route": 0.0,
     "crypto_to_crypto_payout": 0.0,
 }
 FIXED_TRADE_RATE = {"USDT": 0.999}
+DIRECT_VA_FEE = {
+    "USD": 3.0,
+    "EUR": 2.98,
+    "GBP": 2.98,
+}
 PAYOUT = {
     "individual_starter": 2.0,
     "individual_premium": 2.0,
@@ -82,6 +87,14 @@ if edge:
         got = num_after(edge, k)
         if got != v:
             failures.append(f"F1 edge BRIDGE_FIXED_TRADE_RATE.{k}: expected {v}, got {got}")
+    direct_block = re.search(
+        r"BORDERPAY_DIRECT_VA_DEVELOPER_FEE_PERCENT_BY_CURRENCY\s*=\s*\{([\s\S]*?)\}\s*as const",
+        edge,
+    )
+    for k, v in DIRECT_VA_FEE.items():
+        got = num_after(direct_block.group(1), k) if direct_block else None
+        if got != v:
+            failures.append(f"F1 direct BorderPay VA {k}: expected {v}, got {got}")
 
 # F2 -----------------------------------------------------------------------
 if edge:
@@ -102,6 +115,14 @@ if front:
         got = num_after(front, k)
         if got != v:
             failures.append(f"F3 frontend mirror {k}: expected {v}, got {got}")
+    direct_block = re.search(
+        r"BORDERPAY_DIRECT_VA_DEVELOPER_FEE_PERCENT_BY_CURRENCY\s*=\s*\{([\s\S]*?)\}\s*as const",
+        front,
+    )
+    for k, v in DIRECT_VA_FEE.items():
+        got = num_after(direct_block.group(1), k) if direct_block else None
+        if got != v:
+            failures.append(f"F3 frontend direct BorderPay VA {k}: expected {v}, got {got}")
     account_markup = re.search(
         r"AFRICAN_RAIL_MARKUP_PERCENT_BY_ACCOUNT[\s\S]*?individual\s*:\s*([0-9.]+)[\s\S]*?business\s*:\s*([0-9.]+)",
         front,
@@ -158,7 +179,7 @@ if gateway_validators:
 if gateway:
     if "BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp" not in gateway:
         failures.append("F5 public API gateway does not apply server money-out developer fee")
-    if not re.search(r"developer_fee\s*:\s*\{[\s\S]*flat_amount", gateway):
+    if not re.search(r"developer_fee\s*:\s*routeKind\s*===\s*[\"']payout[\"'][\s\S]*?flat_amount\s*:\s*fixedFeeForPercent", gateway):
         failures.append("F5 public API gateway does not pass fixed Bridge developer_fee")
 
 # Report -------------------------------------------------------------------
@@ -170,7 +191,7 @@ if failures:
     sys.exit(1)
 
 print(f"FEE SCHEDULE AUDIT: PASS ({total}/{total})")
-print("  ✓ F1 edge Bridge dev fee 2.5% individual VA / 2.0% business VA / 1.0% external-account off-ramp / 1.0% crypto saved route / 0.0% same-token crypto payout; 0.999 USDT fixed rate is separate")
+print("  ✓ F1 edge Bridge dev fee 3.0% individual VA / 3.0% business VA / 1.0% external-account off-ramp / 0.0% crypto saved route / 0.0% same-token crypto payout; 0.999 USDT fixed rate is separate")
 print("  ✓ F2 edge African payout markup tiers (1.0/0.75 starter, 0.5 premium/growth/ent)")
 print("  ✓ F3 frontend mirror numbers identical to edge")
 print("  ✓ F4 bridge-transfer and external-wallet enforce correct Bridge fee parameters")

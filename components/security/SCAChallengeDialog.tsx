@@ -16,14 +16,15 @@ type Props = {
 };
 
 export function SCAChallengeDialog(props: Props) {
-  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
+  const [step, setStep] = useState<'knowledge' | 'possession'>('knowledge');
   const [loading, setLoading] = useState(false);
   if (!props.open) return null;
 
   const submit = async () => {
-    if (password.length < 8 || !/^\d{6}$/.test(totp)) {
-      toast.error('Enter your account password and 6-digit authenticator code.');
+    if (!/^\d{6}$/.test(pin) || !/^\d{6}$/.test(totp)) {
+      toast.error('Enter your 6-digit transaction PIN and authenticator code.');
       return;
     }
     setLoading(true);
@@ -32,15 +33,16 @@ export function SCAChallengeDialog(props: Props) {
         operation: props.operation,
         resource: props.resource,
         request: props.request,
-        password,
+        pin,
         totp,
       });
       if (!result?.success || !result?.data?.authorization_id) {
         toast.error(friendlyError(result?.error, 'Strong authentication failed.'));
         return;
       }
-      setPassword('');
+      setPin('');
       setTotp('');
+      setStep('knowledge');
       await props.onAuthorized(String(result.data.authorization_id));
     } finally {
       setLoading(false);
@@ -57,13 +59,27 @@ export function SCAChallengeDialog(props: Props) {
           </div>
           <button type="button" onClick={props.onCancel} aria-label="Cancel"><X size={20} /></button>
         </div>
-        <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-password">Account password</label>
-        <input id="sca-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" className="mb-4 w-full rounded-xl border border-white/10 bg-black px-4 py-3" />
-        <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-totp">Authenticator code</label>
-        <input id="sca-totp" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" className="mb-5 w-full rounded-xl border border-white/10 bg-black px-4 py-3 tracking-[0.3em]" />
-        <button type="button" onClick={() => void submit()} disabled={loading} className="w-full rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black disabled:opacity-50">
-          {loading ? 'Verifying…' : 'Verify action'}
-        </button>
+        <div className="mb-4 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500" aria-label={`Strong authentication step ${step === 'knowledge' ? '1' : '2'} of 2`}>
+          <span className={step === 'knowledge' ? 'text-[#C7FF00]' : 'text-white'}>1. Transaction PIN</span>
+          <span aria-hidden="true">→</span>
+          <span className={step === 'possession' ? 'text-[#C7FF00]' : ''}>2. Authenticator</span>
+        </div>
+        {step === 'knowledge' ? (
+          <>
+            <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-pin">Transaction PIN</label>
+            <input id="sca-pin" type="password" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="off" autoFocus className="mb-5 w-full rounded-xl border border-white/10 bg-black px-4 py-3" />
+            <button type="button" onClick={() => /^\d{6}$/.test(pin) ? setStep('possession') : toast.error('Enter your 6-digit transaction PIN.')} className="w-full rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black">Continue</button>
+          </>
+        ) : (
+          <>
+            <label className="mb-1 block text-xs text-gray-400" htmlFor="sca-totp">Authenticator code</label>
+            <input id="sca-totp" value={totp} onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" autoFocus className="mb-5 w-full rounded-xl border border-white/10 bg-black px-4 py-3 tracking-[0.3em]" />
+            <div className="grid grid-cols-[auto_1fr] gap-2">
+              <button type="button" onClick={() => { setTotp(''); setStep('knowledge'); }} disabled={loading} className="rounded-xl border border-white/10 px-4 py-3 font-semibold text-white disabled:opacity-50">Back</button>
+              <button type="button" onClick={() => void submit()} disabled={loading} className="rounded-xl bg-[#C7FF00] px-4 py-3 font-bold text-black disabled:opacity-50">{loading ? 'Verifying…' : 'Verify action'}</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

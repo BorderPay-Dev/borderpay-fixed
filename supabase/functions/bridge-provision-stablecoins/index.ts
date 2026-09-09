@@ -1,5 +1,6 @@
 // bridge-provision-stablecoins — ensure an activated, KYC-approved customer has
-// their base stablecoin wallets (USDC on Base, USDT on Tron) so they can receive
+// their country-policy wallets (EU-27: EURC/Base only; other countries:
+// USDC/Base and USDT/Tron) so they can receive
 // stablecoin AND so a virtual account has a settlement destination ready.
 //
 // Idempotent: creates a wallet only if that (currency, chain) is missing; if it
@@ -11,9 +12,18 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider } from "../_shared/providers/bridge.ts";
-import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
+import { BridgeProviderError, bridgeProvider } from "../_shared/providers/bridge.ts";
+import {
+  bridgeAutomaticWalletsForCountry,
+  isBridgeBlocked,
+  isBridgeCustodialWalletSupported,
+} from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import {
+  loadBridgeEeaWalletSecurityEnrollment,
+  walletSecurityEnrollmentResponse,
+} from "../_shared/wallet-security-enrollment.ts";
+import { bridgeEeaScaEnforcementEnabled } from "../_shared/bridge-sca-scope.ts";
 
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -29,14 +39,6 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// The base set every activated user gets. USDC-Base also settles USD/EUR/GBP
-// virtual accounts; USDT-Tron is the popular receive rail.
-const DEFAULTS: ReadonlyArray<{ symbol: string; chain: string }> = [
-  { symbol: "USDC", chain: "BASE" },
-  { symbol: "USDT", chain: "TRON" },
-];
-
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -46,7 +48,7 @@ Deno.serve(async (req) => {
   let body: { user_id?: string; email?: string } = {};
   try { body = await req.json(); } catch { /* body optional for normal user path */ }
 
-  if (timingSafeEqualStr(token, SERVICE_ROLE) && (body.user_id || body.email)) {
+  if ((timingSafeEqualStr(token, SERVICE_ROLE) || isGatewayVerifiedServiceRoleJwt(token)) && (body.user_id || body.email)) {
     return provisionForOperator(body);
   }
 
@@ -74,10 +76,25 @@ Deno.serve(async (req) => {
   if (verification !== "approved") return noop("kyc_not_approved");
   if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
 
+  if (bridgeEeaScaEnforcementEnabled()) {
+    let enrollment;
+    try {
+      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
+    } catch (error) {
+      console.error("bridge_wallet_security_enrollment_lookup_failed", {
+        user_id: user.id,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
+    }
+    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
+  }
+
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
+  const defaults = bridgeAutomaticWalletsForCountry(profile.country);
 
-  for (const { symbol, chain } of DEFAULTS) {
+  for (const { symbol, chain } of defaults) {
     // Idempotent: skip if this (currency, chain) already exists for the user.
     const { data: existing } = await supa
       .from("bridge_wallets")
@@ -119,7 +136,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
-    success: out.length === DEFAULTS.length,
+    success: out.length === defaults.length,
     data: { wallets: out },
   });
 });
@@ -152,12 +169,23 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
     }, 403);
   }
 
+  if (bridgeEeaScaEnforcementEnabled()) {
+    let enrollment;
+    try {
+      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, profile.id, profile.bridge_customer_id);
+    } catch (securityError) {
+      return json({ success: false, code: "security_status_unavailable", error: securityError instanceof Error ? securityError.message : "Security status is temporarily unavailable." }, 503);
+    }
+    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
+  }
+
   const isBusiness = profile.account_type === "business";
   const ownerCols: Record<string, unknown> = { user_id: profile.id };
   if (isBusiness) ownerCols.business_user_id = profile.id;
   const out: Array<Record<string, unknown>> = [];
+  const defaults = bridgeAutomaticWalletsForCountry(profile.country);
 
-  for (const { symbol, chain } of DEFAULTS) {
+  for (const { symbol, chain } of defaults) {
     const { data: existing } = await supa
       .from("bridge_wallets")
       .select("bridge_wallet_id,address,currency,chain,status")
@@ -207,12 +235,26 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
         out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
       }
     } catch (e) {
-      out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
+      out.push({
+        symbol,
+        chain: chain.toLowerCase(),
+        created_at_bridge: false,
+        error: e instanceof Error ? e.message : String(e),
+        ...(e instanceof BridgeProviderError
+          ? {
+            provider_status: e.status ?? null,
+            provider_code: e.bridge_code ?? null,
+            provider_error: e.bridge_error ?? null,
+            provider_request_id: e.request_id ?? null,
+            provider_response: e.raw_text?.slice(0, 500) ?? null,
+          }
+          : {}),
+      });
     }
   }
 
   return json({
-    success: out.length === DEFAULTS.length && out.every((row) => row.persisted === true || row.already === true),
+    success: out.length === defaults.length && out.every((row) => row.persisted === true || row.already === true),
     user: { id: profile.id, email: profile.email, country: profile.country, bridge_customer_id: profile.bridge_customer_id },
     data: { wallets: out },
   });
@@ -227,4 +269,21 @@ function timingSafeEqualStr(a: string, b: string): boolean {
   let out = 0;
   for (let i = 0; i < aa.length; i++) out |= aa[i] ^ bb[i];
   return out === 0;
+}
+
+/** The Supabase gateway validates JWT signatures for this function. Support
+ * the legacy service-role JWT during key rotation without trusting a browser
+ * claim or weakening user authentication. */
+function isGatewayVerifiedServiceRoleJwt(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
+    const projectRef = new URL(Deno.env.get("SUPABASE_URL") || "").hostname.split(".")[0];
+    return payload.role === "service_role" && payload.ref === projectRef;
+  } catch {
+    return false;
+  }
 }

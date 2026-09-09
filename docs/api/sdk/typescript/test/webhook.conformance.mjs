@@ -35,7 +35,7 @@ async function run() {
   const valid = await verifyBorderPayWebhook({
     rawBody,
     timestamp,
-    signatureHeader: `sha256=${sig}`,
+    signatureHeader: `v1=${sig}`,
     signingSecret,
     nowUnixSeconds: now,
     toleranceSeconds: 300,
@@ -64,7 +64,7 @@ async function run() {
   const badTs = await verifyBorderPayWebhook({
     rawBody,
     timestamp: 'abc',
-    signatureHeader: `sha256=${sig}`,
+    signatureHeader: `v1=${sig}`,
     signingSecret,
     nowUnixSeconds: now,
   });
@@ -73,7 +73,7 @@ async function run() {
   const oldTs = await verifyBorderPayWebhook({
     rawBody,
     timestamp: String(now - 601),
-    signatureHeader: `sha256=${sig}`,
+    signatureHeader: `v1=${sig}`,
     signingSecret,
     nowUnixSeconds: now,
     toleranceSeconds: 300,
@@ -83,7 +83,7 @@ async function run() {
   const mismatch = await verifyBorderPayWebhook({
     rawBody,
     timestamp,
-    signatureHeader: `sha256=${sig}`,
+    signatureHeader: `v1=${sig}`,
     signingSecret: 'wrong_secret',
     nowUnixSeconds: now,
   });

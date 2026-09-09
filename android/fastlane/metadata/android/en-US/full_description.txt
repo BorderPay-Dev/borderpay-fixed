@@ -1,0 +1,21 @@
+BorderPay helps businesses manage global payments from one secure mobile app.
+
+Open supported business receiving accounts, manage Digital Dollar wallets, receive funds, send payments, and track activity from a clean mobile dashboard.
+
+Key features:
+• Direct BorderPay Business accounts
+• Secure business verification
+• Supported USD, EUR and GBP receiving accounts
+• USDC, USDT and EURC wallet access where eligible
+• Global and African payment rails in supported markets
+• Send and receive payment flows
+• Transaction activity and notifications
+• Business team access and controls
+• Developer API and white-label access for approved partners
+• PIN, biometric and multi-factor security
+
+Direct BorderPay signup is for businesses. Approved API and white-label partners may provide authorized end-user experiences under their own onboarding policies.
+
+Availability of accounts, wallets, currencies and payment corridors depends on verification status, country, compliance review and supported provider rails.
+
+BorderPay Africa is built for compliant global business payments, with Africa as its primary market.

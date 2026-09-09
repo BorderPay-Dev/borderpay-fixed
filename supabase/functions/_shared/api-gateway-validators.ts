@@ -87,6 +87,79 @@ export type CustomerCreateInput = {
   borderpay_user_id: string;
 };
 
+export type OnboardingAuthorizationInput = {
+  external_user_id: string;
+  onboarding_channel: "api" | "white_label";
+  requested_account_types?: Array<"individual" | "business">;
+  expires_in_seconds: number;
+};
+
+export function validateOnboardingAuthorization(
+  body: any,
+): ValidationResult<OnboardingAuthorizationInput> {
+  const externalUserId = stringField(body?.external_user_id);
+  if (!externalUserId || externalUserId.length > 200) {
+    return invalid(
+      "external_user_id is required and must be at most 200 characters",
+      {
+        field: "external_user_id",
+      },
+    );
+  }
+  const channel = stringField(body?.onboarding_channel).toLowerCase();
+  if (channel !== "api" && channel !== "white_label") {
+    return invalid("onboarding_channel must be api|white_label", {
+      field: "onboarding_channel",
+    });
+  }
+  let requested: Array<"individual" | "business"> | undefined;
+  if (body?.requested_account_types != null) {
+    if (!Array.isArray(body.requested_account_types)) {
+      return invalid("requested_account_types must be an array", {
+        field: "requested_account_types",
+      });
+    }
+    requested = Array.from(
+      new Set(
+        body.requested_account_types.map((value: unknown) =>
+          stringField(value).toLowerCase()
+        ),
+      ),
+    )
+      .filter((value): value is "individual" | "business" =>
+        value === "individual" || value === "business"
+      );
+    if (
+      requested.length !== body.requested_account_types.length ||
+      requested.length === 0
+    ) {
+      return invalid(
+        "requested_account_types may contain only individual|business",
+        {
+          field: "requested_account_types",
+        },
+      );
+    }
+  }
+  const requestedTtl = Number(body?.expires_in_seconds ?? 600);
+  if (
+    !Number.isFinite(requestedTtl) || requestedTtl < 60 || requestedTtl > 900
+  ) {
+    return invalid("expires_in_seconds must be between 60 and 900", {
+      field: "expires_in_seconds",
+    });
+  }
+  return {
+    ok: true,
+    value: {
+      external_user_id: externalUserId,
+      onboarding_channel: channel,
+      requested_account_types: requested,
+      expires_in_seconds: Math.floor(requestedTtl),
+    },
+  };
+}
+
 export function validateCustomerCreate(
   body: any,
 ): ValidationResult<CustomerCreateInput> {
@@ -201,9 +274,9 @@ export type VirtualAccountCreateInput = {
   customer_id: string;
   currency: "USD" | "EUR" | "GBP";
   destination: {
-    rail: string;
-    currency: string;
-    address: string;
+    payment_rail: "base" | "tron";
+    currency: "USDC" | "USDT";
+    bridge_wallet_id: string;
   };
 };
 
@@ -224,24 +297,27 @@ export function validateVirtualAccountCreate(
   }
 
   const destination = body?.destination ?? {};
-  const rail = stringField(destination?.rail);
-  if (!rail) {
-    return invalid("destination.rail is required", {
-      field: "destination.rail",
+  const rail = stringField(destination?.payment_rail).toLowerCase();
+  if (rail !== "base" && rail !== "tron") {
+    return invalid("destination.payment_rail must be base|tron", {
+      field: "destination.payment_rail",
     });
   }
 
-  const dcy = stringField(destination?.currency);
-  if (!dcy) {
-    return invalid("destination.currency is required", {
+  const dcy = stringField(destination?.currency).toUpperCase();
+  if (
+    !((rail === "base" && dcy === "USDC") ||
+      (rail === "tron" && dcy === "USDT"))
+  ) {
+    return invalid("destination must be USDC/base or USDT/tron", {
       field: "destination.currency",
     });
   }
 
-  const address = stringField(destination?.address);
-  if (!address) {
-    return invalid("destination.address is required", {
-      field: "destination.address",
+  const bridgeWalletId = stringField(destination?.bridge_wallet_id);
+  if (!bridgeWalletId) {
+    return invalid("destination.bridge_wallet_id is required", {
+      field: "destination.bridge_wallet_id",
     });
   }
 
@@ -251,22 +327,33 @@ export function validateVirtualAccountCreate(
       customer_id: customerId,
       currency: currency as "USD" | "EUR" | "GBP",
       destination: {
-        rail,
+        payment_rail: rail,
         currency: dcy,
-        address,
+        bridge_wallet_id: bridgeWalletId,
       },
     },
   };
 }
 
 export type TransferInput = {
-  source: Record<string, unknown>;
-  destination: Record<string, unknown>;
+  source: {
+    payment_rail: "bridge_wallet";
+    currency: "USDC" | "USDT";
+    amount: string;
+    bridge_wallet_id: string;
+  };
+  destination: {
+    payment_rail: "bridge_wallet" | "ach" | "wire" | "sepa" | "faster_payments";
+    currency: string;
+    bridge_wallet_id?: string;
+    external_account_id?: string;
+  };
   idempotency_key: string;
 };
 
 export function validateTransferOrPayout(
   body: any,
+  routeKind: "transfer" | "payout",
 ): ValidationResult<TransferInput> {
   const transfer = body?.transfer ?? body ?? {};
 
@@ -286,19 +373,23 @@ export function validateTransferOrPayout(
     return invalid("destination object is required", { field: "destination" });
   }
 
-  const sourceRail = stringField((source as any).payment_rail).toLowerCase();
-  if (!SOURCE_RAILS.has(sourceRail)) {
-    return invalid("source.payment_rail unsupported", {
-      field: "source.payment_rail",
-      allowed: Array.from(SOURCE_RAILS),
-    });
+  if (
+    transfer?.developer_fee != null || transfer?.on_behalf_of != null ||
+    (destination as any).bank_account != null ||
+    (destination as any).address != null
+  ) {
+    return invalid(
+      "caller-supplied fees, customer authority, bank details, and raw addresses are not accepted",
+      {
+        field: "transfer",
+      },
+    );
   }
 
-  const destRail = stringField((destination as any).payment_rail).toLowerCase();
-  if (!DEST_RAILS.has(destRail)) {
-    return invalid("destination.payment_rail unsupported", {
-      field: "destination.payment_rail",
-      allowed: Array.from(DEST_RAILS),
+  const sourceRail = stringField((source as any).payment_rail).toLowerCase();
+  if (sourceRail !== "bridge_wallet") {
+    return invalid("source.payment_rail must be bridge_wallet", {
+      field: "source.payment_rail",
     });
   }
 
@@ -311,8 +402,10 @@ export function validateTransferOrPayout(
 
   const sourceCurrency = stringField((source as any).currency).toUpperCase();
   const destCurrency = stringField((destination as any).currency).toUpperCase();
-  if (!sourceCurrency) {
-    return invalid("source.currency is required", { field: "source.currency" });
+  if (sourceCurrency !== "USDC" && sourceCurrency !== "USDT") {
+    return invalid("source.currency must be USDC|USDT", {
+      field: "source.currency",
+    });
   }
   if (!destCurrency) {
     return invalid("destination.currency is required", {
@@ -320,34 +413,87 @@ export function validateTransferOrPayout(
     });
   }
 
-  if (sourceRail === "bridge_wallet") {
-    const bridgeWalletId = stringField((source as any).bridge_wallet_id);
-    if (!bridgeWalletId) {
-      return invalid("source.bridge_wallet_id required for bridge_wallet source", {
-        field: "source.bridge_wallet_id",
-      });
-    }
+  const sourceWalletId = stringField((source as any).bridge_wallet_id);
+  if (!sourceWalletId) {
+    return invalid("source.bridge_wallet_id is required", {
+      field: "source.bridge_wallet_id",
+    });
   }
 
-  if (BRIDGE_CHAIN_RAILS.has(destRail)) {
-    const toAddress = stringField(
-      (destination as any).address || (destination as any).to_address,
+  if (routeKind === "transfer") {
+    const destinationWalletId = stringField(
+      (destination as any).bridge_wallet_id,
     );
-    if (!toAddress) {
+    if (
+      stringField((destination as any).payment_rail).toLowerCase() !==
+        "bridge_wallet" || !destinationWalletId
+    ) {
       return invalid(
-        "destination.address required for chain destination",
+        "transfers require destination.payment_rail=bridge_wallet and destination.bridge_wallet_id",
         {
-          field: "destination.address",
+          field: "destination.bridge_wallet_id",
         },
       );
     }
+    if (destCurrency !== sourceCurrency) {
+      return invalid(
+        "wallet transfers must use the same source and destination currency",
+        {
+          field: "destination.currency",
+        },
+      );
+    }
+    return {
+      ok: true,
+      value: {
+        source: {
+          payment_rail: "bridge_wallet",
+          currency: sourceCurrency,
+          amount,
+          bridge_wallet_id: sourceWalletId,
+        },
+        destination: {
+          payment_rail: "bridge_wallet",
+          currency: destCurrency,
+          bridge_wallet_id: destinationWalletId,
+        },
+        idempotency_key: idem,
+      },
+    };
   }
 
+  const destRail = stringField((destination as any).payment_rail).toLowerCase();
+  const payoutRails = new Set(["ach", "wire", "sepa", "faster_payments"]);
+  const externalAccountId = stringField(
+    (destination as any).external_account_id,
+  );
+  if (!payoutRails.has(destRail) || !externalAccountId) {
+    return invalid(
+      "payouts require an approved fiat rail and destination.external_account_id",
+      {
+        field: "destination.external_account_id",
+      },
+    );
+  }
+  if (!VA_FIAT_CURRENCIES.has(destCurrency)) {
+    return invalid("payout destination.currency must be USD|EUR|GBP", {
+      field: "destination.currency",
+    });
+  }
   return {
     ok: true,
     value: {
-      source,
-      destination,
+      source: {
+        payment_rail: "bridge_wallet",
+        currency: sourceCurrency,
+        amount,
+        bridge_wallet_id: sourceWalletId,
+      },
+      destination: {
+        payment_rail: destRail as "ach" | "wire" | "sepa" | "faster_payments",
+        currency: destCurrency,
+        external_account_id: externalAccountId,
+      },
       idempotency_key: idem,
     },
   };
@@ -364,20 +510,21 @@ export function validateWebhookCreate(
   if (!endpoint) {
     return invalid("endpoint_url is required", { field: "endpoint_url" });
   }
-  let parsed: URL;
   try {
-    parsed = new URL(endpoint);
-  } catch {
-    return invalid("endpoint_url must be a valid URL", {
+    return {
+      ok: true,
+      value: { endpoint_url: validateApiWebhookEndpointUrl(endpoint) },
+    };
+  } catch (error) {
+    return invalid(
+      error instanceof ApiWebhookSecurityError
+        ? error.message
+        : "endpoint_url must be a valid HTTPS URL",
+      {
       field: "endpoint_url",
-    });
+      },
+    );
   }
-  if (!["https:", "http:"].includes(parsed.protocol)) {
-    return invalid("endpoint_url must use http or https", {
-      field: "endpoint_url",
-    });
-  }
-  return { ok: true, value: { endpoint_url: endpoint } };
 }
 
 export function validateIdempotencyHeader(
@@ -396,3 +543,7 @@ export function validateIdempotencyHeader(
   }
   return { ok: true, value: key };
 }
+import {
+  ApiWebhookSecurityError,
+  validateApiWebhookEndpointUrl,
+} from "./api-webhook-security.ts";

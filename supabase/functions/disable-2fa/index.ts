@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { consumeScaAuthorization } from '../_shared/sca.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -38,7 +39,7 @@ serve(async (req) => {
       );
     }
 
-    const { password } = await req.json();
+    const { password, sca_authorization_id } = await req.json();
 
     if (!password) {
       return new Response(
@@ -60,6 +61,32 @@ serve(async (req) => {
       );
     }
 
+    const { data: securityState, error: securityStateError } = await supabase
+      .from('user_security')
+      .select('two_factor_enabled')
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (securityStateError) throw securityStateError;
+    // Cancelling an incomplete enrollment cannot require the factor that has
+    // not been enabled. Disabling an active factor always requires full SCA.
+    const replacingActiveFactor = securityState?.two_factor_enabled === true;
+    if (replacingActiveFactor) {
+      const sca = await consumeScaAuthorization({
+        supabase,
+        authorizationId: sca_authorization_id,
+        userId: user.id,
+        operation: 'security_change',
+        resource: 'disable_2fa',
+        request: { action: 'disable_2fa' },
+      });
+      if (!sca.ok) {
+        return new Response(JSON.stringify(sca.body), {
+          status: sca.status,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
     // Disable 2FA
     const { error: updateError } = await supabase
       .from('user_security')
@@ -70,6 +97,11 @@ serve(async (req) => {
         two_factor_enc_version: null,
         failed_2fa_attempts: 0,
         two_factor_locked_until: null,
+        sca_recovery_started_at: replacingActiveFactor ? new Date().toISOString() : null,
+        sca_recovery_restricted_until: replacingActiveFactor
+          ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+          : null,
+        sca_recovery_reason: replacingActiveFactor ? 'authenticator_replacement' : null,
       })
       .eq('user_id', user.id);
 
@@ -86,7 +118,7 @@ serve(async (req) => {
     );
   } catch (err) {
     return new Response(
-      JSON.stringify({ success: false, error: err.message }),
+      JSON.stringify({ success: false, error: (err as Error).message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

@@ -30,8 +30,6 @@ import {
   ShieldAlert,
   Gift,
   Activity,
-  TrendingUp,
-  TrendingDown,
 } from 'lucide-react';
 import { authAPI, storeUserProfile, supabase } from '../../utils/supabase/client';
 import { backendAPI } from '../../utils/api/backendAPI';
@@ -648,7 +646,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     const sym = CURRENCY_CONFIG[c]?.symbol;
     const formatted = Number(amount || 0).toLocaleString('en-US', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: ['USDC', 'USDT'].includes(c) ? 6 : 2,
+      maximumFractionDigits: ['USDC', 'USDT', 'EURC'].includes(c) ? 6 : 2,
     });
     return sym ? `${sym}${formatted}` : `${formatted} ${c}`;
   };
@@ -1162,21 +1160,6 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
   );
 }
 
-// ─── Dashboard Live Rate Chart Widget ────────────────────────────────────────
-
-// Dormant display-only code retained for historical transaction-rate UI. It
-// has no route or render path while customer exchange services are disabled.
-const PLATFORM_MARKUP = 0.02;
-
-type RatePair = {
-  from: string;
-  to: string;
-  rate: number;
-  base: number;
-  change: number;
-  vol: number;
-};
-
 function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
   const code = String(currency || '').toUpperCase();
   const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
@@ -1221,13 +1204,7 @@ function DashboardCurrencyIcon({ currency, color }: { currency: string; color: s
   );
 }
 
-// Major currency pairs (legacy display data; no customer exchange route).
-const FALLBACK_PAIRS: RatePair[] = [
-  { from: 'USD', to: 'EUR', rate: 0.92 * (1 + PLATFORM_MARKUP), base: 0.92, change: +0.12, vol: 0.004 },
-  { from: 'USD', to: 'GBP', rate: 0.79 * (1 + PLATFORM_MARKUP), base: 0.79, change: -0.08, vol: 0.003 },
-  { from: 'EUR', to: 'GBP', rate: 0.86 * (1 + PLATFORM_MARKUP), base: 0.86, change: +0.04, vol: 0.003 },
-];
-
+// Major currency pairs and customer exchange UI are intentionally absent.
 // ── HeroAction ──────────────────────────────────────────────────────────
 // Revolut-style circular icon button used inside the hero card. The primary
 // variant uses a solid lime disc; secondary variants use a soft white tint
@@ -1262,283 +1239,5 @@ function HeroAction({
       </span>
       <span className="text-[11px] font-semibold text-white/80 leading-tight">{label}</span>
     </motion.button>
-  );
-}
-
-const CORRIDOR_ALLOWLIST = new Set(['EUR', 'GBP']);
-
-// Mulberry32 — deterministic pseudo-random so sparklines stay stable across
-// re-renders (previous impl used Math.random which made the lines twitch on
-// every state change).
-function seededRand(seed: number) {
-  let t = seed >>> 0;
-  return () => {
-    t = (t + 0x6D2B79F5) >>> 0;
-    let r = Math.imul(t ^ (t >>> 15), 1 | t);
-    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
-    return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function hashPair(from: string, to: string): number {
-  let h = 0;
-  const s = `${from}/${to}`;
-  for (let i = 0; i < s.length; i++) h = Math.imul(31, h) + s.charCodeAt(i);
-  return h;
-}
-
-function generateSparkData(count: number, base: number, vol: number, seed = 0): number[] {
-  const pts: number[] = [];
-  const rand = seededRand(seed || Math.floor(Date.now() / 86_400_000));
-  let v = base;
-  for (let i = 0; i < count; i++) {
-    v += (rand() - 0.48) * vol;
-    v = Math.max(base * 0.9, Math.min(base * 1.1, v));
-    pts.push(v);
-  }
-  return pts;
-}
-
-function DashboardSparkline({ data, positive, width = 100, height = 32 }: { data: number[]; positive: boolean; width?: number; height?: number }) {
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const range = max - min || 1;
-  const pad = 2;
-
-  const points = data
-    .map((v, i) => {
-      const x = pad + (i / (data.length - 1)) * (width - pad * 2);
-      const y = pad + (1 - (v - min) / range) * (height - pad * 2);
-      return `${x},${y}`;
-    })
-    .join(' ');
-
-  const color = positive ? '#C7FF00' : '#EF4444';
-  const gradId = `dsg-${positive ? 'g' : 'r'}-${Math.random().toString(36).slice(2, 6)}`;
-
-  // Fill area
-  const firstX = pad;
-  const lastX = pad + ((data.length - 1) / (data.length - 1)) * (width - pad * 2);
-  const fillPath = `M ${firstX},${height} L ${points.replace(/ /g, ' L ')} L ${lastX},${height} Z`;
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible">
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.25" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={fillPath} fill={`url(#${gradId})`} />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function DashboardRateWidget({ onNavigate }: { onNavigate: (screen: string) => void }) {
-  const [selectedPair, setSelectedPair] = useState(0);
-  const [pairs, setPairs] = useState<RatePair[]>(FALLBACK_PAIRS);
-  const [isLive, setIsLive] = useState(false);
-
-  // Fetch live rates once on mount and apply the platform markup. On any
-  // error we silently fall back to the seeded FALLBACK_PAIRS already in
-  // state — the widget must never render empty.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await backendAPI.fx.getLiveRates();
-        if (cancelled || !res?.success) return;
-        const raw = Array.isArray(res.data) ? res.data : (res.data?.rates || []);
-        if (!Array.isArray(raw) || raw.length === 0) return;
-
-        const live: RatePair[] = raw
-          .filter((r: any) => r?.source_currency === 'USD' && CORRIDOR_ALLOWLIST.has(r.target_currency))
-          .map((r: any) => {
-            const base = parseFloat(r.rate);
-            if (!Number.isFinite(base) || base <= 0) return null;
-            // Volatility ≈ 0.6% of base — small enough that the sparkline
-            // reads as a real-world market chart.
-            const vol = base * 0.006;
-            // Derive a plausible 24h change from the pair hash; range ±1.5%.
-            const seed = hashPair('USD', r.target_currency);
-            const rand = seededRand(seed)();
-            const change = (rand - 0.5) * 3;
-            return {
-              from: 'USD',
-              to: r.target_currency,
-              rate: base * (1 + PLATFORM_MARKUP),
-              base,
-              change,
-              vol,
-            } as RatePair;
-          })
-          .filter(Boolean) as RatePair[];
-
-        if (live.length > 0) {
-          // Preserve the visual ordering from FALLBACK_PAIRS so the layout
-          // stays stable when rates come back.
-          const order = ['EUR', 'GBP'];
-          live.sort((a, b) => order.indexOf(a.to) - order.indexOf(b.to));
-          setPairs(live);
-          setIsLive(true);
-        }
-      } catch {
-        // fall back silently
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  // Clamp selected index if the live set has fewer pairs than the fallback.
-  const safeSelected = Math.min(selectedPair, pairs.length - 1);
-  const pair = pairs[safeSelected];
-
-  // Generate chart data for the selected pair (30 points)
-  const chartData = useMemo(() => {
-    return generateSparkData(30, pair.base, pair.vol, hashPair(pair.from, pair.to));
-  }, [pair.from, pair.to, pair.base, pair.vol]);
-
-  const isPositive = pair.change >= 0;
-
-  // Generate mini sparklines for rate rows (stable per render)
-  const miniCharts = useMemo(() =>
-    pairs.map(p => generateSparkData(20, p.base, p.vol, hashPair(p.from, p.to))),
-  [pairs]);
-
-  // Big chart SVG
-  const chartW = 320;
-  const chartH = 100;
-  const min = Math.min(...chartData);
-  const max = Math.max(...chartData);
-  const range = max - min || 1;
-
-  const linePoints = chartData
-    .map((v, i) => {
-      const x = (i / (chartData.length - 1)) * chartW;
-      const y = 6 + (1 - (v - min) / range) * (chartH - 12);
-      return `${x},${y}`;
-    })
-    .join(' ');
-
-  const color = isPositive ? '#C7FF00' : '#EF4444';
-  const fillPath = `M 0,${chartH} L ${linePoints.replace(/ /g, ' L ')} L ${chartW},${chartH} Z`;
-
-  return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
-        <div className="flex items-center gap-2">
-          <Activity className="w-3.5 h-3.5 text-[#C7FF00]" />
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Exchange Activity</span>
-          {isLive && (
-            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-[#C7FF00] uppercase tracking-wider">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#C7FF00] animate-pulse" />
-              Live
-            </span>
-          )}
-        </div>
-        <button
-          onClick={() => onNavigate('transactions')}
-          className="text-[10px] text-[#C7FF00] font-semibold flex items-center gap-1"
-        >
-          Activity <ChevronRight size={12} />
-        </button>
-      </div>
-
-      {/* Selected Pair Info */}
-      <div className="px-4 pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-lg font-bold text-white">{pair.from}/{pair.to}</span>
-            <span className="text-sm text-gray-400 ml-2">{pair.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-          </div>
-          <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-            isPositive ? 'bg-[#C7FF00]/10 text-[#C7FF00]' : 'bg-red-500/10 text-red-400'
-          }`}>
-            {isPositive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-            {isPositive ? '+' : ''}{pair.change.toFixed(2)}%
-          </div>
-        </div>
-      </div>
-
-      {/* Main Chart */}
-      <div className="px-4 pb-3">
-        <svg width="100%" viewBox={`0 0 ${chartW} ${chartH}`} preserveAspectRatio="none" className="rounded-lg">
-          <defs>
-            <linearGradient id="dashChartGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.2" />
-              <stop offset="100%" stopColor={color} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <path d={fillPath} fill="url(#dashChartGrad)" />
-          <polyline
-            points={linePoints}
-            fill="none"
-            stroke={color}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {/* Current value dot */}
-          {(() => {
-            const lastIdx = chartData.length - 1;
-            const cx = (lastIdx / (chartData.length - 1)) * chartW;
-            const cy = 6 + (1 - (chartData[lastIdx] - min) / range) * (chartH - 12);
-            return (
-              <>
-                <circle cx={cx} cy={cy} r="4" fill={color} opacity="0.3" />
-                <circle cx={cx} cy={cy} r="2.5" fill={color} />
-              </>
-            );
-          })()}
-        </svg>
-      </div>
-
-      {/* Rate Rows */}
-      <div className="border-t border-white/[0.04]">
-        {pairs.map((p, i) => {
-          const pos = p.change >= 0;
-          return (
-            <button
-              key={`${p.from}-${p.to}`}
-              onClick={() => setSelectedPair(i)}
-              className={`w-full flex items-center gap-3 px-4 py-2.5 transition-colors ${
-                i === safeSelected ? 'bg-[#C7FF00]/[0.06]' : 'hover:bg-white/[0.02]'
-              } ${i < pairs.length - 1 ? 'border-b border-white/[0.03]' : ''}`}
-            >
-              {/* Pair label */}
-              <div className="w-[70px] text-left">
-                <span className={`text-[11px] font-bold ${i === safeSelected ? 'text-[#C7FF00]' : 'text-white'}`}>
-                  {p.from}/{p.to}
-                </span>
-              </div>
-
-              {/* Mini sparkline */}
-              <div className="flex-1">
-                <DashboardSparkline data={miniCharts[i]} positive={pos} width={80} height={24} />
-              </div>
-
-              {/* Rate + change */}
-              <div className="text-right">
-                <p className="text-[11px] font-semibold text-white">
-                  {p.rate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className={`text-[9px] font-bold ${pos ? 'text-[#C7FF00]' : 'text-red-400'}`}>
-                  {pos ? '+' : ''}{p.change.toFixed(2)}%
-                </p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }

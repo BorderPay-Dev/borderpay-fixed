@@ -29,7 +29,7 @@ serve(async (req) => {
     const [{ data, error }, { count: biometricCount, error: biometricError }] = await Promise.all([
       supabase
         .from('user_security')
-        .select('pin_set, two_factor_enabled, pin_failed_attempts, failed_pin_attempts')
+        .select('pin_set, two_factor_enabled, two_factor_secret_encrypted, pin_failed_attempts, failed_pin_attempts')
         .eq('user_id', user.id)
         .single(),
       supabase
@@ -52,7 +52,9 @@ serve(async (req) => {
         success: true,
         data: {
           pin_set: data.pin_set,
-          two_factor_enabled: data.two_factor_enabled,
+          // A mutable flag alone must never lock a customer behind a factor that
+          // was never enrolled. The encrypted server-side secret is authoritative.
+          two_factor_enabled: data.two_factor_enabled === true && Boolean(data.two_factor_secret_encrypted),
           biometric_enrolled: biometricEnrolled,
           failed_pin_attempts: data.pin_failed_attempts ?? data.failed_pin_attempts ?? 0,
         },

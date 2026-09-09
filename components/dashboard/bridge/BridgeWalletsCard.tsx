@@ -74,11 +74,10 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     };
 
     await loadLocal();
-    // Stablecoin provisioning/reconciliation is background-only. Verified users
-    // should see cached/local rows instantly while Bridge catches up.
-    void backendAPI.bridge.provisionStablecoins()
-      .catch(() => null)
-      .then(() => backendAPI.bridge.syncAccounts())
+    // Reconcile provider state in the background, but never create a wallet
+    // from a dashboard refresh. Creation requires an explicit request after
+    // server-confirmed PIN + authenticator enrollment.
+    void backendAPI.bridge.syncAccounts()
       .then(loadLocal)
       .catch(() => null);
   };

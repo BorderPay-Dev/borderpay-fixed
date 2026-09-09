@@ -73,9 +73,9 @@ export interface CreateVirtualAccountRequest {
   customer_id: string;
   currency: "USD" | "EUR" | "GBP";
   destination: {
-    rail: string;
-    currency: string;
-    address: string;
+    payment_rail: "base" | "tron";
+    currency: "USDC" | "USDT";
+    bridge_wallet_id: string;
   };
 }
 
@@ -89,31 +89,29 @@ export interface CreateVirtualAccountResponseData {
   bank_name?: string | null;
 }
 
-export interface TransferParty {
-  payment_rail: string;
-  currency: string;
-  chain?: string;
-  amount?: string;
-  customer_id?: string;
-  from_address?: string;
-  address?: string;
-  bridge_wallet_id?: string;
-  external_account_id?: string;
-  deposit_id?: string;
-  bank_account?: {
-    account_number?: string;
-    routing_number?: string;
-    iban?: string;
-    bic?: string;
-  };
+export interface BridgeWalletSource {
+  payment_rail: "bridge_wallet";
+  currency: "USDC" | "USDT";
+  amount: string;
+  bridge_wallet_id: string;
 }
 
 export interface CreateTransferRequest {
-  source: TransferParty;
-  destination: TransferParty;
-  developer_fee?: {
-    percentage?: number;
-    flat_amount?: string;
+  source: BridgeWalletSource;
+  destination: {
+    payment_rail: "bridge_wallet";
+    currency: "USDC" | "USDT";
+    bridge_wallet_id: string;
+  };
+  idempotency_key: string;
+}
+
+export interface CreatePayoutRequest {
+  source: BridgeWalletSource;
+  destination: {
+    payment_rail: "ach" | "wire" | "sepa" | "faster_payments";
+    currency: "USD" | "EUR" | "GBP";
+    external_account_id: string;
   };
   idempotency_key: string;
 }

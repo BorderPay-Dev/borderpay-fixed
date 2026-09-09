@@ -52,7 +52,7 @@ export async function loadYellowCardCanonicalSender(
       .select("company_name,registration_number")
       .eq("user_id", input.userId)
       .maybeSingle();
-    if (error || !business?.company_name || !business?.registration_number) {
+    if (error || !business?.company_name || !business?.registration_number || !profile.email) {
       throw new Error("yellow_card_business_identity_incomplete");
     }
     return {
@@ -60,6 +60,7 @@ export async function loadYellowCardCanonicalSender(
       sender: {
         businessName: text(business.company_name),
         businessId: text(business.registration_number),
+        email: text(profile.email).toLowerCase(),
       },
     };
   }

@@ -178,6 +178,17 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
   }
 
   const isCrossToken = sourceCurrency !== destinationCurrency;
+  if (isCrossToken) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        code: "cross_token_payout_not_supported",
+        error: "External digital-dollar payouts must use the same source and destination token.",
+      },
+    };
+  }
   const feeCents = 0;
   const grossMinCents = Math.round(route.gross_min_usd * 100);
   const netMinCents = Math.round(route.net_min_usd * 100);

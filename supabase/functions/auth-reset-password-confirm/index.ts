@@ -79,10 +79,27 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Preserve 2FA and security settings — do NOT reset them
-    // The user_security table is untouched, so PIN and 2FA remain intact
+    // Preserve the enrolled factors, but do not let a recovered password
+    // immediately authorize an EEA custodial-wallet action. This hold is read
+    // only by the Bridge SCA path; login and fund-in remain available.
+    const recoveryStartedAt = new Date();
+    const { error: recoveryHoldError } = await adminClient
+      .from('user_security')
+      .upsert({
+        user_id: userData.user.id,
+        sca_recovery_started_at: recoveryStartedAt.toISOString(),
+        sca_recovery_restricted_until: new Date(recoveryStartedAt.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+        sca_recovery_reason: 'password_recovery',
+      }, { onConflict: 'user_id' });
+    if (recoveryHoldError) {
+      console.error('SCA recovery hold failed:', recoveryHoldError);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Password was updated, but protected financial access remains unavailable. Contact support.' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
-    console.log(`Password reset successful for user ${userData.user.id}`);
+    console.log(`Password reset successful; Bridge SCA recovery hold started for user ${userData.user.id}`);
 
     return new Response(
       JSON.stringify({ success: true, message: 'Password has been reset successfully.' }),

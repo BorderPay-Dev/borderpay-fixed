@@ -14,12 +14,25 @@
 
 /** Bridge developer-fee percentages. Bridge deducts these from transfers. */
 export const BRIDGE_DEVELOPER_FEE_PERCENT = {
-  virtual_account_fiat_individual: 2.5,
-  virtual_account_fiat_business:   2.0,
+  virtual_account_fiat_individual: 3.0,
+  virtual_account_fiat_business:   3.0,
   external_account_offramp:        1.0,
-  crypto_to_crypto_route:          1.0,
+  crypto_to_crypto_route:          0.0,
   crypto_to_crypto_payout:         0.0,
 } as const;
+
+/** Direct BorderPay customer VA creation only. Partner pricing is separate. */
+export const BORDERPAY_DIRECT_VA_DEVELOPER_FEE_PERCENT_BY_CURRENCY = {
+  USD: 3.0,
+  EUR: 2.98,
+  GBP: 2.98,
+} as const;
+
+export function borderPayDirectVaDeveloperFeePercent(currency: string | null | undefined): number {
+  const normalized = String(currency ?? '').toUpperCase() as keyof typeof BORDERPAY_DIRECT_VA_DEVELOPER_FEE_PERCENT_BY_CURRENCY;
+  return BORDERPAY_DIRECT_VA_DEVELOPER_FEE_PERCENT_BY_CURRENCY[normalized] ??
+    BORDERPAY_DIRECT_VA_DEVELOPER_FEE_PERCENT_BY_CURRENCY.USD;
+}
 
 /** Bridge fixed trade-rate config. This is NOT a developer fee. */
 export const BRIDGE_FIXED_TRADE_RATE = {

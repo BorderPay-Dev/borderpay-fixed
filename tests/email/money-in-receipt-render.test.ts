@@ -1,5 +1,7 @@
 import { render as renderIndividualTransaction } from "../../supabase/functions/_shared/email-templates/individual/transaction-status.ts";
 import { render as renderBusinessTransaction } from "../../supabase/functions/_shared/email-templates/business/transaction-status.ts";
+import { render as renderIndividualActivity } from "../../supabase/functions/_shared/email-templates/individual/transaction-notification.ts";
+import { render as renderBusinessActivity } from "../../supabase/functions/_shared/email-templates/business/transaction-notification.ts";
 import { render as renderIndividualLimits } from "../../supabase/functions/_shared/email-templates/individual/virtual-account-limits.ts";
 import { render as renderBusinessLimits } from "../../supabase/functions/_shared/email-templates/business/virtual-account-limits.ts";
 
@@ -59,6 +61,96 @@ Deno.test("USD to USDC receipt labels both USD and USDC legs", () => {
   assertIncludes(rendered.html, "-$0.25 USD");
   assertIncludes(rendered.html, "$9.75 USDC / Base");
   assertExcludes(rendered.html, "9.75 USD</td>");
+});
+
+Deno.test("Bridge bank tracing evidence is rendered only when provider fields are present", () => {
+  const base = receiptProps("USD", 100, 2, 98);
+  const rendered = renderBusinessTransaction({
+    company_name: "BorderPay Review Ltd",
+    ...base,
+    source_bank_name: "Sender Bank",
+    source_bank_account: "•••• 1234",
+    payment_reference_text: "Invoice 1042",
+    receiving_bank_name: "Receiving Bank",
+    receiving_account_name: "BorderPay Review Ltd",
+    receiving_account_number: "•••• 9876",
+    trace_id: "125109005699597",
+    imad: "20260826ABC123",
+    uetr: "550e8400-e29b-41d4-a716-446655440000",
+    clave_de_rastreo: "MBAN010026082600000001",
+  });
+  for (const expected of [
+    "Source bank", "Sender Bank", "Source account", "Invoice 1042",
+    "Receiving bank", "Receiving account name", "Trace ID", "125109005699597",
+    "IMAD", "UETR", "Clave de rastreo",
+  ]) assertIncludes(rendered.html, expected);
+  assertIncludes(rendered.text, "Bank reference: Invoice 1042");
+
+  const withoutEvidence = renderIndividualTransaction({ full_name: "Ada", ...base });
+  for (const absent of ["Source bank", "Receiving bank", "Trace ID", "IMAD", "UETR", "Clave de rastreo"]) {
+    assertExcludes(withoutEvidence.html, absent);
+  }
+});
+
+Deno.test("under-review VA email never presents a developer fee before payment submission", () => {
+  const unsafePrematureProps = {
+    status: "in_review" as const,
+    amount: 2000,
+    currency: "EUR",
+    reference: "f9aacc1f-b034-4a6c-84e8-7984b0acb874",
+    occurred_at: "2026-08-19T22:36:16.000Z",
+    gross_amount: 2000,
+    developer_fee_amount: 40,
+    net_amount: 1960,
+    source_currency: "EUR",
+    source_amount: 2000,
+    service_charge_amount: 40,
+    available_amount: 1960,
+    destination_currency: "USDC",
+    destination_amount: 2277.05,
+    deposit_id: "f9aacc1f-b034-4a6c-84e8-7984b0acb874",
+  };
+
+  for (const rendered of [
+    renderBusinessTransaction({ company_name: "ELVARIS SOFTWARE LTD", ...unsafePrematureProps }),
+    renderIndividualTransaction({ full_name: "Ada", ...unsafePrematureProps }),
+  ]) {
+    assertIncludes(rendered.html, "Transaction under review");
+    assertIncludes(rendered.html, "2,000.00 EUR");
+    assertIncludes(rendered.text, "Amount: 2,000.00 EUR");
+    assertExcludes(rendered.html, "Transaction fee");
+    assertExcludes(rendered.html, "Service charge");
+    assertExcludes(rendered.html, "Net amount");
+    assertExcludes(rendered.html, "40.00 EUR");
+    assertExcludes(rendered.html, "1,960.00 EUR");
+    assertExcludes(rendered.html, "$2,277.05");
+  }
+});
+
+Deno.test("successful Bridge wallet payout renders a dedicated money-out receipt", () => {
+  for (const rendered of [
+    renderBusinessActivity({
+      company_name: "ELVARIS SOFTWARE LTD",
+      direction: "debit",
+      amount: 100,
+      currency: "USDC",
+      reference: "bridge-money-out-1",
+      description: "Payment sent",
+    }),
+    renderIndividualActivity({
+      full_name: "Ada",
+      direction: "debit",
+      amount: 100,
+      currency: "USDC",
+      reference: "bridge-money-out-1",
+      description: "Payment sent",
+    }),
+  ]) {
+    assertIncludes(rendered.html, "Money out");
+    assertIncludes(rendered.html, "Payment sent");
+    assertIncludes(rendered.html, "bridge-money-out-1");
+    assertExcludes(rendered.html, "just received funds");
+  }
 });
 
 Deno.test("virtual account limits templates use the clean white email surface", () => {

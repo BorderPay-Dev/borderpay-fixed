@@ -43,7 +43,7 @@ FLAGS    = ROOT / "utils" / "featureFlags.ts"
 MAINAPP  = ROOT / "components" / "app" / "MainApp.tsx"
 EDGE     = ROOT / "supabase" / "functions" / "bridge-external-account" / "index.ts"
 ADD_SCR  = ROOT / "components" / "payouts" / "AddExternalAccountScreen.tsx"
-MIGR     = ROOT / "supabase" / "migrations" / "20260529_bridge_external_accounts.sql"
+MIGR     = ROOT / "supabase" / "migrations" / "20260529010000_bridge_external_accounts.sql"
 
 
 def fail(msg: str) -> None:
