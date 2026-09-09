@@ -50,7 +50,9 @@ for path, create_call in creation_paths.items():
 
 worker = read("supabase/functions/process-pending-events/index.ts")
 require('normalized === "approved"' in worker, "wallet provisioning must follow an approved Bridge webhook")
-require("ensureStablecoinWalletsProvisioned" in worker, "approved Bridge webhooks must provision wallets automatically")
+require("ensureStablecoinWalletsProvisioned" in worker, "approved non-EEA Bridge webhooks must provision wallets automatically")
+require('if (isBridgeEeaCountry(country))' in worker, "EEA approval must defer wallet creation")
+require('bridge_eea_wallet_auto_provision_skipped' in worker, "EEA manual-wallet decision must be observable")
 
 screen = read("components/wallet/AddWalletScreen.tsx")
 require("getSecurityStatus" not in screen, "wallet UI must not apply the EEA enrollment rule globally")

@@ -14,6 +14,7 @@ import { showToast } from '../common/StatusToast';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { virtualAccountActivationMessage } from '../../utils/virtualAccountActivationCopy';
+import { isEea30Country } from '../../utils/compliance/eeaWalletProjection';
 
 interface AddWalletScreenProps {
   userId: string;
@@ -38,16 +39,19 @@ const CARDS: WalletCard[] = [
   { code: 'EUR', type: 'virtual_account', title: 'Euro', subtitle: 'Global receive account' },
   { code: 'GBP', type: 'virtual_account', title: 'British Pound', subtitle: 'Global receive account' },
   { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Digital dollar wallet' },
+  { code: 'EURC', type: 'stablecoin', title: 'Euro Coin', subtitle: 'Digital euro wallet' },
   { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Digital dollar wallet' },
 ];
 
 const STABLE_CHAIN: Record<string, string> = {
   USDC: 'BASE',
+  EURC: 'BASE',
   USDT: 'TRON',
 };
 
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
   USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
 };
 const ACTIVE_ROW_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
@@ -224,6 +228,14 @@ export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenP
     () => isBridgeCustodialWalletSupported(country),
     [country],
   );
+  const eea = useMemo(() => isEea30Country(country), [country]);
+  const eeaBaseWalletActive = activeStable.has('USDC') || activeStable.has('EURC');
+  const visibleCards = useMemo(
+    () => CARDS.filter((card) => card.type !== 'stablecoin' || (eea
+      ? card.code === 'USDC' || card.code === 'EURC'
+      : card.code === 'USDC' || card.code === 'USDT')),
+    [eea],
+  );
 
   const handleProvisioningSecurityRequired = (response: any): boolean => {
     if (response?.code !== 'security_enrollment_required') return false;
@@ -254,6 +266,14 @@ export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenP
     setCreating(card.code);
     try {
       if (card.type === 'virtual_account') {
+        if (eea && !eeaBaseWalletActive) {
+          showToast.warning({
+            title: 'Activate wallet first',
+            message: 'Activate your USDC and EURC wallet on Base before requesting a virtual account.',
+            duration: 7000,
+          });
+          return;
+        }
         const res: any = await backendAPI.bridge.virtualAccount.create({
           currency: card.code as BridgeVirtualAccountCurrency,
         });
@@ -288,6 +308,14 @@ export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenP
 
   const requestAllGlobalAccounts = async () => {
     if (!verified || creatingGlobalAccounts || missingGlobalAccounts.length === 0) return;
+    if (eea && !eeaBaseWalletActive) {
+      showToast.warning({
+        title: 'Activate wallet first',
+        message: 'Activate your USDC and EURC wallet on Base before requesting virtual accounts.',
+        duration: 7000,
+      });
+      return;
+    }
     setCreatingGlobalAccounts(true);
     let created = 0;
     let pending = 0;
@@ -352,7 +380,7 @@ export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenP
     const supported = card.type === 'virtual_account'
       ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
       : stableSupported;
-    const setupPending = card.type === 'virtual_account' &&
+    const setupPending = card.type === 'virtual_account' && !(eea && !eeaBaseWalletActive) &&
       setupPendingVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
     const supportRequired = card.type === 'virtual_account' &&
       supportRequiredVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
@@ -431,7 +459,7 @@ export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenP
         )}
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {CARDS.map((card, idx) => {
+          {visibleCards.map((card, idx) => {
               const active = card.type === 'virtual_account'
                 ? activeVa.has(card.code)
                 : activeStable.has(card.code);
@@ -441,7 +469,7 @@ export function AddWalletScreen({ userId, onBack, onNavigate }: AddWalletScreenP
               const supported = card.type === 'virtual_account'
                 ? supportedVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency)
                 : stableSupported;
-              const setupPending = card.type === 'virtual_account' &&
+              const setupPending = card.type === 'virtual_account' && !(eea && !eeaBaseWalletActive) &&
                 setupPendingVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);
               const supportRequired = card.type === 'virtual_account' &&
                 supportRequiredVaCurrencies.includes(card.code as BridgeVirtualAccountCurrency);

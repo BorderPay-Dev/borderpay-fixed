@@ -17,6 +17,7 @@ import {
   bridgeAutomaticWalletsForCountry,
   isBridgeBlocked,
   isBridgeCustodialWalletSupported,
+  isBridgeEeaCountry,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import {
@@ -75,6 +76,7 @@ Deno.serve(async (req) => {
   const verification = profile.verification_status;
   if (verification !== "approved") return noop("kyc_not_approved");
   if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
+  if (isBridgeEeaCountry(profile.country)) return noop("eea_manual_wallet_activation_required");
 
   if (bridgeEeaScaEnforcementEnabled()) {
     let enrollment;
@@ -167,6 +169,9 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
       error: "Bridge custodial wallets are not available for this country. Use a saved external wallet address as the virtual-account destination.",
       country: profile.country,
     }, 403);
+  }
+  if (isBridgeEeaCountry(profile.country)) {
+    return json({ success: true, data: { wallets: [], skipped: "eea_manual_wallet_activation_required" } });
   }
 
   if (bridgeEeaScaEnforcementEnabled()) {

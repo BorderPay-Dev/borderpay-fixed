@@ -62,11 +62,11 @@ def assert_wallet_screen(src: str) -> None:
         "function normalizeStableRows",
         "function normalizeVaRows",
         "function latestByCurrency",
-        "return normalizeStableRows(scoped)",
+        "return normalizeStableRows(scoped, readCachedCountry())",
         "return normalizeVaRows(scoped, readCachedCountry())",
         "const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets)",
         "const rawVas = Array.isArray(routeData?.data?.virtual_accounts)",
-        "const sList = normalizeStableRows(rawStables)",
+        "const sList = normalizeStableRows(rawStables, country)",
         "const vList = normalizeVaRows(rawVas, country)",
         "JSON.stringify(rawStables)",
         "JSON.stringify(rawVas)",
@@ -88,8 +88,11 @@ def assert_add_wallet_screen(src: str) -> None:
     require(src, "{ code: 'EUR'", "AddWalletScreen")
     require(src, "{ code: 'GBP'", "AddWalletScreen")
     require(src, "{ code: 'USDC'", "AddWalletScreen")
+    require(src, "{ code: 'EURC'", "AddWalletScreen")
     require(src, "{ code: 'USDT'", "AddWalletScreen")
-    require(src, "{CARDS.map((card, idx) =>", "AddWalletScreen")
+    require(src, "{visibleCards.map((card, idx) =>", "AddWalletScreen")
+    require(src, "const visibleCards = useMemo", "AddWalletScreen")
+    require(src, "isEea30Country(country)", "AddWalletScreen")
     require(src, "const ACTIVE_ROW_STATUSES", "AddWalletScreen")
     require(src, "function isActiveRow", "AddWalletScreen")
     require(src, "const supportedVaCurrencies = useMemo", "AddWalletScreen")
@@ -99,7 +102,6 @@ def assert_add_wallet_screen(src: str) -> None:
     require(src, "Active", "AddWalletScreen")
     require(src, "Inactive", "AddWalletScreen")
     require(src, "contact support to reactivate", "AddWalletScreen")
-    reject(src, "CARDS.filter((card)", "AddWalletScreen")
     reject(src, "backendAPI.bridge.virtualAccount.capabilities()", "AddWalletScreen")
     reject(src, "backendAPI.bridge.wallet.capabilities()", "AddWalletScreen")
     reject(src, "supportedStableSymbols", "AddWalletScreen")

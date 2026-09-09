@@ -1,7 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
+  bridgeEeaPilotAccessRequired,
+  bridgeEeaPilotEmailAllowed,
   bridgeEeaScaEnforcementEnabled,
+  isBridgeEeaScaCountry,
   resolveBridgeScaScope,
 } from "../_shared/bridge-sca-scope.ts";
 import { assertScaOperation, scaPayloadHash } from "../_shared/sca.ts";
@@ -64,6 +67,17 @@ Deno.serve(async (req) => {
       reason: scope.reason,
     });
     return json({ success: false, code: "sca_scope_unavailable", error: "Strong-authentication scope could not be verified." }, 503);
+  }
+  if (
+    bridgeEeaPilotAccessRequired() &&
+    isBridgeEeaScaCountry(scope.country) &&
+    !bridgeEeaPilotEmailAllowed(user.email)
+  ) {
+    return json({
+      success: false,
+      code: "eea_pilot_access_locked",
+      error: "Contact BorderPay Support to activate EEA strong-authentication testing for this account.",
+    }, 423);
   }
   if (!scope.required) return json({ success: true, data: { required: false, authorization_id: null } });
   let body: Record<string, unknown>;

@@ -54,6 +54,21 @@ export function bridgeEeaScaEnforcementEnabled(): boolean {
   return Deno.env.get("BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED") === "true";
 }
 
+export function bridgeEeaPilotAccessRequired(): boolean {
+  return Deno.env.get("BRIDGE_EEA_PILOT_ACCESS_REQUIRED") === "true";
+}
+
+export function bridgeEeaPilotEmailAllowed(email: unknown): boolean {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return false;
+  return new Set(
+    (Deno.env.get("BRIDGE_EEA_PILOT_EMAILS") || "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  ).has(normalized);
+}
+
 const TERMINAL_WALLET_STATUSES = new Set(["closed", "deleted", "disabled", "deactivated", "inactive"]);
 
 export function isActiveBridgeCustodialWallet(wallet: { wallet_id?: unknown; status?: unknown }): boolean {

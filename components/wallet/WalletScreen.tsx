@@ -35,6 +35,7 @@ import { SkeletonRows } from '../common/Skeleton';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { projectEeaBridgeWalletRows } from '../../utils/compliance/eeaWalletProjection';
 
 interface WalletScreenProps {
   userId:     string;
@@ -77,10 +78,10 @@ function latestByCurrency<T extends { currency?: string }>(rows: T[]): T[] {
   return Array.from(byCurrency.values());
 }
 
-function normalizeStableRows(raw: unknown): StableRow[] {
+function normalizeStableRows(raw: unknown, country?: string | null): StableRow[] {
   if (!Array.isArray(raw)) return [];
   return latestByCurrency(
-    raw
+    projectEeaBridgeWalletRows(raw, country)
       .map((row: any) => ({
         ...row,
         currency: String(row?.currency || '').toUpperCase(),
@@ -184,7 +185,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      return normalizeStableRows(scoped);
+      return normalizeStableRows(scoped, readCachedCountry());
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
@@ -262,7 +263,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        return normalizeStableRows(scoped);
+        return normalizeStableRows(scoped, country);
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
@@ -281,7 +282,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       const routeData: any = await backendAPI.financial.getWalletRouteData();
       const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets) ? routeData.data.stablecoin_wallets : [];
       const rawVas = Array.isArray(routeData?.data?.virtual_accounts) ? routeData.data.virtual_accounts : [];
-      const sList = normalizeStableRows(rawStables);
+      const sList = normalizeStableRows(rawStables, country);
       const vList = normalizeVaRows(rawVas, country);
       setStables(sList);
       setVas(vList);
@@ -312,7 +313,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
             const next: any = await backendAPI.financial.getWalletRouteData();
             const rawNextStables = Array.isArray(next?.data?.stablecoin_wallets) ? next.data.stablecoin_wallets : [];
             const rawNextVas = Array.isArray(next?.data?.virtual_accounts) ? next.data.virtual_accounts : [];
-            const nextStables = normalizeStableRows(rawNextStables);
+            const nextStables = normalizeStableRows(rawNextStables, country);
             const nextVas = normalizeVaRows(rawNextVas, country);
             setStables(nextStables);
             setVas(nextVas);

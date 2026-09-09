@@ -6,7 +6,7 @@ on:
       app_version:
         description: "Marketing version shown in Google Play"
         required: true
-        default: "1.0.2"
+        default: "1.0.4"
       build_number:
         description: "Google Play version code. Must be 52 or higher."
         required: true
@@ -77,6 +77,9 @@ jobs:
 
       - name: Verify Bridge EEA SCA compliance contract
         run: npm run audit:bridge-sca
+
+      - name: Verify EEA manual wallet and VA prerequisite
+        run: python3 tests/audit/eea_manual_wallet_before_va_audit.py
 
       - name: Verify native App Check release contract
         run: python3 tests/audit/native_app_check_release_audit.py

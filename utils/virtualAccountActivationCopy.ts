@@ -30,6 +30,13 @@ export function virtualAccountActivationMessage(res: any, currency: string): Vir
       message: rawError || 'Save your external USDC wallet on Base, then request this account again. Funds received through this account will be delivered to that wallet.',
     };
   }
+  if (code === 'eea_wallet_activation_required') {
+    return {
+      type: 'warning',
+      title: 'Activate wallet first',
+      message: rawError || 'Activate your USDC and EURC wallet on Base before requesting a virtual account.',
+    };
+  }
   if (
     code === 'va_provider_pending' ||
     code === 'va_grant_pending' ||

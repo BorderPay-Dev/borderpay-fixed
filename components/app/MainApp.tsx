@@ -456,7 +456,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       : ['dashboard', initialScreenFromCallback],
   );
   const [refreshKey, setRefreshKey] = useState(0);
-  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'unknown'>('loading');
+  const [scaScope, setScaScope] = useState<'loading' | 'required' | 'not_required' | 'paused' | 'unknown'>('loading');
   const [scaCountry, setScaCountry] = useState<string | null>(null);
   const [scaMissingSecurityFactors, setScaMissingSecurityFactors] = useState<string[]>([]);
   const [scaEnrollmentReturnScreen, setScaEnrollmentReturnScreen] = useState<AppScreen | null>(null);
@@ -492,6 +492,10 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
           ? response.data.missing_security_factors
           : [],
       );
+      if (response.data.pilot_access_locked === true) {
+        setScaScope('paused');
+        return;
+      }
       setScaScope(response.data.required === true ? 'required' : 'not_required');
     } catch {
       setScaScope('unknown');
@@ -1033,6 +1037,14 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     const isBusinessAccount = accountType === 'business' || hasBusinessAccountCached();
     const protectedAccountAccess = BRIDGE_SCA_ACCOUNT_ACCESS_SCREENS.has(currentScreen);
     const accessGranted = walletAccessUntil > Date.now();
+    if (protectedAccountAccess && scaScope === 'paused') {
+      return (
+        <div className="mx-auto mt-10 max-w-md rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-white">
+          <h2 className="font-bold">EEA account activation required</h2>
+          <p className="mt-2 text-sm text-gray-400">Contact BorderPay Support to activate strong-authentication testing before accessing your dashboard, wallet details or transaction history.</p>
+        </div>
+      );
+    }
     if (protectedAccountAccess && scaMissingSecurityFactors.length > 0) {
       const needsPin = scaMissingSecurityFactors.includes('transaction_pin');
       return (

@@ -15,6 +15,8 @@ import {
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
   isBridgeCustodialWalletSupported,
+  bridgeAutomaticWalletsForCountry,
+  isBridgeEeaCountry,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -22,7 +24,11 @@ import {
   loadBridgeEeaWalletSecurityEnrollment,
   walletSecurityEnrollmentResponse,
 } from "../_shared/wallet-security-enrollment.ts";
-import { bridgeEeaScaEnforcementEnabled } from "../_shared/bridge-sca-scope.ts";
+import {
+  bridgeEeaPilotAccessRequired,
+  bridgeEeaPilotEmailAllowed,
+  bridgeEeaScaEnforcementEnabled,
+} from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -90,6 +96,19 @@ Deno.serve(async (req) => {
       country: productCountry,
     }, 403);
   }
+  const allowedWallet = bridgeAutomaticWalletsForCountry(productCountry).some(
+    (entry) => entry.symbol === symbol && entry.chain === chain,
+  );
+  if (!allowedWallet) {
+    return json({
+      success: false,
+      code: "wallet_asset_not_available_for_country",
+      error: "This wallet asset and network are not available for your country.",
+      country: productCountry,
+      symbol,
+      chain,
+    }, 403);
+  }
   logControlledBridgeTraffic("bridge-wallet", productCountry, user.id);
   if (!profile.bridge_customer_id) {
     return json({ success: false, error: "Bridge customer required first", code: "no_customer" }, 409);
@@ -126,6 +145,18 @@ Deno.serve(async (req) => {
       code: "wallet_not_active",
       error: `Existing ${symbol}/${chain} wallet is ${existing.status || "not active"}.`,
     }, 409);
+  }
+
+  if (
+    isBridgeEeaCountry(productCountry) &&
+    bridgeEeaPilotAccessRequired() &&
+    !bridgeEeaPilotEmailAllowed(user.email)
+  ) {
+    return json({
+      success: false,
+      code: "eea_pilot_access_locked",
+      error: "Contact BorderPay Support to activate EEA strong-authentication testing for this account.",
+    }, 423);
   }
 
   if (bridgeEeaScaEnforcementEnabled()) {

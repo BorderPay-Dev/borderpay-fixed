@@ -32,13 +32,9 @@ if "response missing id/address" not in create_wallet or "this.listWallets" not 
 if "r.status === 409 || r.status === 422" not in create_wallet:
     failures.append("wallet creation must reconcile Bridge same-chain conflicts")
 
-for expected in [
-    '{ symbol: "EURC", chain: "BASE" }',
-    '{ symbol: "USDC", chain: "BASE" }',
-    '{ symbol: "USDT", chain: "TRON" }',
-]:
-    if expected not in country_policy:
-        failures.append(f"missing authoritative auto-provision policy {expected}")
+for symbol, chain in [("EURC", "BASE"), ("USDC", "BASE"), ("USDT", "TRON")]:
+    if not __import__("re").search(rf'symbol:\s*"{symbol}"\s*,\s*chain:\s*"{chain}"', country_policy, flags=__import__("re").DOTALL):
+        failures.append(f"missing authoritative wallet policy {symbol}/{chain}")
 
 if "bridgeAutomaticWalletsForCountry(country)" not in worker_provision:
     failures.append("webhook provisioning must select wallets from the authoritative country policy")
@@ -75,7 +71,11 @@ else:
             failures.append(f"non-EU country {excluded} must not receive the EU wallet policy")
 
 if 'if (normalized === "approved")' not in worker or "ensureStablecoinWalletsProvisioned" not in worker:
-    failures.append("approved KYC/KYB events must invoke stablecoin auto-provisioning")
+    failures.append("approved non-EEA KYC/KYB events must invoke stablecoin auto-provisioning")
+if 'if (isBridgeEeaCountry(country))' not in worker_provision or 'bridge_eea_wallet_auto_provision_skipped' not in worker_provision:
+    failures.append("EEA approval webhooks must defer wallet creation to an explicit user request")
+if provisioner.count('eea_manual_wallet_activation_required') < 2:
+    failures.append("both user and operator bulk provisioner paths must leave EEA wallets manual")
 if '.from("wallets")' in worker_provision:
     failures.append("stablecoin provisioning must not write the fiat-only legacy wallets table")
 if "bridgeWalletErr" not in worker_provision:

@@ -1,6 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
+  bridgeEeaPilotAccessRequired,
+  bridgeEeaPilotEmailAllowed,
   bridgeEeaScaEnforcementEnabled,
   isBridgeEeaScaCountry,
   resolveBridgeScaScope,
@@ -48,6 +50,24 @@ Deno.serve(async (req) => {
   }
   if (scope.status === "unknown") {
     return json({ success: false, code: "sca_scope_unavailable", data: scope }, 503);
+  }
+  if (
+    isBridgeEeaScaCountry(scope.country) &&
+    bridgeEeaPilotAccessRequired() &&
+    !bridgeEeaPilotEmailAllowed(user.email)
+  ) {
+    return json({
+      success: true,
+      data: {
+        ...scope,
+        required: true,
+        status: "required",
+        enforcement_enabled: true,
+        pilot_access_locked: true,
+        security_enrollment_required: false,
+        missing_security_factors: [],
+      },
+    });
   }
   if (isBridgeEeaScaCountry(scope.country)) {
     try {

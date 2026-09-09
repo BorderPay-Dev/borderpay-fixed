@@ -100,6 +100,8 @@ interface BusinessDashboardProps {
 interface WalletRow {
   currency: string;
   balance:  number;
+  bridge_wallet_id?: string | null;
+  status?: string | null;
 }
 
 const CURRENCY_LABEL: Record<string, string> = {
@@ -124,9 +126,11 @@ const STABLE_ICON_URL: Record<string, string> = {
   EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 
-function isSpendableBusinessWallet(row: { balance?: number }): boolean {
+function isSpendableBusinessWallet(row: { balance?: number; bridge_wallet_id?: string | null; status?: string | null }): boolean {
   const balance = Number(row?.balance || 0);
-  return Number.isFinite(balance) && balance > 0;
+  const status = String(row?.status || 'active').toLowerCase();
+  if (['closed', 'suspended', 'deactivated', 'inactive'].includes(status)) return false;
+  return Boolean(row?.bridge_wallet_id) || (Number.isFinite(balance) && balance > 0);
 }
 
 function formatBusinessWalletBalance(row: { currency: string; balance: number }): string {
@@ -263,6 +267,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   const toWalletRows = (raw: any[]): WalletRow[] => raw.map((w: any) => ({
     currency: String(w?.currency || '').toUpperCase(),
     balance: parseFloat(w?.balance) || 0,
+    bridge_wallet_id: w?.bridge_wallet_id || null,
+    status: w?.status || null,
   })).filter((w: WalletRow) => !!w.currency && isSpendableBusinessWallet(w));
 
   const loadWallets = async (force = false) => {

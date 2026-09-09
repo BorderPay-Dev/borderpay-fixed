@@ -152,6 +152,7 @@ const CURRENCY_CONFIG: Record<string, { symbol: string; color: string }> = {
   GBP:  { symbol: '£',  color: '#8B5CF6' },
   USDT: { symbol: '₮',  color: '#26A17B' },
   USDC: { symbol: '$',  color: '#2775CA' },
+  EURC: { symbol: '€',  color: '#1A4BD6' },
 };
 
 const CURRENCY_LABEL: Record<string, string> = {

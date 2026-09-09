@@ -3077,6 +3077,13 @@ async function ensureStablecoinWalletsProvisioned(input) {
     country = String(userProfile?.country || "");
   }
   if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
+  if (isBridgeEeaCountry(country)) {
+    console.info("bridge_eea_wallet_auto_provision_skipped", {
+      user_id: input.userId,
+      bridge_customer_id: input.bridgeCustomerId,
+    });
+    return;
+  }
   const statusValue = profile?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
   for (const { symbol, chain } of bridgeAutomaticWalletsForCountry(country)){

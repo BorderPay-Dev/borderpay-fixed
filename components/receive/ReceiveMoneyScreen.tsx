@@ -37,6 +37,7 @@ import {
 } from '../../utils/africanRailsPolicyCache';
 import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
 import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
+import { isEea30Country, projectEeaBridgeWalletRows } from '../../utils/compliance/eeaWalletProjection';
 
 interface ReceiveMoneyScreenProps {
   onBack: () => void;
@@ -819,15 +820,16 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
   const visibleStableRows = useMemo(() => {
     const byCurrency = new Map<string, StableRow>();
-    stables.forEach((row) => {
+    projectEeaBridgeWalletRows(stables, country).forEach((row) => {
       const rawSym = String(row.currency || '').toUpperCase();
       const sym = rawSym || (String(row.chain).toLowerCase() === 'tron' ? 'USDT' : 'USDC');
-      if ((sym === 'USDC' || sym === 'USDT') && !byCurrency.has(sym)) {
+      if ((sym === 'USDC' || sym === 'USDT' || sym === 'EURC') && !byCurrency.has(sym)) {
         byCurrency.set(sym, { ...row, currency: sym });
       }
     });
-    return ['USDC', 'USDT'].map((symbol) => byCurrency.get(symbol)).filter(Boolean) as StableRow[];
-  }, [stables]);
+    const order = isEea30Country(country) ? ['USDC', 'EURC'] : ['USDC', 'USDT'];
+    return order.map((symbol) => byCurrency.get(symbol)).filter(Boolean) as StableRow[];
+  }, [stables, country]);
 
   const collectionAmountNumber = useMemo(() => {
     const n = Number(collectionAmount);

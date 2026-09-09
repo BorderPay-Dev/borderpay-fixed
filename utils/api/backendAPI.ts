@@ -18,6 +18,10 @@ import { txDirection } from '../transactions/direction';
 import { friendlyError } from '../errors/friendlyError';
 import { extractExternalAccountList } from './externalAccountList';
 import { getNativeAppCheckToken } from '../security/firebaseAppCheck';
+import {
+  projectEeaBridgeWalletRows,
+  projectEeaCanonicalWalletRows,
+} from '../compliance/eeaWalletProjection';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -1078,9 +1082,13 @@ export const financialReadModelAPI = (() => {
     }
 
     const profile = (profileRes as any)?.data?.user || {};
-    const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
+    const rawWallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
     const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
-    const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
+    const stablecoinWallets = projectEeaBridgeWalletRows(
+      Array.isArray(stableRes?.data) ? stableRes.data : [],
+      profile?.country,
+    );
+    const wallets = projectEeaCanonicalWalletRows(rawWallets, stablecoinWallets, profile?.country);
     const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
     const externalAccounts = (externalListRes as any)?.success
@@ -1268,7 +1276,8 @@ export const financialReadModelAPI = (() => {
         // Keep the route usable from local tables if sync cannot be scheduled.
       }
 
-      const [walletsRes, stableRes, vaRes, vaCapsRes] = await Promise.all([
+      const [profileRes, walletsRes, stableRes, vaRes, vaCapsRes] = await Promise.all([
+        userAPI.getProfile(),
         walletAPI.getWallets(),
         supabase
           .from('bridge_wallets')
@@ -1289,7 +1298,18 @@ export const financialReadModelAPI = (() => {
 
       if (!walletsRes?.success) return walletsRes as any;
 
-      const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
+      const profileCountry = (profileRes as any)?.success
+        ? (profileRes as any)?.data?.user?.country
+        : authAPI.getStoredUser()?.country;
+      const projectedStables = projectEeaBridgeWalletRows(
+        Array.isArray(stableRes?.data) ? stableRes.data : [],
+        profileCountry,
+      );
+      const wallets = projectEeaCanonicalWalletRows(
+        Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
+        projectedStables,
+        profileCountry,
+      );
       const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
         const c = String(w?.currency || '').toUpperCase();
         if (!c) return acc;
@@ -1301,7 +1321,7 @@ export const financialReadModelAPI = (() => {
         success: true,
         data: {
           wallets,
-          stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data : [],
+          stablecoin_wallets: projectedStables,
           virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
           virtual_account_capabilities: (vaCapsRes as any)?.success ? (vaCapsRes as any).data : null,
           balance_by_currency: balanceByCurrency,

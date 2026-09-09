@@ -15,6 +15,7 @@ import {
   bridgeCountryBlockResponse,
   logControlledBridgeTraffic,
   isBridgeVirtualAccountCurrencyAvailable,
+  isBridgeEeaCountry,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -27,7 +28,11 @@ import {
   loadBridgeEeaWalletSecurityEnrollment,
   walletSecurityEnrollmentResponse,
 } from "../_shared/wallet-security-enrollment.ts";
-import { bridgeEeaScaEnforcementEnabled } from "../_shared/bridge-sca-scope.ts";
+import {
+  bridgeEeaPilotAccessRequired,
+  bridgeEeaPilotEmailAllowed,
+  bridgeEeaScaEnforcementEnabled,
+} from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -337,6 +342,7 @@ Deno.serve(async (req) => {
         await loadVirtualAccountDestinationConfig(supa, c, {
           userId: user.id,
           bridgeCustomerId: profile.bridge_customer_id,
+          country: productCountry,
         });
         configured_currencies.push(c);
       } catch {
@@ -654,6 +660,42 @@ Deno.serve(async (req) => {
     }));
   }
 
+  if (
+    isBridgeEeaCountry(productCountry) &&
+    bridgeEeaPilotAccessRequired() &&
+    !bridgeEeaPilotEmailAllowed(user.email)
+  ) {
+    return json({
+      success: false,
+      code: "eea_pilot_access_locked",
+      error: "Contact BorderPay Support to activate EEA strong-authentication testing for this account.",
+    }, 423);
+  }
+
+  if (isBridgeEeaCountry(productCountry)) {
+    const { data: baseWallet, error: baseWalletError } = await supa
+      .from("bridge_wallets")
+      .select("bridge_wallet_id,address")
+      .eq("bridge_customer_id", profile.bridge_customer_id)
+      .ilike("chain", "base")
+      .eq("status", "active")
+      .not("address", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (baseWalletError) {
+      return json({ success: false, code: "wallet_status_unavailable", error: "Wallet status is temporarily unavailable." }, 503);
+    }
+    if (!baseWallet?.bridge_wallet_id || !baseWallet?.address) {
+      return json({
+        success: false,
+        code: "eea_wallet_activation_required",
+        error: "Activate your USDC and EURC wallet on Base before requesting a virtual account.",
+        required_wallets: ["USDC", "EURC"],
+        required_chain: "base",
+      }, 409);
+    }
+  }
+
   if (bridgeEeaScaEnforcementEnabled()) {
     let enrollment;
     try {
@@ -676,6 +718,7 @@ Deno.serve(async (req) => {
     destination = await loadVirtualAccountDestinationConfig(supa, currency as VaCurrency, {
       userId: user.id,
       bridgeCustomerId: profile.bridge_customer_id,
+      country: productCountry,
     });
     developerFeePercent = String(borderPayDirectVaDeveloperFeePercent(currency));
     idempotencyKey = await deterministicIdempotencyKey({

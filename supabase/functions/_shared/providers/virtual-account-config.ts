@@ -1,6 +1,7 @@
 export type VaCurrency = "USD" | "EUR" | "GBP";
 
 import { bridgeProvider } from "./bridge.ts";
+import { isBridgeEeaCountry } from "./bridge-country-policy.ts";
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../fees/schedule.ts";
 
 export type VirtualAccountDestinationConfig = {
@@ -124,6 +125,7 @@ export async function loadVirtualAccountDestinationConfig(
   owner?: {
     userId?: string | null;
     bridgeCustomerId?: string | null;
+    country?: string | null;
   },
 ): Promise<VirtualAccountDestinationConfig> {
   const suffix = currency.toUpperCase();
@@ -131,7 +133,7 @@ export async function loadVirtualAccountDestinationConfig(
   // existing Bridge-owned USDC wallet on Base. Per-currency/static/external
   // destination overrides previously allowed USD to drift from EUR/GBP.
   const rail = "base";
-  const ccy = "USDC";
+  const ccy = isBridgeEeaCountry(owner?.country) && currency === "EUR" ? "EURC" : "USDC";
   const userId = clean(owner?.userId);
   const bridgeCustomerId = clean(owner?.bridgeCustomerId);
 
@@ -139,7 +141,6 @@ export async function loadVirtualAccountDestinationConfig(
     let query = supa
       .from("bridge_wallets")
       .select("bridge_wallet_id,address,currency,chain,status,updated_at")
-      .ilike("currency", ccy)
       .ilike("chain", rail)
       .eq("status", "active")
       .order("updated_at", { ascending: false })
@@ -163,7 +164,6 @@ export async function loadVirtualAccountDestinationConfig(
     if (bridgeCustomerId) {
       const bridgeWallets = await bridgeProvider.listWallets(bridgeCustomerId);
       const bridgeWallet = bridgeWallets.find((w) =>
-        clean(w.currency).toUpperCase() === ccy &&
         clean(w.chain).toLowerCase() === rail &&
         clean(w.address) && clean(w.wallet_id)
       );
