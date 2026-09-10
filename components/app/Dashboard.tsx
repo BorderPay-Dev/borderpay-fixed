@@ -48,6 +48,7 @@ import { Skeleton } from '../common/Skeleton';
 import { KycReminderPopup } from '../activation/KycReminderPopup';
 import { txDirection } from '../../utils/transactions/direction';
 import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
+import { ReceiptProviderDetails } from '../transactions/ReceiptProviderDetails';
 import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
@@ -1080,7 +1081,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                       {isCredit ? '+' : '−'}{sym}{amt}
                     </p>
                   </div>
-                  {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
+                  {(receipt?.hasFees || receipt?.hasBridgeReceipt || receipt?.hasProviderDetails) && (
                     <div className={`ml-11 mt-2 grid grid-cols-2 gap-y-1 text-[11px] ${tc.textMuted}`}>
                       {receipt.hasBridgeReceipt ? (
                         <>
@@ -1123,6 +1124,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
                           <span className={`text-right font-mono ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, txn.currency)}</span>
                         </>
                       )}
+                      <ReceiptProviderDetails receipt={receipt} />
                     </div>
                   )}
                 </div>
