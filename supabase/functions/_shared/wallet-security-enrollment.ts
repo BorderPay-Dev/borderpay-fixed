@@ -1,4 +1,4 @@
-import { isBridgeEeaScaCountry, normalizeBridgeScaCountry } from "./bridge-sca-scope.ts";
+import { bridgeCustomerScaCountry, isBridgeEeaScaCountry } from "./bridge-sca-scope.ts";
 import { bridgeProvider } from "./providers/bridge.ts";
 
 type SupabaseLike = { from: (table: string) => any };
@@ -57,15 +57,29 @@ export async function loadWalletSecurityEnrollment(
   };
 }
 
-/** Resolve the enrollment requirement from Bridge's customer country. */
+/** Resolve enrollment from incorporation for businesses and residence for individuals. */
 export async function loadBridgeEeaWalletSecurityEnrollment(
   supabase: SupabaseLike,
   userId: string,
   bridgeCustomerId: string,
 ): Promise<WalletSecurityEnrollment> {
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("account_type")
+    .eq("id", userId)
+    .maybeSingle();
+  if (profileError || !profile) {
+    throw new Error(`SCA identity type lookup failed: ${profileError?.message || "profile missing"}`);
+  }
   const customer = await bridgeProvider.getCustomerProfile(bridgeCustomerId);
-  const country = normalizeBridgeScaCountry(customer.country);
-  if (!country) throw new Error("Bridge customer country is unavailable");
+  const accountType = profile.account_type === "business" ? "business" : "individual";
+  const country = bridgeCustomerScaCountry(customer, accountType);
+  if (!country) {
+    if (accountType === "business") {
+      return { required: false, country: null, enrolled: true, pin_enrolled: false, totp_enrolled: false, missing: [] };
+    }
+    throw new Error("Bridge customer residence country is unavailable");
+  }
   if (!bridgeEeaWalletSecurityRequired(country)) {
     return {
       required: false,

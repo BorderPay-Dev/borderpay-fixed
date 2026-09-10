@@ -147,8 +147,19 @@ Deno.serve(async (req) => {
     }, 409);
   }
 
+  let scaEnrollment;
+  try {
+    scaEnrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
+  } catch (error) {
+    console.error("bridge_wallet_security_enrollment_lookup_failed", {
+      user_id: user.id,
+      error: error instanceof Error ? error.message : "unknown",
+    });
+    return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
+  }
+
   if (
-    isBridgeEeaCountry(productCountry) &&
+    scaEnrollment.required &&
     bridgeEeaPilotAccessRequired() &&
     !bridgeEeaPilotEmailAllowed(user.email)
   ) {
@@ -159,18 +170,8 @@ Deno.serve(async (req) => {
     }, 423);
   }
 
-  if (bridgeEeaScaEnforcementEnabled()) {
-    let enrollment;
-    try {
-      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
-    } catch (error) {
-      console.error("bridge_wallet_security_enrollment_lookup_failed", {
-        user_id: user.id,
-        error: error instanceof Error ? error.message : "unknown",
-      });
-      return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
-    }
-    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
+  if (bridgeEeaScaEnforcementEnabled() && scaEnrollment.required && !scaEnrollment.enrolled) {
+    return json(walletSecurityEnrollmentResponse(scaEnrollment), 409);
   }
 
   try {

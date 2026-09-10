@@ -38,8 +38,10 @@ for symbol, chain in [("EURC", "BASE"), ("USDC", "BASE"), ("USDT", "TRON")]:
 
 if "bridgeAutomaticWalletsForCountry(country)" not in worker_provision:
     failures.append("webhook provisioning must select wallets from the authoritative country policy")
-if provisioner.count("bridgeAutomaticWalletsForCountry(profile.country)") != 2:
-    failures.append("both user and operator provisioner paths must select wallets from authoritative country")
+if provisioner.count("bridgeAutomaticWalletsForCountry(productCountry)") != 2:
+    failures.append("both user and operator provisioner paths must select wallets from resolved legal jurisdiction")
+if provisioner.count("loadBridgeEeaWalletSecurityEnrollment") < 2:
+    failures.append("both user and operator provisioner paths must resolve provider-backed SCA jurisdiction")
 if "DEFAULT_STABLECOIN_WALLETS" in worker or "const DEFAULTS" in provisioner:
     failures.append("provisioning must not retain country-blind wallet defaults")
 if "isGatewayVerifiedServiceRoleJwt(token)" not in provisioner:
@@ -72,7 +74,7 @@ else:
 
 if 'if (normalized === "approved")' not in worker or "ensureStablecoinWalletsProvisioned" not in worker:
     failures.append("approved non-EEA KYC/KYB events must invoke stablecoin auto-provisioning")
-if 'if (isBridgeEeaCountry(country))' not in worker_provision or 'bridge_eea_wallet_auto_provision_skipped' not in worker_provision:
+if 'if (jurisdiction.required)' not in worker_provision or 'bridge_eea_wallet_auto_provision_skipped' not in worker_provision:
     failures.append("EEA approval webhooks must defer wallet creation to an explicit user request")
 if provisioner.count('eea_manual_wallet_activation_required') < 2:
     failures.append("both user and operator bulk provisioner paths must leave EEA wallets manual")
@@ -94,10 +96,10 @@ country_sync = worker.split("async function syncCountryFromBridgeCustomer", 1)[1
 )[0]
 if "hasBridgeCountryMismatch" not in country_sync:
     failures.append("Bridge country sync must detect stale non-empty profile countries")
-if "userCountry !== bridgeCountry" not in country_sync:
-    failures.append("Bridge country sync must correct a stale user country")
-if "businessCountry !== bridgeCountry" not in country_sync:
-    failures.append("Bridge country sync must correct a stale business country")
+if 'owner.account_type !== "business" && bridgeCountry && userCountry !== bridgeCountry' not in country_sync:
+    failures.append("Bridge country sync must correct a stale individual residence country")
+if "businessCountry !== bridgeCountry" in country_sync:
+    failures.append("Bridge operating/address country must never overwrite business incorporation country")
 if 'value.raw_text ? `response=${String(value.raw_text).slice(0, 240)}`' not in worker_provision:
     failures.append("Bridge wallet invalid-parameter diagnostics must retain a bounded provider response")
 if worker_provision.find('.from("bridge_wallets")') > worker_provision.find("tryAcquireProvisioningLock("):

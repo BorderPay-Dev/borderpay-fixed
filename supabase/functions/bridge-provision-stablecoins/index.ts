@@ -75,26 +75,21 @@ Deno.serve(async (req) => {
   if (!profile.bridge_customer_id) return noop("no_customer");
   const verification = profile.verification_status;
   if (verification !== "approved") return noop("kyc_not_approved");
-  if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
-  if (isBridgeEeaCountry(profile.country)) return noop("eea_manual_wallet_activation_required");
-
-  if (bridgeEeaScaEnforcementEnabled()) {
-    let enrollment;
-    try {
-      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
-    } catch (error) {
-      console.error("bridge_wallet_security_enrollment_lookup_failed", {
-        user_id: user.id,
-        error: error instanceof Error ? error.message : "unknown",
-      });
-      return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
-    }
-    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
+  let jurisdiction;
+  try {
+    jurisdiction = await loadBridgeEeaWalletSecurityEnrollment(supa, user.id, profile.bridge_customer_id);
+  } catch (error) {
+    console.error("bridge_wallet_jurisdiction_lookup_failed", { user_id: user.id, error: error instanceof Error ? error.message : "unknown" });
+    return json({ success: false, code: "security_status_unavailable", error: "Security status is temporarily unavailable." }, 503);
   }
+  if (!jurisdiction.country) return noop("business_incorporation_country_unavailable");
+  const productCountry = jurisdiction.country;
+  if (isBridgeBlocked(productCountry) || !isBridgeCustodialWalletSupported(productCountry)) return noop("country_unsupported");
+  if (jurisdiction.required) return noop("eea_manual_wallet_activation_required");
 
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
-  const defaults = bridgeAutomaticWalletsForCountry(profile.country);
+  const defaults = bridgeAutomaticWalletsForCountry(productCountry);
 
   for (const { symbol, chain } of defaults) {
     // Idempotent: skip if this (currency, chain) already exists for the user.
@@ -161,34 +156,32 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
   if (String(profile.bridge_kyc_status || "").toLowerCase() !== "approved" && String(profile.kyc_status || "").toLowerCase() !== "verified") {
     return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
   }
-  if (isBridgeBlocked(profile.country)) return json({ success: false, code: "country_blocked", country: profile.country }, 403);
-  if (!isBridgeCustodialWalletSupported(profile.country)) {
+  let jurisdiction;
+  try {
+    jurisdiction = await loadBridgeEeaWalletSecurityEnrollment(supa, profile.id, profile.bridge_customer_id);
+  } catch (securityError) {
+    return json({ success: false, code: "security_status_unavailable", error: securityError instanceof Error ? securityError.message : "Security status is temporarily unavailable." }, 503);
+  }
+  if (!jurisdiction.country) return json({ success: false, code: "business_incorporation_country_unavailable", error: "Business incorporation country requires review." }, 409);
+  const productCountry = jurisdiction.country;
+  if (isBridgeBlocked(productCountry)) return json({ success: false, code: "country_blocked", country: productCountry }, 403);
+  if (!isBridgeCustodialWalletSupported(productCountry)) {
     return json({
       success: false,
       code: "wallet_country_not_supported",
       error: "Bridge custodial wallets are not available for this country. Use a saved external wallet address as the virtual-account destination.",
-      country: profile.country,
+      country: productCountry,
     }, 403);
   }
-  if (isBridgeEeaCountry(profile.country)) {
+  if (jurisdiction.required) {
     return json({ success: true, data: { wallets: [], skipped: "eea_manual_wallet_activation_required" } });
-  }
-
-  if (bridgeEeaScaEnforcementEnabled()) {
-    let enrollment;
-    try {
-      enrollment = await loadBridgeEeaWalletSecurityEnrollment(supa, profile.id, profile.bridge_customer_id);
-    } catch (securityError) {
-      return json({ success: false, code: "security_status_unavailable", error: securityError instanceof Error ? securityError.message : "Security status is temporarily unavailable." }, 503);
-    }
-    if (!enrollment.enrolled) return json(walletSecurityEnrollmentResponse(enrollment), 409);
   }
 
   const isBusiness = profile.account_type === "business";
   const ownerCols: Record<string, unknown> = { user_id: profile.id };
   if (isBusiness) ownerCols.business_user_id = profile.id;
   const out: Array<Record<string, unknown>> = [];
-  const defaults = bridgeAutomaticWalletsForCountry(profile.country);
+  const defaults = bridgeAutomaticWalletsForCountry(productCountry);
 
   for (const { symbol, chain } of defaults) {
     const { data: existing } = await supa

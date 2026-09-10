@@ -2,8 +2,8 @@ import { loadAndAssertBridgeIdentityInvariant } from "./bridge-identity-invarian
 import { bridgeProvider } from "./providers/bridge.ts";
 
 /**
- * Bridge SCA applies to custodial-wallet customers legally resident/operating
- * in the EEA. This is deliberately separate from Bridge's product-eligibility
+ * Bridge SCA applies to custodial-wallet individuals resident in the EEA and
+ * businesses legally incorporated in the EEA. This is deliberately separate from Bridge's product-eligibility
  * country lists: the EEA includes Iceland, Liechtenstein and Norway, and does
  * not include the United Kingdom or Switzerland.
  */
@@ -33,7 +33,8 @@ export type BridgeScaScope = {
     | "non_eea"
     | "no_custodial_wallet"
     | "identity_invariant_violation"
-    | "bridge_scope_unavailable";
+    | "bridge_scope_unavailable"
+    | "business_incorporation_country_unavailable";
   country: string | null;
   verified: boolean;
   has_custodial_wallet: boolean | null;
@@ -48,6 +49,41 @@ export function normalizeBridgeScaCountry(value: unknown): string | null {
 export function isBridgeEeaScaCountry(value: unknown): boolean {
   const code = normalizeBridgeScaCountry(value);
   return code !== null && BRIDGE_EEA_SCA_COUNTRIES.has(code);
+}
+
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
+}
+
+function firstCountry(...values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeBridgeScaCountry(value);
+    if (normalized && normalized.length === 2) return normalized;
+  }
+  return null;
+}
+
+/** Business uses incorporation country only; individuals use residence. */
+export function bridgeCustomerScaCountry(customer: any, accountType: "business" | "individual"): string | null {
+  const envelope = asRecord(customer?.raw);
+  const data = asRecord(envelope.data || envelope);
+  if (accountType === "business") {
+    const business = asRecord(data.business);
+    const registeredAddress = asRecord(
+      business.registered_address || data.registered_address || data.business_registered_address,
+    );
+    return firstCountry(
+      business.country_of_incorporation,
+      data.country_of_incorporation,
+      business.incorporation_country,
+      data.incorporation_country,
+      business.formation_country,
+      data.formation_country,
+      registeredAddress.country,
+    );
+  }
+  const residentialAddress = asRecord(data.residential_address);
+  return firstCountry(residentialAddress.country, data.country_of_residence, data.residence_country, customer?.country);
 }
 
 export function bridgeEeaScaEnforcementEnabled(): boolean {
@@ -110,9 +146,19 @@ export async function resolveBridgeScaScope(
 
   try {
     const customer = await bridgeProvider.getCustomerProfile(customerId);
-    const country = normalizeBridgeScaCountry(customer.country);
+    const country = bridgeCustomerScaCountry(customer, identity.context.account_type);
     if (!country) {
-      return { required: false, status: "unknown", reason: "bridge_scope_unavailable", country: null, verified, has_custodial_wallet: null };
+      if (identity.context.account_type === "business") {
+        return { required: false, status: "not_required", reason: "business_incorporation_country_unavailable", country: null, verified, has_custodial_wallet: null };
+      }
+      return {
+        required: false,
+        status: "unknown",
+        reason: "bridge_scope_unavailable",
+        country: null,
+        verified,
+        has_custodial_wallet: null,
+      };
     }
     if (!BRIDGE_EEA_SCA_COUNTRIES.has(country)) {
       return { required: false, status: "not_required", reason: "non_eea", country, verified, has_custodial_wallet: null };

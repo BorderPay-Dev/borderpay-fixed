@@ -1,5 +1,6 @@
 import {
   BRIDGE_EEA_SCA_COUNTRIES,
+  bridgeCustomerScaCountry,
   bridgeEeaScaEnforcementEnabled,
   isBridgeEeaScaCountry,
   isActiveBridgeCustodialWallet,
@@ -44,6 +45,18 @@ Deno.test("EEA SCA country normalization is deterministic", () => {
   assertEquals(normalizeBridgeScaCountry(" fra "), "FR");
   assertEquals(normalizeBridgeScaCountry("no"), "NO");
   assertEquals(normalizeBridgeScaCountry(""), null);
+});
+
+Deno.test("business SCA uses incorporation country and never operating address", () => {
+  assertEquals(bridgeCustomerScaCountry({ raw: { country_of_incorporation: "GB", operating_address: { country: "FR" } }, country: "FR" }, "business"), "GB");
+  assertEquals(isBridgeEeaScaCountry(bridgeCustomerScaCountry({ raw: { country_of_incorporation: "GB", operating_address: { country: "FR" } }, country: "FR" }, "business")), false);
+  assertEquals(bridgeCustomerScaCountry({ raw: { business: { country_of_incorporation: "LV", operating_address: { country: "GB" } } } }, "business"), "LV");
+  assertEquals(bridgeCustomerScaCountry({ raw: { operating_address: { country: "FR" }, country: "FR" }, country: "FR" }, "business"), null);
+  assertEquals(bridgeCustomerScaCountry({ raw: { registered_address: { country: "FR" }, operating_address: { country: "GB" } } }, "business"), "FR");
+});
+
+Deno.test("individual SCA uses residence country", () => {
+  assertEquals(bridgeCustomerScaCountry({ raw: { residential_address: { country: "FR" }, country_of_incorporation: "GB" }, country: "GB" }, "individual"), "FR");
 });
 
 Deno.test("SCA rollout remains disabled unless explicitly enabled", () => {

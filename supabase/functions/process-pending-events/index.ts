@@ -40,7 +40,6 @@ import { bridgeReceiptBreakdown } from "../_shared/bridge-receipt-breakdown.ts";
 import { bridgeOperatorEventState, shouldNotifyBridgeOperator } from "../_shared/bridge-operator-notification.ts";
 import { assertBridgeIngressDecision, evaluateBridgeIngressEvent } from "../_shared/bridge-ingress-evaluator.ts";
 import { loadBridgeEeaWalletSecurityEnrollment } from "../_shared/wallet-security-enrollment.ts";
-import { bridgeEeaScaEnforcementEnabled } from "../_shared/bridge-sca-scope.ts";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const PROCESS_PENDING_EVENTS_WORKER_TOKEN = Deno.env.get("PROCESS_PENDING_EVENTS_WORKER_TOKEN") ?? "";
@@ -3056,34 +3055,29 @@ async function ensureStablecoinWalletsProvisioned(input) {
     // lifecycle subjects. Skip auto-provisioning entirely.
     return;
   }
-  if (bridgeEeaScaEnforcementEnabled()) {
-    const enrollment = await loadBridgeEeaWalletSecurityEnrollment(supabase, input.userId, input.bridgeCustomerId);
-    if (!enrollment.enrolled) {
-      console.info("bridge_wallet_auto_provision_deferred", {
-        user_id: input.userId,
-        bridge_customer_id: input.bridgeCustomerId,
-        missing: enrollment.missing,
-      });
-      return;
-    }
+  const jurisdiction = await loadBridgeEeaWalletSecurityEnrollment(supabase, input.userId, input.bridgeCustomerId);
+  if (!jurisdiction.country) {
+    console.info("bridge_wallet_auto_provision_deferred", {
+      user_id: input.userId,
+      bridge_customer_id: input.bridgeCustomerId,
+      reason: "business_incorporation_country_unavailable",
+    });
+    return;
+  }
+  if (jurisdiction.required) {
+    console.info("bridge_eea_wallet_auto_provision_skipped", {
+      user_id: input.userId,
+      bridge_customer_id: input.bridgeCustomerId,
+      missing: jurisdiction.missing,
+    });
+    return;
   }
   const profileTable = input.accountType === "business" ? "business_profiles" : "user_profiles";
   const idCol = input.accountType === "business" ? "user_id" : "id";
   const statusCol = input.accountType === "business" ? "bridge_kyb_status" : "bridge_kyc_status";
   const { data: profile } = await supabase.from(profileTable).select(`country, ${statusCol}`).eq(idCol, input.userId).maybeSingle();
-  let country = String(profile?.country || "");
-  if (!country && input.accountType === "business") {
-    const { data: userProfile } = await supabase.from("user_profiles").select("country").eq("id", input.userId).maybeSingle();
-    country = String(userProfile?.country || "");
-  }
+  const country = jurisdiction.country;
   if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
-  if (isBridgeEeaCountry(country)) {
-    console.info("bridge_eea_wallet_auto_provision_skipped", {
-      user_id: input.userId,
-      bridge_customer_id: input.bridgeCustomerId,
-    });
-    return;
-  }
   const statusValue = profile?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
   for (const { symbol, chain } of bridgeAutomaticWalletsForCountry(country)){
@@ -3151,7 +3145,10 @@ async function syncCountryFromBridgeCustomer(bridgeCustomerId, owner) {
   const businessCountry = normalizeCountryCode(businessProfile?.country);
   const cachedBridgeAddress = userProfile?.bridge_address_object && typeof userProfile.bridge_address_object === "object" ? userProfile.bridge_address_object : null;
   const cachedBridgeCountry = normalizeBridgeCountryCode(cachedBridgeAddress?.country ? String(cachedBridgeAddress.country) : null);
-  const hasBridgeCountryMismatch = Boolean(cachedBridgeCountry && (userCountry !== cachedBridgeCountry || owner.account_type === "business" && businessCountry !== cachedBridgeCountry));
+  // Bridge's generic/address country may represent where a business operates.
+  // It may refresh an individual's residence, but it must never overwrite a
+  // business's legal country of incorporation.
+  const hasBridgeCountryMismatch = Boolean(owner.account_type !== "business" && cachedBridgeCountry && userCountry !== cachedBridgeCountry);
   const needsUserIdentity = !userProfile?.date_of_birth || !userProfile?.id_number || !userProfile?.id_type;
   const hasBusinessIdentityMetadata = businessProfile?.bridge_identity_metadata && typeof businessProfile.bridge_identity_metadata === "object" && Object.keys(businessProfile.bridge_identity_metadata).length > 0;
   const needsBusinessIdentity = owner.account_type === "business" && !hasBusinessIdentityMetadata;
@@ -3169,7 +3166,7 @@ async function syncCountryFromBridgeCustomer(bridgeCustomerId, owner) {
   const userUpdate = {
     updated_at: new Date().toISOString()
   };
-  if (bridgeCountry && userCountry !== bridgeCountry) userUpdate.country = bridgeCountry;
+  if (owner.account_type !== "business" && bridgeCountry && userCountry !== bridgeCountry) userUpdate.country = bridgeCountry;
   if (!userProfile?.phone && customer.phone) userUpdate.phone = customer.phone;
   if (!userProfile?.date_of_birth && customer.date_of_birth) userUpdate.date_of_birth = customer.date_of_birth;
   if (!userProfile?.id_number && customer.id_number) userUpdate.id_number = customer.id_number;
@@ -3183,7 +3180,7 @@ async function syncCountryFromBridgeCustomer(bridgeCustomerId, owner) {
   }
   if (customer.address_object && Object.values(customer.address_object).some((v)=>String(v ?? "").trim().length > 0)) {
     userUpdate.bridge_address_object = customer.address_object;
-    if (bridgeCountry && userCountry !== bridgeCountry) userUpdate.country = bridgeCountry;
+    if (owner.account_type !== "business" && bridgeCountry && userCountry !== bridgeCountry) userUpdate.country = bridgeCountry;
     const line1 = customer.address_object.street_line_1;
     const line2 = customer.address_object.street_line_2;
     if (line1) userUpdate.address = line2 ? `${line1}, ${line2}` : line1;
@@ -3197,7 +3194,6 @@ async function syncCountryFromBridgeCustomer(bridgeCustomerId, owner) {
     const bizUpdate = {
       updated_at: new Date().toISOString()
     };
-    if (bridgeCountry && businessCountry !== bridgeCountry) bizUpdate.country = bridgeCountry;
     if (!businessProfile?.company_phone && customer.phone) bizUpdate.company_phone = customer.phone;
     if (customer.id_number || customer.id_type || customer.date_of_birth || customer.identity_metadata.id_number_present) {
       bizUpdate.bridge_identity_metadata = {
