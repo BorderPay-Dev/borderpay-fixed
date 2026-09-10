@@ -17,6 +17,7 @@ import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBra
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { normalizeTransactionReceipt, TransactionReceiptBreakdown } from '../../utils/transactions/receipt';
+import { ReceiptProviderDetails } from './ReceiptProviderDetails';
 
 interface TransactionsScreenProps {
   userId: string;
@@ -429,7 +430,7 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
                             </div>
                           </div>
 
-                          {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
+                          {(receipt?.hasFees || receipt?.hasBridgeReceipt || receipt?.hasProviderDetails) && (
                             <div className={`mt-4 pt-3 border-t ${tc.borderLight} grid grid-cols-2 gap-y-2 text-[12px]`}>
                               {receipt.hasBridgeReceipt ? (
                                 <>
@@ -494,6 +495,11 @@ export function TransactionsScreen({ userId, customerId: _customerId, onBack }: 
                                   </span>
                                 </>
                               )}
+                              <ReceiptProviderDetails
+                                receipt={receipt}
+                                labelClassName={tc.textSecondary}
+                                valueClassName={tc.text}
+                              />
                             </div>
                           )}
                         </div>

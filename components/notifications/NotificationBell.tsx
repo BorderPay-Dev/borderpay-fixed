@@ -22,6 +22,7 @@ import { authAPI } from '../../utils/supabase/client';
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
+import { ReceiptProviderDetails } from '../transactions/ReceiptProviderDetails';
 import { txDirection } from '../../utils/transactions/direction';
 
 interface Notification {
@@ -369,7 +370,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                               <p className="text-white/60 text-xs mb-2 line-clamp-2">
                                 {message}
                               </p>
-                              {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
+                              {(receipt?.hasFees || receipt?.hasBridgeReceipt || receipt?.hasProviderDetails) && (
                                 <div className="mb-2 grid grid-cols-2 gap-y-1 text-[10px] text-white/50">
                                   {receipt.hasBridgeReceipt ? (
                                     <>
@@ -412,6 +413,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
                                       <span className="text-right font-mono font-semibold text-white/70">{formatReceiptMoney(receipt.finalAmount, currency)}</span>
                                     </>
                                   )}
+                                  <ReceiptProviderDetails receipt={receipt} />
                                 </div>
                               )}
                               <div className="flex items-center justify-between">
