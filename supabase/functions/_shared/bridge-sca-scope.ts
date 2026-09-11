@@ -97,8 +97,12 @@ export function bridgeEeaPilotAccessRequired(): boolean {
 export function bridgeEeaPilotEmailAllowed(email: unknown): boolean {
   const normalized = String(email || "").trim().toLowerCase();
   if (!normalized) return false;
+  const configured = [
+    Deno.env.get("BRIDGE_EEA_PILOT_EMAILS") || "",
+    Deno.env.get("BRIDGE_EEA_PILOT_APPROVED_EMAILS") || "",
+  ].join(",");
   return new Set(
-    (Deno.env.get("BRIDGE_EEA_PILOT_EMAILS") || "")
+    configured
       .split(",")
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean),
