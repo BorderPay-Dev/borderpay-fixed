@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 migration = (ROOT / "supabase/migrations/20260913113000_current_month_business_maintenance.sql").read_text()
 worker = (ROOT / "supabase/functions/subscription-billing-worker/index.ts").read_text()
+fee_migration = (ROOT / "supabase/migrations/20260913120000_business_maintenance_fee_2999.sql").read_text()
 
 checks = {
     "current month-end helper exists": "subscription_current_month_end" in migration,
@@ -35,6 +36,11 @@ checks = {
     "migration does not auto-run a financial batch": "select public.sync_approved_business_maintenance_subscriptions(" not in migration,
     "business is not double processed by legacy billing": '.neq("account_type", "business")' in worker,
     "reference prefix remains enforced": "bp-maintenance-${invoice.id}" in (ROOT / "supabase/functions/flutterwave-subscription-collection/index.ts").read_text(),
+    "September business fee is 29.99": "return 29.99" in fee_migration,
+    "August business fee remains 15": "return 15.00" in fee_migration,
+    "historical individual fee remains 5": "return 5.00" in fee_migration,
+    "fee follows billing period": "subscriptions_apply_period_fee" in fee_migration,
+    "fee migration does not collect funds": "charge_internal_subscription" not in fee_migration,
 }
 
 failed = [name for name, ok in checks.items() if not ok]
