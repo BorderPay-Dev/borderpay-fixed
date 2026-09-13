@@ -34,6 +34,7 @@ import {
 import { SkeletonRows } from '../common/Skeleton';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { selectVaLinkedStablecoinWallets } from '../../utils/financial/vaLinkedWalletPresentation';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 
 interface WalletScreenProps {
@@ -50,7 +51,7 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
-const SUPPORTED_STABLES = new Set(['USDC', 'USDT']);
+const SUPPORTED_STABLES = new Set(['USDC', 'EURC', 'USDT']);
 const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP']);
 const ACTIVE_WALLET_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 const ACTIVE_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
@@ -180,7 +181,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      return normalizeStableRows(scoped);
+      const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+      return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas));
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
@@ -258,7 +260,8 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        return normalizeStableRows(scoped);
+        const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+        return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas));
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
@@ -506,7 +509,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
                 const stableBalance = Number(balanceByCurrency[sym] || 0);
                 const showDivider = visibleVas.length > 0 || i > 0;
                 return (
-                  <button key={s.id} onClick={() => setSelectedStable({ ...s, currency: sym })}
+                  <button key={(s as any).presentation_id || `${s.id}:${sym}`} onClick={() => setSelectedStable({ ...s, currency: sym })}
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left ${tc.hoverBg} ${showDivider ? `border-t ${tc.borderLight}` : ''}`}>
                     <AssetBadge symbol={sym} size={44} />
                     <div className="flex-1 min-w-0">

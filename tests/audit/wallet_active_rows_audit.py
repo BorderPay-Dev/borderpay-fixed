@@ -55,14 +55,14 @@ def block_between(text: str, start: str, end: str, label: str) -> str:
 
 def assert_wallet_screen(src: str) -> None:
     for marker in [
-        "const SUPPORTED_STABLES = new Set(['USDC', 'USDT'])",
+        "const SUPPORTED_STABLES = new Set(['USDC', 'EURC', 'USDT'])",
         "const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP'])",
         "const ACTIVE_WALLET_STATUSES",
         "const ACTIVE_VA_STATUSES",
         "function normalizeStableRows",
         "function normalizeVaRows",
         "function latestByCurrency",
-        "return normalizeStableRows(scoped)",
+        "return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas))",
         "return normalizeVaRows(scoped, readCachedCountry())",
         "const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets)",
         "const rawVas = Array.isArray(routeData?.data?.virtual_accounts)",
