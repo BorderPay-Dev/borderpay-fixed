@@ -19,14 +19,85 @@ const EEA_BILLING_COUNTRIES = new Set([
 ]);
 
 async function resolveBillingCountry(userId: string): Promise<{ country: string | null; eea: boolean }> {
-  const { data, error } = await db.from("user_profiles")
-    .select("country,verification_status")
+  const [{ data, error }, { data: business, error: businessError }] = await Promise.all([
+    db.from("user_profiles")
+    .select("country,account_type,kyc_status,bridge_kyc_status,account_status,bridge_account_status")
     .eq("id", userId)
-    .maybeSingle();
-  if (error || data?.verification_status !== "approved") return { country: null, eea: false };
+    .maybeSingle(),
+    db.from("business_profiles")
+      .select("bridge_kyb_status")
+      .eq("user_id", userId)
+      .maybeSingle(),
+  ]);
+  const blocked = new Set(["paused", "frozen", "offboarded", "rejected", "closed", "deleted", "suspended"]);
+  const accountType = String(data?.account_type ?? "").toLowerCase();
+  const identityApproved = accountType === "business"
+    ? ["approved", "verified"].includes(String(business?.bridge_kyb_status ?? "").toLowerCase())
+    : ["approved", "verified"].includes(String(data?.bridge_kyc_status ?? data?.kyc_status ?? "").toLowerCase());
+  if (error || businessError
+    || String(data?.kyc_status ?? "").toLowerCase() !== "verified"
+    || !["business", "individual"].includes(accountType)
+    || !identityApproved
+    || blocked.has(String(data?.account_status ?? "").toLowerCase())
+    || blocked.has(String(data?.bridge_account_status ?? "").toLowerCase())) {
+    return { country: null, eea: false };
+  }
   const country = String(data?.country ?? "").trim().toUpperCase();
   if (!/^[A-Z]{2}$/.test(country)) return { country: null, eea: false };
   return { country, eea: EEA_BILLING_COUNTRIES.has(country) };
+}
+
+function currentMonthEnd(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+}
+
+async function prepareApprovedBusinessBilling(dryRun = false) {
+  const billingPeriod = currentMonthEnd();
+  const { data: sync, error: syncError } = await db.rpc("sync_approved_business_maintenance_subscriptions", {
+    p_billing_period: billingPeriod,
+    p_dry_run: dryRun,
+  });
+  if (syncError) throw syncError;
+
+  const { data, error } = await db.from("subscriptions")
+    .select("id,user_id,next_billing_date")
+    .eq("account_type", "business")
+    .eq("status", "active")
+    .is("restricted_at", null)
+    .lte("next_billing_date", billingPeriod)
+    .limit(1000);
+  if (error) throw error;
+
+  const scopedRows = await mapWithConcurrency(data ?? [], 3, async (row) => ({
+    row,
+    scope: await resolveBillingCountry(row.user_id),
+  }));
+  const eligible = scopedRows.filter(({ scope }) => Boolean(scope.country));
+  const blocked = scopedRows.filter(({ scope }) => !scope.country)
+    .map(({ row }) => ({ id: row.id, user_id: row.user_id, reason: "maintenance_identity_or_country_unresolved" }));
+
+  if (dryRun) {
+    return { billing_period: billingPeriod, sync, eligible: eligible.length, blocked, queued: 0, results: [] };
+  }
+
+  const results = [];
+  for (const { row, scope } of eligible) {
+    const { data: result, error: invoiceError } = await db.rpc("queue_external_subscription_invoice", {
+      p_subscription_id: row.id,
+      p_billing_date: billingPeriod,
+      p_scope_country: scope.country,
+      p_provider: "flutterwave",
+    });
+    results.push({
+      id: row.id,
+      route: "flutterwave_invoice",
+      eea: scope.eea,
+      result,
+      error: invoiceError?.message ?? null,
+    });
+  }
+  return { billing_period: billingPeriod, sync, eligible: eligible.length, blocked, queued: results.filter((r) => !r.error).length, results };
 }
 
 function equal(a: string, b: string): boolean {
@@ -52,6 +123,7 @@ async function billDue() {
   const today = new Date().toISOString().slice(0, 10);
   const { data, error } = await db.from("subscriptions")
     .select("id,user_id")
+    .neq("account_type", "business")
     .eq("status", "active")
     .is("restricted_at", null)
     .lte("next_billing_date", today)
@@ -330,6 +402,12 @@ Deno.serve(async (req) => {
   try {
     const { mode = "drain" } = await req.json().catch(() => ({}));
     const out: Record<string, unknown> = {};
+    if (["prepare", "bill_due", "drain"].includes(mode)) {
+      out.business_maintenance = await prepareApprovedBusinessBilling(false);
+    }
+    if (mode === "prepare_dry_run") {
+      out.business_maintenance = await prepareApprovedBusinessBilling(true);
+    }
     if (["bill_due", "drain"].includes(mode)) {
       out.billing = await billDue();
       out.external_invoices = await drainExternalInvoices();
