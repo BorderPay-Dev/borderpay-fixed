@@ -23,6 +23,9 @@ const cors = (req: Request) => ({
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), "Content-Type": "application/json" } });
 const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
 const comparable = (value: unknown) => clean(value, 300).toLowerCase().replace(/[^a-z0-9]/g, "");
+const normalizeEmail = (value: unknown) => clean(value, 254).toLowerCase();
+const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const ilikeLiteral = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -44,6 +47,30 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
   const action = clean(body?.action, 60);
+  const sendPartnerInvoiceEmail = async (invoice: any, recipient: string, partnerName: string, idempotencyKey: string) => {
+    const internalToken = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") || "";
+    if (!internalToken) return { sent: false, error: "Email dispatcher is not configured" };
+    const response = await fetch(`${url}/functions/v1/send-email`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${internalToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template: "business.partner_invoice", to: recipient,
+        idempotency_key: idempotencyKey,
+        props: {
+          partner_name: partnerName, invoice_number: invoice.invoice_number,
+          period_start: invoice.period_start, period_end: invoice.period_end,
+          due_at: invoice.due_at, total: Number(invoice.total || 0).toFixed(2),
+          currency: invoice.currency || "USD", payment_method: invoice.payment_method,
+          payment_url: invoice.payment_url || "https://portal.borderpayafrica.com",
+        },
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    const deliveryStatus = String(result?.data?.status || "").toLowerCase();
+    return response.ok && result?.success && deliveryStatus !== "failed"
+      ? { sent: true, result }
+      : { sent: false, error: result?.error || `Email HTTP ${response.status}` };
+  };
   try {
     if (action === "list_invite_requests") {
       const { data, error } = await db.from("partner_access_invite_requests")
@@ -51,6 +78,57 @@ Deno.serve(async (req) => {
         .order("requested_at", { ascending: false }).limit(250);
       if (error) throw error;
       return json(req, { success: true, requests: data || [] });
+    }
+
+    if (action === "send_direct_invite") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      const email = normalizeEmail(body?.email);
+      if (!validEmail(email)) return json(req, { success: false, error: "Enter a valid business email address" }, 400);
+      const emailPattern = ilikeLiteral(email);
+
+      const { data: organization, error: organizationError } = await db.from("partner_organizations")
+        .select("id,status").ilike("primary_email", emailPattern).limit(1).maybeSingle();
+      if (organizationError) throw organizationError;
+      if (organization) return json(req, { success: false, error: "This email already belongs to a partner organization" }, 409);
+
+      const { data: existing, error: existingError } = await db.from("partner_access_invite_requests")
+        .select("id,email,status,requested_at,invited_at,accepted_at")
+        .ilike("email", emailPattern).order("requested_at", { ascending: false }).limit(1).maybeSingle();
+      if (existingError) throw existingError;
+      if (existing?.status === "accepted") return json(req, { success: false, error: "This invitation has already been accepted" }, 409);
+      if (existing?.status === "invited") return json(req, { success: false, error: "An active invitation already exists for this email" }, 409);
+
+      let requestId = Number(existing?.id || 0);
+      const requestedAt = new Date().toISOString();
+      if (requestId) {
+        const { error } = await db.from("partner_access_invite_requests").update({
+          email, status: "pending", approved_by: null, approved_at: null,
+          invited_at: null, accepted_at: null, requested_at: requestedAt,
+        }).eq("id", requestId);
+        if (error) throw error;
+      } else {
+        const { data: created, error } = await db.from("partner_access_invite_requests")
+          .insert({ email, status: "pending", requested_at: requestedAt })
+          .select("id").single();
+        if (error) throw error;
+        requestId = Number(created.id);
+      }
+
+      const redirectTo = "https://portal.borderpayafrica.com/auth/callback?setup=password";
+      const { error: sendError } = await db.auth.admin.inviteUserByEmail(email, { redirectTo });
+      if (sendError) {
+        console.error("partner_direct_invite_delivery_failed", { request_id: requestId, email, message: sendError.message });
+        return json(req, { success: false, error: "Invitation delivery failed. The request remains pending and can be retried." }, 502);
+      }
+
+      const now = new Date().toISOString();
+      const { data: invitation, error: updateError } = await db.from("partner_access_invite_requests")
+        .update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now })
+        .eq("id", requestId).eq("status", "pending")
+        .select("id,email,status,requested_at,approved_at,invited_at,accepted_at").single();
+      if (updateError) throw updateError;
+      console.info("partner_direct_invite_sent", { request_id: requestId, email, operator_id: authData.user.id });
+      return json(req, { success: true, invitation });
     }
 
     if (action === "approve_invite") {
@@ -84,14 +162,212 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return json(req, { success: true, applications: data || [] });
     }
+
+    if (action === "partner_finance_overview") {
+      const [{ data: organizations, error: orgError }, { data: projects, error: projectError }, { data: terms, error: termsError }, { data: invoices, error: invoiceError }, { data: providerInvoices, error: providerInvoiceError }, { data: allocations, error: allocationError }, { data: payouts, error: payoutError }] = await Promise.all([
+        db.from("partner_organizations").select("id,legal_name,trading_name,primary_email,status,partner_model,commercial_status,approved_tenant_id").order("legal_name"),
+        db.from("partner_projects").select("id,organization_id,tenant_id,name,environment,status").not("tenant_id", "is", null),
+        db.from("partner_commercial_terms").select("id,organization_id,partner_model,volume_tier,currency,upfront_fee,monthly_fee,va_onramp_percent,external_fiat_offramp_percent,crypto_to_crypto_percent,african_rails_markup_percent,partner_developer_fee_percent,effective_from,effective_until,nda_reference,treasury_agreement_reference,is_active").eq("is_active", true),
+        db.from("partner_invoices").select("id,organization_id,invoice_number,period_start,period_end,issued_at,due_at,currency,subtotal,tax,total,amount_paid,status,payment_method,payment_reference,payment_url,sent_at,paid_at,partner_invoice_line_items(id,line_type,description,provider,product,quantity,unit_amount,amount,allocation_basis)").order("period_end", { ascending: false }).limit(500),
+        db.from("partner_provider_invoices").select("id,provider,provider_invoice_number,period_start,period_end,currency,total,source_document_path,status,created_at").order("period_end", { ascending: false }).limit(250),
+        db.from("partner_provider_cost_allocations").select("id,provider_invoice_id,organization_id,partner_invoice_line_item_id,allocation_key,quantity,allocated_amount,evidence,created_at").order("created_at", { ascending: false }).limit(2000),
+        db.from("partner_developer_fee_ledger").select("id,organization_id,tenant_id,provider,provider_transaction_id,currency,gross_partner_fee,reversal_amount,payable_amount,state,occurred_at,paid_at,payout_reference").order("occurred_at", { ascending: false }).limit(5000),
+      ]);
+      for (const error of [orgError, projectError, termsError, invoiceError, providerInvoiceError, allocationError, payoutError]) if (error) throw error;
+      const tenantIds = (projects || []).map((row: any) => row.tenant_id).filter(Boolean);
+      let resources: any[] = [];
+      if (tenantIds.length) {
+        const { data, error } = await db.from("api_tenant_provider_resources")
+          .select("id,tenant_id,tenant_end_user_id,provider,resource_type,provider_resource_id,provider_status,metadata,created_at,updated_at")
+          .in("tenant_id", tenantIds).in("resource_type", ["deposit", "transfer"])
+          .order("created_at", { ascending: false }).limit(5000);
+        if (error) throw error;
+        resources = data || [];
+      }
+      const projectByTenant = new Map((projects || []).map((row: any) => [row.tenant_id, row]));
+      const orgById = new Map((organizations || []).map((row: any) => [row.id, row]));
+      const transactions = resources.map((resource: any) => {
+        const project: any = projectByTenant.get(resource.tenant_id) || null;
+        const organization: any = project ? orgById.get(project.organization_id) : null;
+        const metadata = resource.metadata && typeof resource.metadata === "object" ? resource.metadata : {};
+        return {
+          ...resource,
+          state: resource.provider_status || metadata.status || null,
+          amount: metadata.amount || metadata.source_amount || metadata.destination_amount || null,
+          source_currency: metadata.currency || metadata.source_currency || null,
+          destination_currency: metadata.destination_currency || null,
+          display_name: metadata.display_name || null,
+          external_reference: metadata.external_reference || null,
+          organization_id: organization?.id || null,
+          partner_name: organization?.trading_name || organization?.legal_name || null,
+          partner_email: organization?.primary_email || null,
+          partner_model: organization?.partner_model || null,
+          project_id: project?.id || null,
+          project_name: project?.name || null,
+          environment: project?.environment || null,
+        };
+      });
+      return json(req, {
+        success: true,
+        organizations: organizations || [], projects: projects || [], terms: terms || [],
+        invoices: invoices || [], provider_invoices: providerInvoices || [], provider_cost_allocations: allocations || [],
+        developer_fee_ledger: payouts || [], transactions,
+      });
+    }
+
+    if (action === "import_provider_invoice") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "IMPORT PROVIDER INVOICE") return json(req, { success: false, error: "Type IMPORT PROVIDER INVOICE to confirm" }, 400);
+      const provider = clean(body.provider, 80).toLowerCase();
+      const providerInvoiceNumber = clean(body.provider_invoice_number, 120);
+      const total = Number(body.total);
+      if (!provider || !providerInvoiceNumber || !Number.isFinite(total) || total < 0) return json(req, { success: false, error: "Provider, invoice number, and non-negative total are required" }, 400);
+      const { data, error } = await db.from("partner_provider_invoices").insert({
+        provider, provider_invoice_number: providerInvoiceNumber,
+        period_start: clean(body.period_start, 20), period_end: clean(body.period_end, 20),
+        currency: clean(body.currency, 12).toUpperCase() || "USD", total,
+        source_document_path: clean(body.source_document_path, 1000) || null,
+        status: "imported", imported_by: authData.user.id,
+      }).select("*").single();
+      if (error) throw error;
+      return json(req, { success: true, provider_invoice: data }, 201);
+    }
+
+    if (action === "allocate_provider_cost") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "ALLOCATE PROVIDER COST") return json(req, { success: false, error: "Type ALLOCATE PROVIDER COST to confirm" }, 400);
+      const providerInvoiceId = clean(body.provider_invoice_id, 40);
+      const organizationId = clean(body.organization_id, 40);
+      const tenantId = clean(body.tenant_id, 40);
+      const allocationKey = clean(body.allocation_key, 200);
+      const resourceIds = Array.isArray(body.provider_resource_ids) ? [...new Set(body.provider_resource_ids.map((value: unknown) => clean(value, 200)).filter(Boolean))] : [];
+      const quantity = Number(body.quantity);
+      const allocatedAmount = Number(body.allocated_amount);
+      if (!providerInvoiceId || !organizationId || !tenantId || !allocationKey || !resourceIds.length || !Number.isFinite(quantity) || quantity < 0 || !Number.isFinite(allocatedAmount) || allocatedAmount < 0) {
+        return json(req, { success: false, error: "Complete the provider invoice, partner tenant, allocation, amount, and evidence" }, 400);
+      }
+      const { data: project } = await db.from("partner_projects").select("id").eq("organization_id", organizationId).eq("tenant_id", tenantId).maybeSingle();
+      if (!project) return json(req, { success: false, error: "Tenant does not belong to the selected partner" }, 409);
+      const { data: ownedResources, error: resourceError } = await db.from("api_tenant_provider_resources")
+        .select("provider_resource_id").eq("tenant_id", tenantId).in("provider_resource_id", resourceIds);
+      if (resourceError) throw resourceError;
+      if ((ownedResources || []).length !== resourceIds.length) return json(req, { success: false, error: "Every allocation evidence ID must be owned by the selected partner tenant" }, 409);
+      const { data, error } = await db.rpc("admin_allocate_partner_provider_cost", {
+        p_provider_invoice_id: providerInvoiceId, p_organization_id: organizationId,
+        p_allocation_key: allocationKey, p_quantity: quantity, p_allocated_amount: allocatedAmount,
+        p_evidence: { tenant_id: tenantId, provider_resource_ids: resourceIds, operator_note: clean(body.operator_note, 1000) || null },
+      });
+      if (error) throw error;
+      return json(req, { success: true, allocation: data }, 201);
+    }
+
     const applicationId = clean(body?.application_id, 40);
     if (!applicationId) return json(req, { success: false, error: "application_id required" }, 400);
     const { data: application, error: appError } = await db.from("partner_applications").select("*,partner_organizations(*)").eq("id", applicationId).single();
     if (appError || !application) return json(req, { success: false, error: "Application not found" }, 404);
 
+    if (action === "set_commercial_terms") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "SET PARTNER TERMS") return json(req, { success: false, error: "Type SET PARTNER TERMS to confirm" }, 400);
+      const requestedProducts = Array.isArray(application.requested_products)
+        ? [...new Set(application.requested_products.filter((value: unknown) => value === "api" || value === "white_label"))]
+        : [];
+      if (requestedProducts.length !== 1) return json(req, { success: false, error: "Partner application must contain exactly one approved model" }, 409);
+      const partnerModel = requestedProducts[0];
+      const volumeTier = clean(body.volume_tier, 30);
+      if (!new Set(["standard", "high_volume"]).has(volumeTier)) return json(req, { success: false, error: "Volume tier is invalid" }, 400);
+      const expected = partnerModel === "api"
+        ? { upfront: 0, monthly: 0, onramp: volumeTier === "high_volume" ? 1.5 : 2 }
+        : { upfront: volumeTier === "high_volume" ? 10000 : 5000, monthly: volumeTier === "high_volume" ? 1500 : 750, onramp: volumeTier === "high_volume" ? 1.5 : 2 };
+      const developerFee = Number(body.partner_developer_fee_percent ?? 0);
+      if (!Number.isFinite(developerFee) || developerFee < 0 || developerFee > 100) return json(req, { success: false, error: "Partner developer-fee share must be between 0 and 100" }, 400);
+      const ndaReference = clean(body.nda_reference, 500);
+      const treasuryReference = clean(body.treasury_agreement_reference, 500);
+      if (!ndaReference || !treasuryReference) return json(req, { success: false, error: "Signed NDA and Treasury Agreement references are both required" }, 400);
+      const { data, error } = await db.rpc("admin_set_partner_commercial_terms", {
+        p_organization_id: application.organization_id,
+        p_partner_model: partnerModel,
+        p_volume_tier: volumeTier,
+        p_upfront_fee: expected.upfront,
+        p_monthly_fee: expected.monthly,
+        p_va_onramp_percent: expected.onramp,
+        p_external_fiat_offramp_percent: 1,
+        p_crypto_to_crypto_percent: 0,
+        p_african_rails_markup_percent: 1,
+        p_partner_developer_fee_percent: developerFee,
+        p_effective_from: body.effective_from || new Date().toISOString(),
+        p_nda_reference: ndaReference,
+        p_treasury_agreement_reference: treasuryReference,
+        p_approved_by: authData.user.id,
+      });
+      if (error) throw error;
+      await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: "commercial_terms_activated", metadata: { partner_model: partnerModel, volume_tier: volumeTier, partner_developer_fee_percent: developerFee } });
+      return json(req, { success: true, terms: data });
+    }
+
+    if (action === "create_partner_invoice") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "ISSUE PARTNER INVOICE") return json(req, { success: false, error: "Type ISSUE PARTNER INVOICE to confirm" }, 400);
+      const invoiceNumber = clean(body.invoice_number, 80);
+      const lines = Array.isArray(body.lines) ? body.lines : [];
+      const allowedLineTypes = new Set(["upfront_fee", "monthly_fee", "provider_usage", "transaction_fee", "email_usage", "adjustment"]);
+      if (!invoiceNumber || !lines.length || lines.length > 100) return json(req, { success: false, error: "Invoice number and 1–100 line items are required" }, 400);
+      const normalizedLines = lines.map((line: any) => ({
+        line_type: clean(line?.line_type, 40), description: clean(line?.description, 500),
+        provider: clean(line?.provider, 80) || null, product: clean(line?.product, 120) || null,
+        quantity: Number(line?.quantity), unit_amount: Number(line?.unit_amount),
+        allocation_basis: clean(line?.allocation_basis, 500) || null,
+        evidence: line?.evidence && typeof line.evidence === "object" && !Array.isArray(line.evidence) ? line.evidence : {},
+      }));
+      if (normalizedLines.some((line: any) => !allowedLineTypes.has(line.line_type) || !line.description || !Number.isFinite(line.quantity) || line.quantity < 0 || !Number.isFinite(line.unit_amount) || line.unit_amount < 0)) {
+        return json(req, { success: false, error: "One or more invoice lines are invalid" }, 400);
+      }
+      if (normalizedLines.some((line: any) => line.line_type === "provider_usage" && (!line.provider || !line.allocation_basis || !clean(line.evidence?.allocation_id, 40)))) {
+        return json(req, { success: false, error: "Provider usage lines require provider, allocation basis, and a reviewed allocation ID" }, 400);
+      }
+      const paymentMethod = clean(body.payment_method, 30);
+      if (!new Set(["bank_transfer", "flutterwave"]).has(paymentMethod)) return json(req, { success: false, error: "Payment method is invalid" }, 400);
+      const paymentUrl = clean(body.payment_url, 1000);
+      if (paymentUrl) {
+        try { if (new URL(paymentUrl).protocol !== "https:") throw new Error(); }
+        catch { return json(req, { success: false, error: "Payment URL must use HTTPS" }, 400); }
+      }
+      const { data, error } = await db.rpc("admin_create_partner_invoice", {
+        p_organization_id: application.organization_id,
+        p_invoice_number: invoiceNumber,
+        p_period_start: clean(body.period_start, 20), p_period_end: clean(body.period_end, 20),
+        p_due_at: body.due_at, p_payment_method: paymentMethod,
+        p_payment_reference: clean(body.payment_reference, 200) || null,
+        p_payment_url: paymentUrl || null,
+        p_lines: normalizedLines, p_created_by: authData.user.id,
+      });
+      if (error) throw error;
+      const partnerName = application.partner_organizations?.trading_name || application.partner_organizations?.legal_name || "Partner";
+      const recipient = clean(application.partner_organizations?.primary_email, 254).toLowerCase();
+      const delivery = await sendPartnerInvoiceEmail(data, recipient, partnerName, `partner-invoice:${data.id}:issued`);
+      if (delivery.sent) await db.from("partner_invoices").update({ sent_at: new Date().toISOString() }).eq("id", data.id).eq("organization_id", application.organization_id);
+      await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: "partner_invoice_issued", metadata: { invoice_id: data?.id, invoice_number: invoiceNumber } });
+      return json(req, { success: true, invoice: data, email_sent: delivery.sent, email_error: delivery.sent ? null : delivery.error });
+    }
+
+    if (action === "send_partner_invoice") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      if (clean(body.confirmation, 40) !== "RESEND PARTNER INVOICE") return json(req, { success: false, error: "Type RESEND PARTNER INVOICE to confirm" }, 400);
+      const invoiceId = clean(body.invoice_id, 40);
+      const { data: invoice, error } = await db.from("partner_invoices").select("*").eq("id", invoiceId).eq("organization_id", application.organization_id).single();
+      if (error || !invoice) return json(req, { success: false, error: "Partner invoice not found" }, 404);
+      if (invoice.status === "void") return json(req, { success: false, error: "A void invoice cannot be sent" }, 409);
+      const partnerName = application.partner_organizations?.trading_name || application.partner_organizations?.legal_name || "Partner";
+      const recipient = clean(application.partner_organizations?.primary_email, 254).toLowerCase();
+      const delivery = await sendPartnerInvoiceEmail(invoice, recipient, partnerName, `partner-invoice:${invoice.id}:manual:${crypto.randomUUID()}`);
+      if (!delivery.sent) return json(req, { success: false, error: delivery.error || "Invoice email failed" }, 502);
+      await db.from("partner_invoices").update({ sent_at: new Date().toISOString() }).eq("id", invoice.id);
+      return json(req, { success: true, email_sent: true });
+    }
+
     if (action === "get") {
       const tenantId = clean(application.partner_organizations?.approved_tenant_id, 40);
-      const [{ data: people }, { data: documents }, { data: reviews }, { data: pricing }, { data: tenant }, { data: approval }] = await Promise.all([
+      const [{ data: people }, { data: documents }, { data: reviews }, { data: pricing }, { data: tenant }, { data: approval }, { data: commercialTerms }, { data: invoices }] = await Promise.all([
         db.from("partner_controlling_people").select("*").eq("application_id", applicationId).order("created_at"),
         db.from("partner_application_documents").select("id,document_type,original_filename,mime_type,size_bytes,storage_path,created_at").eq("application_id", applicationId).order("created_at"),
         db.from("partner_application_reviews").select("*").eq("application_id", applicationId).order("created_at", { ascending: false }),
@@ -102,8 +378,10 @@ Deno.serve(async (req) => {
         tenantId
           ? db.from("api_partner_approvals").select("status,approved_products,approved_use_case,approved_at,suspended_at,suspension_reason").eq("tenant_id", tenantId).maybeSingle()
           : Promise.resolve({ data: null }),
+        db.from("partner_commercial_terms").select("*").eq("organization_id", application.organization_id).eq("is_active", true).maybeSingle(),
+        db.from("partner_invoices").select("*,partner_invoice_line_items(*)").eq("organization_id", application.organization_id).order("period_end", { ascending: false }).limit(36),
       ]);
-      return json(req, { success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [], tenant, approval });
+      return json(req, { success: true, application, people: people || [], documents: documents || [], reviews: reviews || [], pricing: pricing || [], tenant, approval, commercial_terms: commercialTerms || null, invoices: invoices || [] });
     }
 
     if (action === "document_download") {
@@ -196,7 +474,7 @@ Deno.serve(async (req) => {
         ? [...new Set<string>(application.requested_products.map((value: unknown) => clean(value, 30)))]
           .filter((value) => value === "api" || value === "white_label")
         : [];
-      if (!requestedProducts.length) return json(req, { success: false, error: "No approved partner product was selected" }, 409);
+      if (requestedProducts.length !== 1) return json(req, { success: false, error: "Select exactly one partner model before sandbox activation" }, 409);
       const technical = application.technical_details || {};
       const operating = application.operating_details || {};
       const technicalEmail = clean(technical.technical_contact_email, 254).toLowerCase();

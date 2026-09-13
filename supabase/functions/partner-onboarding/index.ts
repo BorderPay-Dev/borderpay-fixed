@@ -83,20 +83,20 @@ function completeness(app: any, people: any[], documents: any[], organization: a
   ];
   for (const [value, label] of required) if (!value) missing.push(label);
   if (!Array.isArray(app?.requested_products) || app.requested_products.length === 0) missing.push("Requested product");
-  if (!people.some((person) => person.person_type === "director")) missing.push("At least one director");
-  if (!people.some((person) => person.person_type === "controller")) missing.push("At least one controller");
-  if (!people.some((person) => person.person_type === "ubo" && Number(person.ownership_percent) >= 20) && declarations.no_ubo_over_20 !== true) {
+  const qualifyingUbos = people.filter((person) =>
+    person.person_type === "ubo" && Number(person.ownership_percent) >= 20
+  );
+  // A sole 100% beneficial owner is also the controlling person for this
+  // application. Do not force the partner to duplicate the same natural
+  // person as separate director and controller rows. Identity evidence is
+  // still required below and the operator retains manual KYB review.
+  const soleOwner = qualifyingUbos.length === 1 && Number(qualifyingUbos[0].ownership_percent) >= 99.99;
+  if (!soleOwner && !people.some((person) => person.person_type === "director")) missing.push("At least one director");
+  if (!soleOwner && !people.some((person) => person.person_type === "controller")) missing.push("At least one controller");
+  if (qualifyingUbos.length === 0 && declarations.no_ubo_over_20 !== true) {
     missing.push("All UBOs owning 20% or more, or no-UBO declaration");
   }
   const docTypes = new Set(documents.map((doc) => doc.document_type));
-  const commonDocuments = [
-    ["aml_policy", "AML/CFT policy"],
-    ["sanctions_policy", "Sanctions policy"],
-    ["privacy_policy", "Privacy policy"],
-    ["security_policy", "Information-security policy"],
-    ["incident_response_policy", "Incident-response policy"],
-    ["bank_statement", "Business bank statement"],
-  ];
   const manualIdentityDocuments = [
     ["certificate_of_incorporation", "Certificate of incorporation"],
     ["articles_of_association", "Articles of association"],
@@ -105,10 +105,7 @@ function completeness(app: any, people: any[], documents: any[], organization: a
     ["ownership_chart", "Ownership structure chart"],
     ["proof_of_registered_address", "Proof of registered address"],
     ["director_identity", "Director identity document"],
-    ["financial_statement", "Latest financial statement"],
-    ["source_of_funds", "Source-of-funds evidence"],
   ];
-  for (const [type, label] of commonDocuments) if (!docTypes.has(type)) missing.push(label);
   if (organization?.kyb_source !== "bridge_verified") {
     for (const [type, label] of manualIdentityDocuments) if (!docTypes.has(type)) missing.push(label);
     if (people.some((person) => person.person_type === "ubo")) {
@@ -116,8 +113,6 @@ function completeness(app: any, people: any[], documents: any[], organization: a
       if (!docTypes.has("ubo_address")) missing.push("UBO proof of address");
     }
   }
-  if (compliance.regulated === true && !docTypes.has("operating_licence")) missing.push("Operating licence");
-  if (compliance.nda_available === true && !docTypes.has("nda")) missing.push("NDA");
   return missing;
 }
 
@@ -398,10 +393,13 @@ Deno.serve(async (req) => {
           resources: [],
           settings: null,
           support_tickets: [],
+          commercial_terms: null,
+          invoices: [],
+          developer_fee_ledger: [],
         });
       }
       const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
-      const [tenantQ, approvalQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, invitesQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ, emailUsageQ] = await Promise.all([
+      const [tenantQ, approvalQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, invitesQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ, emailUsageQ, commercialQ, invoicesQ, payoutsQ] = await Promise.all([
         db.from("api_tenants").select("id,tenant_name,default_mode,is_active,beta_access_enabled,max_single_transfer_usd,rate_limit_per_minute,metadata,created_at,updated_at").eq("id", tenantId).maybeSingle(),
         db.from("api_partner_approvals").select("status,approved_products,approved_at").eq("tenant_id", tenantId).maybeSingle(),
         db.from("api_keys").select("id,key_prefix,key_label,scopes,is_active,revoked_at,last_used_at,created_at").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(100),
@@ -417,8 +415,11 @@ Deno.serve(async (req) => {
         db.from("partner_support_tickets").select("id,project_id,category,subject,message,status,created_at,updated_at").eq("organization_id", org.id).order("created_at", { ascending: false }).limit(100),
         app ? db.from("partner_controlling_people").select("id,person_type,full_name,nationality,country_of_residence,ownership_percent,is_politically_exposed,created_at").eq("application_id", app.id).order("created_at") : Promise.resolve({ data: [], error: null }),
         db.from("partner_email_usage_events").select("delivery_status,billable,units,created_at").eq("tenant_id", tenantId).gte("created_at", monthStart).limit(5000),
+        db.from("partner_commercial_terms").select("partner_model,volume_tier,currency,upfront_fee,monthly_fee,va_onramp_percent,external_fiat_offramp_percent,crypto_to_crypto_percent,african_rails_markup_percent,partner_developer_fee_percent,effective_from,effective_until,nda_reference,treasury_agreement_reference,is_active").eq("organization_id", org.id).eq("is_active", true).maybeSingle(),
+        db.from("partner_invoices").select("id,invoice_number,period_start,period_end,issued_at,due_at,currency,subtotal,tax,total,amount_paid,status,payment_method,payment_reference,payment_url,sent_at,paid_at,partner_invoice_line_items(id,line_type,description,provider,product,quantity,unit_amount,amount,allocation_basis)").eq("organization_id", org.id).order("period_end", { ascending: false }).limit(36),
+        db.from("partner_developer_fee_ledger").select("id,provider_transaction_id,currency,gross_partner_fee,reversal_amount,payable_amount,state,occurred_at,paid_at,payout_reference").eq("organization_id", org.id).order("occurred_at", { ascending: false }).limit(250),
       ]);
-      for (const result of [tenantQ, approvalQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, invitesQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ, emailUsageQ]) {
+      for (const result of [tenantQ, approvalQ, keysQ, ipsQ, hooksQ, activityQ, pricingQ, membersQ, invitesQ, auditQ, resourcesQ, settingsQ, ticketsQ, peopleQ, emailUsageQ, commercialQ, invoicesQ, payoutsQ]) {
         if (result.error) throw result.error;
       }
       if (!tenantQ.data) return json(req, { success: false, error: "Partner API tenant is unavailable" }, 409);
@@ -426,6 +427,10 @@ Deno.serve(async (req) => {
         const { data } = await db.auth.admin.getUserById(row.user_id);
         return { ...row, email: data?.user?.email || null };
       }));
+      const approvedProducts: string[] = Array.isArray(approvalQ.data?.approved_products)
+        ? approvalQ.data.approved_products
+        : [];
+      const isApiPartner = approvedProducts.length === 1 && approvedProducts[0] === "api";
       return json(req, {
         success: true,
         organization: org,
@@ -434,9 +439,9 @@ Deno.serve(async (req) => {
         provisioned: true,
         tenant: tenantQ.data,
         approval: approvalQ.data,
-        api_keys: keysQ.data || [],
-        ip_allowlist: ipsQ.data || [],
-        webhooks: hooksQ.data || [],
+        api_keys: isApiPartner ? (keysQ.data || []) : [],
+        ip_allowlist: isApiPartner ? (ipsQ.data || []) : [],
+        webhooks: isApiPartner ? (hooksQ.data || []) : [],
         activity: activityQ.data || [],
         pricing: pricingQ.data || [],
         members: safeMembers,
@@ -454,6 +459,9 @@ Deno.serve(async (req) => {
           failed: (emailUsageQ.data || []).filter((row: any) => row.delivery_status === "failed").length,
           billable_units: (emailUsageQ.data || []).filter((row: any) => row.billable === true).reduce((sum: number, row: any) => sum + Number(row.units || 0), 0),
         },
+        commercial_terms: commercialQ.data || null,
+        invoices: invoicesQ.data || [],
+        developer_fee_ledger: payoutsQ.data || [],
       });
     }
 
@@ -468,6 +476,9 @@ Deno.serve(async (req) => {
       const sourceApproval = await loadTenantApproval(String(org.approved_tenant_id || ""));
       if (!sourceApproval || sourceApproval.status !== "approved" || !Array.isArray(sourceApproval.approved_products) || !sourceApproval.approved_products.length) {
         return json(req, { success: false, error: "The approved organization products could not be inherited by this sandbox project" }, 409);
+      }
+      if (sourceApproval.approved_products.length !== 1 || sourceApproval.approved_products[0] !== "api") {
+        return json(req, { success: false, error: "White-label projects are provisioned by BorderPay Operations" }, 403);
       }
       const { data, error } = await db.from("partner_projects").insert({
         organization_id: org.id, name, slug, environment: "sandbox", status: "pending", created_by: user.id,
@@ -505,8 +516,8 @@ Deno.serve(async (req) => {
       const color = clean(body.primary_color, 7);
       if (color && !/^#[0-9a-f]{6}$/i.test(color)) return json(req, { success: false, error: "Primary color must be a six-digit hex color" }, 400);
       const emailDeliveryMode = clean(body.email_delivery_mode, 32) || "borderpay_managed";
-      if (!new Set(["borderpay_managed", "partner_webhook"]).has(emailDeliveryMode)) {
-        return json(req, { success: false, error: "Email delivery mode is invalid" }, 400);
+      if (emailDeliveryMode !== "borderpay_managed") {
+        return json(req, { success: false, error: "BorderPay manages white-label delivery; partner API webhooks are not available for this model" }, 403);
       }
       const emailFields = ["support_email", "billing_email", "payout_contact_email", "email_reply_to"];
       for (const field of emailFields) {
@@ -523,16 +534,6 @@ Deno.serve(async (req) => {
       }
       if (!approvedTenantIds.length) {
         return json(req, { success: false, error: "White-label product approval is required before publishing branding" }, 403);
-      }
-      if (emailDeliveryMode === "partner_webhook") {
-        for (const id of approvedTenantIds) {
-          const { data: emailEndpoints, error: webhookCheckError } = await db.from("api_webhook_endpoints")
-            .select("event_types,delivery_enabled").eq("tenant_id", id).eq("is_active", true);
-          if (webhookCheckError) throw webhookCheckError;
-          const canDeliverEmail = (emailEndpoints || []).some((endpoint: any) => endpoint.delivery_enabled === true &&
-            (!Array.isArray(endpoint.event_types) || endpoint.event_types.length === 0 || endpoint.event_types.includes("email.delivery_requested")));
-          if (!canDeliverEmail) return json(req, { success: false, error: "Add an active webhook subscribed to email.delivery_requested on every approved project before selecting partner-managed email" }, 409);
-        }
       }
       const payload = {
         organization_id: org.id,
@@ -581,7 +582,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.status !== "approved" || !Array.isArray(approval.approved_products) || !approval.approved_products.includes("white_label")) {
+      if (approval?.status !== "approved" || !Array.isArray(approval.approved_products) || approval.approved_products.length !== 1 || approval.approved_products[0] !== "white_label") {
         return json(req, { success: false, error: "White-label product approval is required before uploading branding" }, 403);
       }
       const logo = decodeWhiteLabelLogo(body.file_data_url);
@@ -687,8 +688,7 @@ Deno.serve(async (req) => {
       if (approval?.status !== "approved" || !Array.isArray(approval.approved_products)) {
         return json(req, { success: false, error: "Partner product approval is required before creating keys" }, 403);
       }
-      const scopeAllowed = approval.approved_products.includes("api") ||
-        (approval.approved_products.includes("white_label") && scopes.every((scope: string) => scope === "onboarding:write"));
+      const scopeAllowed = approval.approved_products.length === 1 && approval.approved_products[0] === "api";
       if (!scopeAllowed) return json(req, { success: false, error: "The selected scopes exceed this project's approved products" }, 403);
       const key = newApiKey(tenant.default_mode === "production" ? "production" : "sandbox");
       const { data, error } = await db.from("api_keys").insert({
@@ -709,6 +709,8 @@ Deno.serve(async (req) => {
     if (action === "revoke_api_key") {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const approval = await loadTenantApproval();
+      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "API keys are available only to API partners" }, 403);
       const keyId = clean(body.key_id, 40);
       const { data, error } = await db.from("api_keys").update({ is_active: false, revoked_at: new Date().toISOString() })
         .eq("id", keyId).eq("tenant_id", tenantId).select("id,key_prefix,is_active,revoked_at").single();
@@ -720,6 +722,8 @@ Deno.serve(async (req) => {
     if (action === "add_ip_allowlist") {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const approval = await loadTenantApproval();
+      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "IP allowlists are available only to API partners" }, 403);
       const cidr = clean(body.cidr_block, 80);
       if (!cidr || !/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(cidr)) return json(req, { success: false, error: "Valid IPv4/IPv6 CIDR required" }, 400);
       const { data, error } = await db.from("api_ip_allowlist").insert({ tenant_id: tenantId, cidr_block: cidr, note: clean(body.note, 200) || null })
@@ -732,6 +736,8 @@ Deno.serve(async (req) => {
     if (action === "remove_ip_allowlist") {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const approval = await loadTenantApproval();
+      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "IP allowlists are available only to API partners" }, 403);
       const id = clean(body.id, 40);
       const { error } = await db.from("api_ip_allowlist").update({ is_active: false }).eq("id", id).eq("tenant_id", tenantId);
       if (error) throw error;
@@ -742,6 +748,8 @@ Deno.serve(async (req) => {
     if (action === "create_webhook") {
       requireOperationalTenant();
       if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
+      const approval = await loadTenantApproval();
+      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "Webhooks are available only to API partners" }, 403);
       let endpointUrl: string;
       try { endpointUrl = validateApiWebhookEndpointUrl(clean(body.endpoint_url, 500)); }
       catch (error) { return json(req, { success: false, error: (error as Error).message }, 400); }
@@ -765,6 +773,8 @@ Deno.serve(async (req) => {
     if (action === "rotate_webhook_secret") {
       requireOperationalTenant();
       if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
+      const approval = await loadTenantApproval();
+      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "Webhooks are available only to API partners" }, 403);
       const id = clean(body.webhook_id, 40);
       const { data: current, error: currentError } = await db.from("api_webhook_endpoints").select("id,signing_secret_version").eq("id", id).eq("tenant_id", tenantId).maybeSingle();
       if (currentError) throw currentError;
@@ -787,6 +797,8 @@ Deno.serve(async (req) => {
     if (action === "disable_webhook") {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
+      const approval = await loadTenantApproval();
+      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "Webhooks are available only to API partners" }, 403);
       const id = clean(body.webhook_id, 40);
       const { error } = await db.from("api_webhook_endpoints").update({ is_active: false, delivery_enabled: false }).eq("id", id).eq("tenant_id", tenantId);
       if (error) throw error;
@@ -802,7 +814,11 @@ Deno.serve(async (req) => {
       for (const key of ["entity_details", "operating_details", "compliance_details", "technical_details", "declarations"]) {
         if (body[key] && typeof body[key] === "object" && !Array.isArray(body[key])) patch[key] = body[key];
       }
-      if (Array.isArray(body.requested_products)) patch.requested_products = body.requested_products.filter((v: unknown) => v === "api" || v === "white_label");
+      if (Array.isArray(body.requested_products)) {
+        const products = [...new Set(body.requested_products.filter((v: unknown) => v === "api" || v === "white_label"))];
+        if (products.length > 1) return json(req, { success: false, error: "Choose either API or white label, not both" }, 400);
+        patch.requested_products = products;
+      }
       const entity: any = patch.entity_details;
       if (entity) {
         if (entity.country_of_incorporation && !countryOk(entity.country_of_incorporation)) return json(req, { success: false, error: "Country must be ISO-2" }, 400);
@@ -872,10 +888,14 @@ Deno.serve(async (req) => {
       ]);
       const missing = completeness(app, people || [], documents || [], org);
       if (missing.length) return json(req, { success: false, error: "Application incomplete", missing }, 422);
+      const selectedProducts = Array.isArray(app.requested_products) ? app.requested_products : [];
+      if (selectedProducts.length !== 1 || !["api", "white_label"].includes(selectedProducts[0])) {
+        return json(req, { success: false, error: "Choose exactly one partner operating model" }, 422);
+      }
       const now = new Date().toISOString();
       const { error } = await db.from("partner_applications").update({ status: "submitted", submitted_at: now, updated_at: now }).eq("id", app.id);
       if (error) throw error;
-      await db.from("partner_organizations").update({ status: "submitted", updated_at: now }).eq("id", org.id);
+      await db.from("partner_organizations").update({ status: "submitted", partner_model: selectedProducts[0], updated_at: now }).eq("id", org.id);
       await db.from("partner_portal_audit_log").insert({ organization_id: org.id, application_id: app.id, actor_user_id: user.id, event_type: "application_submitted" });
       return json(req, { success: true, status: "submitted" });
     }
