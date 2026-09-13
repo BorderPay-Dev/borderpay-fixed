@@ -2299,6 +2299,45 @@ export const businessAPI = {
 // auth-signup; bridge-customer remains an authenticated idempotent repair path.
 
 export const bridgeAPI = {
+  operator: {
+    getSnapshot: async () =>
+      apiCall<{
+        access_mode: 'read_only';
+        account: { name: string; customer_id: string; status: string };
+        wallets: unknown[];
+        virtual_accounts: unknown[];
+        transactions: unknown[];
+        refreshed_at: string;
+      }>('bridge-operator-readonly', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'snapshot' }),
+      }),
+    send: async (input: {
+      source_wallet_id: string;
+      currency: string;
+      destination_rail: string;
+      destination_address: string;
+      amount: string;
+      idempotency_key: string;
+      pin: string;
+    }) =>
+      apiCall<{ transfer_id: string; state: string; replayed?: boolean }>('bridge-operator-readonly', {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'transfer',
+          request: {
+            source_wallet_id: input.source_wallet_id,
+            currency: input.currency,
+            destination_rail: input.destination_rail,
+            destination_address: input.destination_address,
+            amount: input.amount,
+            idempotency_key: input.idempotency_key,
+          },
+          pin: input.pin,
+        }),
+      }),
+  },
+
   /** Create or fetch the Bridge customer for the signed-in user. Idempotent. */
   customer: {
     createOrGet: async () =>

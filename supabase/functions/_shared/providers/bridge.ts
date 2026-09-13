@@ -521,7 +521,7 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   /** List the customer's custodial stablecoin wallets. */
-  async listWallets(customerId: string): Promise<Array<{ wallet_id: string; currency: string; chain: string; address: string; balance?: string }>> {
+  async listWallets(customerId: string): Promise<Array<{ wallet_id: string; currency: string; chain: string; address: string; balance?: string; status?: string }>> {
     const rows = await this.fetchBridgeListPaginated<any>({
       path: `/v0/customers/${encodeURIComponent(customerId)}/wallets`,
       context: "listWallets",
@@ -547,6 +547,7 @@ export class BridgeProvider implements PaymentProvider {
         chain,
         address:   String(w?.address || w?.deposit_address || ""),
         balance:   w?.balance != null ? String(w.balance) : undefined,
+        status:    w?.status ? String(w.status).toLowerCase() : undefined,
       };
     });
   }
