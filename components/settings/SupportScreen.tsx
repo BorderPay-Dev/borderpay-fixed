@@ -140,6 +140,19 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     void loadTicketThread(tickets[0].id);
   }, [tickets, selectedTicketId, loadTicketThread]);
 
+  useEffect(() => {
+    const refresh = () => {
+      void loadTickets(true);
+      if (selectedTicketId) void loadTicketThread(selectedTicketId);
+    };
+    const intervalId = window.setInterval(refresh, 10_000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [loadTicketThread, loadTickets, selectedTicketId]);
+
   const createTicket = useCallback(async () => {
     if (!subject.trim()) {
       toast.error('Please add a subject');

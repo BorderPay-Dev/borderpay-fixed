@@ -32,6 +32,9 @@ checks = {
     "support header matches help center": "sticky top-0 z-10" in screen and "pt-safe" in screen,
     "support cards cannot escape container": screen.count("min-w-0 overflow-hidden") >= 2,
     "ticket list refreshes after mutation": screen.count("loadTickets(true)") >= 2,
+    "existing clients can await the first assistant response": "shouldAwaitFirstResponse" in gateway and "attempt < 8" in gateway,
+    "open support threads refresh while visible": "window.setInterval(refresh, 10_000)" in screen and "window.addEventListener('focus', refresh)" in screen,
+    "responses API payload is parsed structurally": "function extractAiText" in gateway and "payload?.output" in gateway,
 }
 
 failed = [name for name, passed in checks.items() if not passed]
