@@ -442,6 +442,20 @@ async function automateFirstResponse(input: {
   });
 }
 
+function continueSupportAutomation(task: Promise<void>): void {
+  const runtime = (globalThis as unknown as {
+    EdgeRuntime?: { waitUntil?: (promise: Promise<unknown>) => void };
+  }).EdgeRuntime;
+  const guarded = task.catch(() => undefined);
+  if (typeof runtime?.waitUntil === "function") {
+    runtime.waitUntil(guarded);
+    return;
+  }
+  // Local/test runtimes do not expose EdgeRuntime. The guarded promise keeps
+  // failures from affecting the already-persisted customer ticket.
+  void guarded;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
@@ -530,16 +544,17 @@ Deno.serve(async (req) => {
       payload: { source, issue_type: issueType },
     });
 
-    try {
-      await automateFirstResponse({ ticket, message, requesterName: profile?.full_name || null });
-    } catch (error) {
-      await supa.from("support_ticket_events").insert({
-        ticket_id: ticket.id,
-        event_type: "automatic_first_response_failed",
-        actor_user_id: null,
-        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
-      });
-    }
+    continueSupportAutomation(
+      automateFirstResponse({ ticket, message, requesterName: profile?.full_name || null })
+        .catch(async (error) => {
+          await supa.from("support_ticket_events").insert({
+            ticket_id: ticket.id,
+            event_type: "automatic_first_response_failed",
+            actor_user_id: null,
+            payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
+          });
+        }),
+    );
 
     return json({ success: true, data: { ticket_id: ticket.id, ticket_number: ticketReference(ticket.id) } });
   }
@@ -622,16 +637,17 @@ Deno.serve(async (req) => {
       },
     });
 
-    try {
-      await automateFirstResponse({ ticket, message, requesterName: name || null });
-    } catch (error) {
-      await supa.from("support_ticket_events").insert({
-        ticket_id: ticket.id,
-        event_type: "automatic_first_response_failed",
-        actor_user_id: null,
-        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
-      });
-    }
+    continueSupportAutomation(
+      automateFirstResponse({ ticket, message, requesterName: name || null })
+        .catch(async (error) => {
+          await supa.from("support_ticket_events").insert({
+            ticket_id: ticket.id,
+            event_type: "automatic_first_response_failed",
+            actor_user_id: null,
+            payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
+          });
+        }),
+    );
 
     return json({ success: true, data: { ticket_id: ticket.id, ticket_number: ticketReference(ticket.id) } });
   }
@@ -713,16 +729,17 @@ Deno.serve(async (req) => {
         source: "brevo",
       },
     });
-    try {
-      await automateFirstResponse({ ticket, message, requesterName: requesterName || null });
-    } catch (error) {
-      await supa.from("support_ticket_events").insert({
-        ticket_id: ticket.id,
-        event_type: "automatic_first_response_failed",
-        actor_user_id: null,
-        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
-      });
-    }
+    continueSupportAutomation(
+      automateFirstResponse({ ticket, message, requesterName: requesterName || null })
+        .catch(async (error) => {
+          await supa.from("support_ticket_events").insert({
+            ticket_id: ticket.id,
+            event_type: "automatic_first_response_failed",
+            actor_user_id: null,
+            payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
+          });
+        }),
+    );
     return json({ success: true, data: { ticket_id: ticket.id, ticket_number: ticketReference(ticket.id) } });
   }
 
