@@ -25,7 +25,7 @@ const ISSUE_TYPES = [
 
 const SUPPORT_TICKETS_CACHE_KEY = 'borderpay_support_tickets_v1';
 const SUPPORT_TICKETS_REFRESH_TS_KEY = 'borderpay_support_tickets_refresh_ts_v1';
-const SUPPORT_LOAD_TIMEOUT_MS = 1400;
+const SUPPORT_LOAD_TIMEOUT_MS = 12000;
 const BORDERPAY_WEBSITE = 'https://www.borderpayafrica.com';
 
 function ticketReference(ticketId: string): string {
@@ -76,10 +76,10 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
     [],
   );
 
-  const loadTickets = useCallback(async () => {
+  const loadTickets = useCallback(async (force = false) => {
     try {
       const last = Number(localStorage.getItem(SUPPORT_TICKETS_REFRESH_TS_KEY) || '0');
-      if (tickets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) return;
+      if (!force && tickets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) return;
     } catch {
       // noop
     }
@@ -96,7 +96,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
         setTickets(next);
         try { localStorage.setItem(SUPPORT_TICKETS_CACHE_KEY, JSON.stringify(next)); } catch {}
         try { localStorage.setItem(SUPPORT_TICKETS_REFRESH_TS_KEY, String(Date.now())); } catch {}
-      } else if (tickets.length === 0) {
+      } else if (tickets.length === 0 && res.error !== 'request_timeout') {
         toast.error(res.error || 'Could not load support tickets');
       }
     } catch {
@@ -164,7 +164,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       }
       setSubject('');
       setMessage('');
-      await loadTickets();
+      await loadTickets(true);
       await loadTicketThread(res.data.ticket_id);
       toast.success(`Ticket ${res.data.ticket_number || ticketReference(res.data.ticket_id)} created`);
     } catch {
@@ -190,7 +190,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       }
       setReplyMessage('');
       await loadTicketThread(selectedTicketId);
-      await loadTickets();
+      await loadTickets(true);
       toast.success('Message sent');
     } catch {
       toast.error('Could not send message');
@@ -200,18 +200,21 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
   }, [loadTicketThread, loadTickets, replyMessage, selectedTicketId]);
 
   return (
-    <div className={`min-h-screen ${tc.bg} pb-24`}>
-      <div className="max-w-5xl mx-auto px-4 pt-6">
-        <div className="flex items-center gap-3 mb-4">
-          <FloatingBackButton onBack={onBack} />
-          <div>
-            <h1 className={`text-2xl font-bold ${tc.text}`}>Support</h1>
-            <p className={`text-sm ${tc.textSecondary}`}>Open a ticket and chat with BorderPay support.</p>
-          </div>
+    <div className={`min-h-screen ${tc.bg} pb-safe`}>
+      <FloatingBackButton onBack={onBack} />
+      <header className={`sticky top-0 z-10 ${tc.headerBg} backdrop-blur-lg border-b ${tc.borderLight}`}>
+        <div className="flex items-center justify-between px-6 py-4 pt-safe">
+          <div className="w-10" aria-hidden="true" />
+          <h1 className={`text-lg font-bold ${tc.text}`}>Support</h1>
+          <div className="w-10" aria-hidden="true" />
         </div>
+      </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+        <p className={`text-center text-sm ${tc.textSecondary}`}>Open a ticket and chat with BorderPay support.</p>
+
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
+          <section className={`${tc.card} min-w-0 overflow-hidden border ${tc.cardBorder} rounded-2xl p-4 sm:p-5`}>
             <div className="flex items-center gap-2 mb-3">
               <HelpCircle size={16} className="text-[#C7FF00]" />
               <p className={`text-sm font-semibold ${tc.text}`}>Create ticket</p>
@@ -223,7 +226,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                 <select
                   value={issueType}
                   onChange={(e) => setIssueType(e.target.value as (typeof ISSUE_TYPES)[number]['key'])}
-                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+                  className={`mt-1 min-h-11 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-3 text-base sm:text-sm outline-none`}
                 >
                   {ISSUE_TYPES.map((it) => (
                     <option key={it.key} value={it.key}>{it.label}</option>
@@ -236,7 +239,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                   placeholder="Brief summary"
-                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+                  className={`mt-1 min-h-11 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-3 text-base sm:text-sm outline-none`}
                 />
               </label>
               <label className={`block text-xs ${tc.textSecondary}`}>
@@ -246,21 +249,21 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                   onChange={(e) => setMessage(e.target.value)}
                   rows={5}
                   placeholder="Describe your issue"
-                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
+                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-3 text-base sm:text-sm outline-none resize-none`}
                 />
               </label>
               <button
                 onClick={() => void createTicket()}
                 disabled={creating}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-2.5 disabled:opacity-60"
+                className="min-h-11 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#C7FF00] text-black font-semibold text-sm px-4 py-3 disabled:opacity-60"
               >
                 {creating ? <Loader2 size={15} className="animate-spin" /> : null}
                 Submit ticket
               </button>
             </div>
-          </div>
+          </section>
 
-          <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+          <section className={`${tc.card} min-w-0 overflow-hidden border ${tc.cardBorder} rounded-2xl p-4 sm:p-5`}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <MessageSquare size={16} className="text-[#C7FF00]" />
@@ -337,7 +340,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                 </div>
               </div>
             ) : null}
-          </div>
+          </section>
         </div>
 
         <button
@@ -356,7 +359,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
           <p className={`text-sm font-medium ${tc.text}`}>BorderPay website</p>
           <p className={`text-xs ${tc.textSecondary}`}>Product, pricing, eligibility, and compliance information.</p>
         </a>
-      </div>
+      </main>
     </div>
   );
 }

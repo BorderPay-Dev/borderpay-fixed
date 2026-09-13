@@ -29,6 +29,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-customer') return 30000;
   if (endpoint === 'bridge-transfer') return 45000;
   if (endpoint === 'bridge-external-account') return 30000;
+  if (endpoint === 'support-gateway') return 20000;
   // Yellow Card sandbox orchestration performs authenticated routing discovery,
   // preflight persistence and provider submission. Its upstream deadline is
   // longer than the generic UI deadline, so aborting at 8s creates false

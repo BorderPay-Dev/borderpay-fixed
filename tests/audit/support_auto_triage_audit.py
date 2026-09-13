@@ -25,6 +25,13 @@ checks = {
     "website link is visible in support": "BORDERPAY_WEBSITE" in screen and 'target="_blank"' in screen,
     "Brevo template is registered": '"admin.support_handoff"' in templates,
     "operator email contains customer message": "Customer message" in email and "p.message" in email,
+    "ticket automation runs after response path": "continueSupportAutomation(" in gateway and "EdgeRuntime" in gateway and "waitUntil" in gateway,
+    "support API has realistic deadline": "if (endpoint === 'support-gateway') return 20000" in (root / "utils/api/backendAPI.ts").read_text(),
+    "ticket reads do not fail after 1.4 seconds": "SUPPORT_LOAD_TIMEOUT_MS = 12000" in screen,
+    "support title is centered": '<h1 className={`text-lg font-bold ${tc.text}`}>Support</h1>' in screen,
+    "support header matches help center": "sticky top-0 z-10" in screen and "pt-safe" in screen,
+    "support cards cannot escape container": screen.count("min-w-0 overflow-hidden") >= 2,
+    "ticket list refreshes after mutation": screen.count("loadTickets(true)") >= 2,
 }
 
 failed = [name for name, passed in checks.items() if not passed]
