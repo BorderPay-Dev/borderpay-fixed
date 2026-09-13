@@ -2306,6 +2306,8 @@ export const bridgeAPI = {
         account: { name: string; customer_id: string; status: string };
         wallets: unknown[];
         virtual_accounts: unknown[];
+        external_accounts: unknown[];
+        external_accounts_available: boolean;
         transactions: unknown[];
         refreshed_at: string;
       }>('bridge-operator-readonly', {
@@ -2317,6 +2319,8 @@ export const bridgeAPI = {
       currency: string;
       destination_rail: string;
       destination_address: string;
+      destination_external_account_id?: string;
+      destination_currency?: string;
       amount: string;
       idempotency_key: string;
       pin: string;
@@ -2330,6 +2334,8 @@ export const bridgeAPI = {
             currency: input.currency,
             destination_rail: input.destination_rail,
             destination_address: input.destination_address,
+            destination_external_account_id: input.destination_external_account_id || '',
+            destination_currency: input.destination_currency || '',
             amount: input.amount,
             idempotency_key: input.idempotency_key,
           },
