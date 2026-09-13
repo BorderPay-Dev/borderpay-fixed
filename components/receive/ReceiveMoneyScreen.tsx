@@ -22,6 +22,7 @@ import {
   AssetBadge, AccountDetailSheet, WalletDetailSheet, chainLabel,
 } from '../dashboard/bridge/WalletVisuals';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { selectVaLinkedStablecoinWallets } from '../../utils/financial/vaLinkedWalletPresentation';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
@@ -231,7 +232,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [stables, setStables] = useState<StableRow[]>(() => {
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-      return Array.isArray(scoped) ? scoped : [];
+      const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+      return selectVaLinkedStablecoinWallets(scoped, cachedVas) as StableRow[];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
@@ -419,7 +421,8 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     const seededStables = stablesRef.current.length > 0 ? stablesRef.current : (() => {
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
-        return Array.isArray(scoped) ? scoped : [];
+        const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+        return selectVaLinkedStablecoinWallets(scoped, cachedVas) as StableRow[];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {

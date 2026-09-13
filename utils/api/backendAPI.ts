@@ -18,6 +18,7 @@ import { txDirection } from '../transactions/direction';
 import { friendlyError } from '../errors/friendlyError';
 import { executeEnterpriseRecaptcha } from '../security/recaptchaEnterprise';
 import { getNativeAppCheckToken } from '../security/firebaseAppCheck';
+import { selectVaLinkedStablecoinWallets } from '../financial/vaLinkedWalletPresentation';
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
@@ -1019,8 +1020,9 @@ export const financialReadModelAPI = (() => {
     const profile = (profileRes as any)?.data?.user || {};
     const wallets = Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [];
     const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
-    const stablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
+    const rawStablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
     const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
+    const stablecoinWallets = selectVaLinkedStablecoinWallets(rawStablecoinWallets, virtualAccounts);
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
     const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
       ? (externalListRes as any).data.external_accounts
@@ -1121,13 +1123,31 @@ export const financialReadModelAPI = (() => {
         if (now - lastSnapshotAt >= REVALIDATE_MS && (!inFlight || inFlightKey !== key)) {
           refreshSnapshotInBackground(user.id, key, limit);
         }
-        return lastSnapshot;
+        return {
+          ...lastSnapshot,
+          data: {
+            ...lastSnapshot.data,
+            stablecoin_wallets: selectVaLinkedStablecoinWallets(
+              lastSnapshot.data?.stablecoin_wallets,
+              lastSnapshot.data?.virtual_accounts,
+            ),
+          },
+        };
       }
 
       if (lastAnySnapshot && lastAnySnapshotUserId === user.id && now - lastAnySnapshotAt < STALE_MAX_MS) {
         navPerfTrackCache('snapshot:any', true);
         refreshSnapshotInBackground(user.id, key, limit);
-        return lastAnySnapshot;
+        return {
+          ...lastAnySnapshot,
+          data: {
+            ...lastAnySnapshot.data,
+            stablecoin_wallets: selectVaLinkedStablecoinWallets(
+              lastAnySnapshot.data?.stablecoin_wallets,
+              lastAnySnapshot.data?.virtual_accounts,
+            ),
+          },
+        };
       }
 
       const persisted = loadPersistedSnapshot(key);
@@ -1138,7 +1158,16 @@ export const financialReadModelAPI = (() => {
         lastSnapshotKey = key;
         rememberSnapshot(key, user.id, persisted.snapshot);
         refreshSnapshotInBackground(user.id, key, limit);
-        return persisted.snapshot;
+        return {
+          ...persisted.snapshot,
+          data: {
+            ...persisted.snapshot.data,
+            stablecoin_wallets: selectVaLinkedStablecoinWallets(
+              persisted.snapshot.data?.stablecoin_wallets,
+              persisted.snapshot.data?.virtual_accounts,
+            ),
+          },
+        };
       }
 
       const persistedAny = loadPersistedSnapshot(anySnapshotKey(user.id));
@@ -1148,7 +1177,16 @@ export const financialReadModelAPI = (() => {
         lastAnySnapshotAt = persistedAny.at;
         lastAnySnapshotUserId = user.id;
         refreshSnapshotInBackground(user.id, key, limit);
-        return persistedAny.snapshot;
+        return {
+          ...persistedAny.snapshot,
+          data: {
+            ...persistedAny.snapshot.data,
+            stablecoin_wallets: selectVaLinkedStablecoinWallets(
+              persistedAny.snapshot.data?.stablecoin_wallets,
+              persistedAny.snapshot.data?.virtual_accounts,
+            ),
+          },
+        };
       }
 
       if (inFlight && inFlightKey === key) return inFlight;
@@ -1173,6 +1211,11 @@ export const financialReadModelAPI = (() => {
         const snapshot: any = await financialReadModelAPI.getSnapshot(100);
         if (snapshot?.success && snapshot?.data) {
           const wallets = Array.isArray(snapshot.data.wallets) ? snapshot.data.wallets : [];
+          const virtualAccounts = Array.isArray(snapshot.data.virtual_accounts) ? snapshot.data.virtual_accounts : [];
+          const stablecoinWallets = selectVaLinkedStablecoinWallets(
+            snapshot.data.stablecoin_wallets,
+            virtualAccounts,
+          );
           const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
             const c = String(w?.currency || '').toUpperCase();
             if (!c) return acc;
@@ -1183,8 +1226,8 @@ export const financialReadModelAPI = (() => {
             success: true,
             data: {
               wallets,
-              stablecoin_wallets: Array.isArray(snapshot.data.stablecoin_wallets) ? snapshot.data.stablecoin_wallets : [],
-              virtual_accounts: Array.isArray(snapshot.data.virtual_accounts) ? snapshot.data.virtual_accounts : [],
+              stablecoin_wallets: stablecoinWallets,
+              virtual_accounts: virtualAccounts,
               virtual_account_capabilities: null,
               balance_by_currency: balanceByCurrency,
               total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
@@ -1236,12 +1279,15 @@ export const financialReadModelAPI = (() => {
         return acc;
       }, {});
 
+      const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
+      const stablecoinWallets = selectVaLinkedStablecoinWallets(stableRes?.data, virtualAccounts);
+
       return {
         success: true,
         data: {
           wallets,
-          stablecoin_wallets: Array.isArray(stableRes?.data) ? stableRes.data : [],
-          virtual_accounts: Array.isArray(vaRes?.data) ? vaRes.data : [],
+          stablecoin_wallets: stablecoinWallets,
+          virtual_accounts: virtualAccounts,
           virtual_account_capabilities: (vaCapsRes as any)?.success ? (vaCapsRes as any).data : null,
           balance_by_currency: balanceByCurrency,
           total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
