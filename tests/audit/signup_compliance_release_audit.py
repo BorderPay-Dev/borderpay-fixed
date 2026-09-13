@@ -13,6 +13,10 @@ country_endpoint = (ROOT / "supabase/functions/bridge-supported-countries/index.
 assert "const steps: SignUpStep[] = ['personal', 'confirm-email'];" in signup
 assert "const totalSteps = steps.length;" in signup
 assert "Create Business Account" in signup
+assert "accountType: 'business'" in signup
+assert "I'm signing up as" not in signup
+assert "> Individual" not in signup
+assert "Country of Incorporation" in signup
 assert "setCurrentStep('identity');" not in signup
 assert "?? getCountryByCode(detectedCode)" not in signup
 

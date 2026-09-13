@@ -16,28 +16,55 @@ declare global {
 
 let loader: Promise<void> | null = null;
 
-function loadEnterpriseApi(): Promise<void> {
+function loadEnterpriseApi(forceReload = false): Promise<void> {
   if (window.grecaptcha?.enterprise) return Promise.resolve();
   if (loader) return loader;
 
   loader = new Promise<void>((resolve, reject) => {
-    const existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+    let existing = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+    if (forceReload && existing) {
+      existing.remove();
+      existing = null;
+    }
     const script = existing || document.createElement('script');
-    const timeout = window.setTimeout(() => reject(new Error('Signup verification timed out.')), 10_000);
-    script.addEventListener('load', () => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
       window.clearTimeout(timeout);
-      if (window.grecaptcha?.enterprise) resolve();
-      else reject(new Error('Signup verification did not initialize.'));
+      if (error) {
+        loader = null;
+        reject(error);
+      } else {
+        resolve();
+      }
+    };
+    const timeout = window.setTimeout(
+      () => finish(new Error('Signup verification timed out.')),
+      12_000,
+    );
+    script.addEventListener('load', () => {
+      if (window.grecaptcha?.enterprise) finish();
+      else finish(new Error('Signup verification did not initialize.'));
     }, { once: true });
     script.addEventListener('error', () => {
-      window.clearTimeout(timeout);
-      reject(new Error('Signup verification could not be loaded.'));
+      finish(new Error('Signup verification could not be loaded.'));
     }, { once: true });
     if (!existing) {
       script.id = SCRIPT_ID;
       script.async = true;
       script.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(SITE_KEY)}`;
       document.head.appendChild(script);
+    } else {
+      // A previously loaded script can exist before the Enterprise namespace
+      // becomes visible. Poll briefly instead of waiting for a load event that
+      // has already fired.
+      const poll = window.setInterval(() => {
+        if (!window.grecaptcha?.enterprise) return;
+        window.clearInterval(poll);
+        finish();
+      }, 50);
+      window.setTimeout(() => window.clearInterval(poll), 12_000);
     }
   });
   return loader;
@@ -48,8 +75,13 @@ function loadEnterpriseApi(): Promise<void> {
  * Firebase App Check / platform attestation instead of a browser site key.
  */
 export async function executeEnterpriseRecaptcha(action: 'SIGNUP'): Promise<string | undefined> {
-  if (!SITE_KEY || isNativeRuntime()) return undefined;
-  await loadEnterpriseApi();
+  if (isNativeRuntime()) return undefined;
+  if (!SITE_KEY) throw new Error('Signup verification is temporarily unavailable. Please try again later.');
+  try {
+    await loadEnterpriseApi();
+  } catch {
+    await loadEnterpriseApi(true);
+  }
   const enterprise = window.grecaptcha?.enterprise;
   if (!enterprise) throw new Error('Signup verification is unavailable.');
   return await new Promise<string>((resolve, reject) => {

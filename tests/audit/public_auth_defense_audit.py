@@ -42,12 +42,23 @@ checks = {
     "browser key is not used by native runtime": "isNativeRuntime()" in client,
     "signup payload forwards CAPTCHA token": "captcha_token: captchaToken" in api,
     "native signup sends Firebase App Check": "X-Firebase-AppCheck" in api and "getNativeAppCheckToken" in api,
+    "native App Check retries an empty cached token": (
+        "forceRefresh: false" in app_check_client
+        and "forceRefresh: true" in app_check_client
+    ),
     "App Check verifies RSA signature": "crypto.subtle.verify" in app_check_server and 'header.alg !== "RS256"' in app_check_server,
     "App Check validates issuer audience and app ID": all(
         marker in app_check_server
         for marker in ("payload.iss", "audiences.includes", "allowedAppIds.has")
     ),
     "native App Check uses production attestation": "debugToken" not in app_check_client and "isTokenAutoRefreshEnabled: true" in app_check_client,
+    "legacy native fallback is explicit and expires": (
+        "LEGACY_NATIVE_SIGNUP_FALLBACK_ENABLED" in signup
+        and "LEGACY_NATIVE_SIGNUP_FALLBACK_UNTIL" in signup
+        and 'origin === "capacitor://localhost"' in signup
+        and 'origin === "https://localhost"' in signup
+        and "legacy_native_signup_attestation_fallback" in signup
+    ),
     "native App Check plugin is release-pinned": '"@capacitor-firebase/app-check": "8.5.1"' in package,
     "iOS App Check uses the Capacitor SPM bridge": "'@capacitor-firebase/app-check': { symlink: true }" in capacitor,
     "emergency signup kill switch precedes parsing": signup.find("SIGNUP_ENABLED") < signup.find("readBoundedJson<SignupBody>(req)"),

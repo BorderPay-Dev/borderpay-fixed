@@ -50,7 +50,8 @@ interface SignUpData {
   confirmPassword: string;
   selectedCountry: CountryConfig | null;
   agreedToTerms: boolean;
-  // ─── ADDITIVE: account type (default 'individual' so existing flow is unchanged) ───
+  // Direct signup is business-only. The union remains for signed partner
+  // onboarding compatibility, but this public flow never exposes a selector.
   accountType: 'individual' | 'business';
   // Business-only (collected when accountType === 'business')
   companyName: string;
@@ -123,7 +124,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     confirmPassword: '',
     selectedCountry: null, // No default - user must explicitly select their country
     agreedToTerms: false,
-    accountType: 'individual', // default = unchanged behaviour
+    accountType: 'business',
     companyName: '',
     registrationNumber: '',
     dateOfBirth: '',
@@ -185,7 +186,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       setFormError(msg); toast.error(msg); return;
     }
     if (!selectedCountry) {
-      const msg = 'Please select your country of residence.';
+      const msg = 'Please select the country where your business is incorporated.';
       setFormError(msg); toast.error(msg); return;
     }
     if (password !== confirmPassword) {
@@ -746,45 +747,6 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="space-y-3.5">
-        {/* Account type toggle — additive. Default 'individual' so the
-            existing flow renders identically for users who don't change it. */}
-        <div className="space-y-1.5">
-          <label className="block text-xs font-medium text-gray-300">I'm signing up as</label>
-          <div role="radiogroup" aria-label="Account type" className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={formData.accountType === 'individual'}
-              onClick={() => updateForm({ accountType: 'individual' })}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${
-                formData.accountType === 'individual'
-                  ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
-                  : 'bg-white/[0.04] text-gray-300 border-white/10 hover:border-white/20'
-              }`}
-            >
-              <User className="w-4 h-4" /> Individual
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={formData.accountType === 'business'}
-              onClick={() => updateForm({ accountType: 'business' })}
-              className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-semibold transition-colors ${
-                formData.accountType === 'business'
-                  ? 'bg-[#C7FF00] text-black border-[#C7FF00]'
-                  : 'bg-white/[0.04] text-gray-300 border-white/10 hover:border-white/20'
-              }`}
-            >
-              <Building className="w-4 h-4" /> Business
-            </button>
-          </div>
-          <p className="text-[11px] text-gray-500">
-            {formData.accountType === 'individual'
-              ? 'Personal wallet, cards, transfers — KYC required.'
-              : 'For registered companies. Business verification is handled securely by BorderPay.'}
-          </p>
-        </div>
-
         <FormInput
           label="Full Name (as on ID)"
           icon={User}
@@ -793,25 +755,20 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           placeholder="John Doe"
         />
 
-        {/* Business-only fields — shown when 'business' is selected */}
-        {formData.accountType === 'business' && (
-          <>
-            <FormInput
-              label="Company Name"
-              icon={Building}
-              value={formData.companyName}
-              onChange={(e) => updateForm({ companyName: e.target.value })}
-              placeholder="Acme Africa Ltd"
-            />
-            <FormInput
-              label="Registration Number (optional)"
-              icon={Hash}
-              value={formData.registrationNumber}
-              onChange={(e) => updateForm({ registrationNumber: e.target.value })}
-              placeholder="RC-1234567"
-            />
-          </>
-        )}
+        <FormInput
+          label="Company Name"
+          icon={Building}
+          value={formData.companyName}
+          onChange={(e) => updateForm({ companyName: e.target.value })}
+          placeholder="Acme Ltd"
+        />
+        <FormInput
+          label="Registration Number (optional)"
+          icon={Hash}
+          value={formData.registrationNumber}
+          onChange={(e) => updateForm({ registrationNumber: e.target.value })}
+          placeholder="Company registration number"
+        />
 
         <FormInput
           label="Email Address"
@@ -822,10 +779,10 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           placeholder="you@example.com"
         />
 
-        {/* Country of Residence - Prominent dedicated field */}
+        {/* Business incorporation country drives onboarding and compliance. */}
         <div>
           <label className="block text-xs text-gray-400 uppercase tracking-[0.15em] font-semibold mb-2">
-            Country of Residence <span className="text-[#C7FF00]">*</span>
+            Country of Incorporation <span className="text-[#C7FF00]">*</span>
           </label>
           <button
             type="button"
