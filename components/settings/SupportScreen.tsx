@@ -26,6 +26,11 @@ const ISSUE_TYPES = [
 const SUPPORT_TICKETS_CACHE_KEY = 'borderpay_support_tickets_v1';
 const SUPPORT_TICKETS_REFRESH_TS_KEY = 'borderpay_support_tickets_refresh_ts_v1';
 const SUPPORT_LOAD_TIMEOUT_MS = 1400;
+const BORDERPAY_WEBSITE = 'https://www.borderpayafrica.com';
+
+function ticketReference(ticketId: string): string {
+  return `BP-${String(ticketId || '').replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+}
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -161,7 +166,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       setMessage('');
       await loadTickets();
       await loadTicketThread(res.data.ticket_id);
-      toast.success('Support ticket created');
+      toast.success(`Ticket ${res.data.ticket_number || ticketReference(res.data.ticket_id)} created`);
     } catch {
       toast.error('Could not submit ticket');
     } finally {
@@ -213,28 +218,37 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
             </div>
 
             <div className="space-y-2">
-              <select
-                value={issueType}
-                onChange={(e) => setIssueType(e.target.value as (typeof ISSUE_TYPES)[number]['key'])}
-                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
-              >
-                {ISSUE_TYPES.map((it) => (
-                  <option key={it.key} value={it.key}>{it.label}</option>
-                ))}
-              </select>
-              <input
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Subject"
-                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
-              />
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                rows={5}
-                placeholder="Describe your issue"
-                className={`w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
-              />
+              <label className={`block text-xs ${tc.textSecondary}`}>
+                Category
+                <select
+                  value={issueType}
+                  onChange={(e) => setIssueType(e.target.value as (typeof ISSUE_TYPES)[number]['key'])}
+                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+                >
+                  {ISSUE_TYPES.map((it) => (
+                    <option key={it.key} value={it.key}>{it.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className={`block text-xs ${tc.textSecondary}`}>
+                Subject
+                <input
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Brief summary"
+                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none`}
+                />
+              </label>
+              <label className={`block text-xs ${tc.textSecondary}`}>
+                Message
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  rows={5}
+                  placeholder="Describe your issue"
+                  className={`mt-1 w-full rounded-xl border ${tc.cardBorder} ${tc.bgAlt} ${tc.text} px-3 py-2 text-sm outline-none resize-none`}
+                />
+              </label>
               <button
                 onClick={() => void createTicket()}
                 disabled={creating}
@@ -271,6 +285,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
                         {statusLabel[t.status]}
                       </span>
                     </div>
+                    <p className="text-[11px] font-mono text-[#C7FF00] mt-1">{ticketReference(t.id)}</p>
                     <p className={`text-xs ${tc.textSecondary} mt-1`}>{new Date(t.last_message_at).toLocaleString()}</p>
                   </button>
                 ))}
@@ -280,7 +295,10 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
             {selectedTicketId ? (
               <div className={`rounded-xl border ${tc.cardBorder} ${tc.bgAlt} p-3`}>
                 <div className="flex items-center justify-between mb-2">
-                  <p className={`text-xs ${tc.textSecondary}`}>Conversation</p>
+                  <div>
+                    <p className={`text-xs ${tc.textSecondary}`}>Conversation</p>
+                    <p className="text-xs font-mono text-[#C7FF00] mt-0.5">Ticket {ticketReference(selectedTicketId)}</p>
+                  </div>
                   {loadingTicketThread ? <Loader2 size={13} className="animate-spin text-[#C7FF00]" /> : null}
                 </div>
 
@@ -329,6 +347,15 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
           <p className={`text-sm font-medium ${tc.text}`}>Help center</p>
           <p className={`text-xs ${tc.textSecondary}`}>See onboarding, verification, and transfer guidance.</p>
         </button>
+        <a
+          href={BORDERPAY_WEBSITE}
+          target="_blank"
+          rel="noreferrer"
+          className={`mt-3 block w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3 text-left`}
+        >
+          <p className={`text-sm font-medium ${tc.text}`}>BorderPay website</p>
+          <p className={`text-xs ${tc.textSecondary}`}>Product, pricing, eligibility, and compliance information.</p>
+        </a>
       </div>
     </div>
   );
