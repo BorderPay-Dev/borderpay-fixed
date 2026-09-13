@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 migration = (ROOT / "supabase/migrations/20260913113000_current_month_business_maintenance.sql").read_text()
 worker = (ROOT / "supabase/functions/subscription-billing-worker/index.ts").read_text()
-fee_migration = (ROOT / "supabase/migrations/20260913120000_business_maintenance_fee_2999.sql").read_text()
+fee_migration = (ROOT / "supabase/migrations/20260824170000_business_maintenance_fee_september_2026.sql").read_text()
 
 checks = {
     "current month-end helper exists": "subscription_current_month_end" in migration,
