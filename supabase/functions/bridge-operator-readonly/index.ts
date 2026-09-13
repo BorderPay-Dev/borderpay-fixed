@@ -4,6 +4,7 @@ import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import type {
   BridgePaymentRail,
+  FiatCurrency,
   StablecoinSymbol,
 } from "../_shared/providers/types.ts";
 
@@ -72,6 +73,11 @@ const TREASURY_ASSETS = [
   { currency: "USDT", chain: "tron" },
 ] as const;
 
+// The master account has historical Base wallets. Only this wallet backs its
+// live virtual-account settlement routes and may be exposed by Treasury.
+const TREASURY_CANONICAL_BASE_ADDRESS =
+  "0x00287b1e51e21c2f593f654b17c4b22c6e67399f";
+
 async function sha256(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -100,8 +106,47 @@ async function verifyTransactionPin(authorization: string, pin: string) {
 function listRows(payload: any): any[] {
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.transfers)) return payload.transfers;
+  if (Array.isArray(payload?.external_accounts)) return payload.external_accounts;
   if (Array.isArray(payload)) return payload;
   return [];
+}
+
+async function listExternalAccounts(customerId: string): Promise<any[]> {
+  const response = await bridgeFetch({
+    method: "GET",
+    path: `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
+    retryable: true,
+  });
+  if (!response.ok) {
+    throw new Error(`External-account read failed (${response.status})`);
+  }
+  return listRows(response.data);
+}
+
+function externalAccountRow(row: any) {
+  const accountType = text(row?.account_type).toLowerCase();
+  const currency = text(row?.currency ||
+    (accountType === "iban" ? "EUR" : accountType === "gb" ? "GBP" : "USD"))
+    .toUpperCase();
+  const rail = text(row?.payment_rail || row?.rail ||
+    (accountType === "iban"
+      ? "sepa"
+      : accountType === "gb"
+      ? "faster_payments"
+      : "ach")).toLowerCase();
+  const accountNumber = text(
+    row?.account_number || row?.account?.account_number || row?.iban_number || row?.iban,
+  ).replace(/\s+/g, "");
+  return {
+    id: text(row?.id || row?.external_account_id),
+    account_type: accountType,
+    currency,
+    rail,
+    status: text(row?.status || "active").toLowerCase(),
+    account_owner_name: text(row?.account_owner_name || row?.business_name),
+    bank_name: text(row?.bank_name),
+    last_4: text(row?.last_4 || accountNumber.slice(-4)),
+  };
 }
 
 async function listTransfers(customerId: string): Promise<any[]> {
@@ -357,6 +402,9 @@ Deno.serve(async (req: Request) => {
     const currency = text(request?.currency).toUpperCase() as StablecoinSymbol;
     const destinationRail = text(request?.destination_rail).toLowerCase() as BridgePaymentRail;
     const destinationAddress = text(request?.destination_address);
+    const destinationExternalAccountId = text(request?.destination_external_account_id);
+    const destinationCurrencyRequested = text(request?.destination_currency).toUpperCase();
+    const isFiatPayout = Boolean(destinationExternalAccountId);
     const amountRaw = text(request?.amount);
     const numericAmount = Number(amountRaw);
     const idempotencyKey = text(request?.idempotency_key);
@@ -379,7 +427,7 @@ Deno.serve(async (req: Request) => {
         error: "A valid transfer idempotency key is required.",
       }, 400);
     }
-    if (!validAddress(destinationRail, destinationAddress)) {
+    if (!isFiatPayout && !validAddress(destinationRail, destinationAddress)) {
       return json(req, {
         success: false,
         code: "invalid_destination",
@@ -399,6 +447,8 @@ Deno.serve(async (req: Request) => {
       currency,
       destination_rail: destinationRail,
       destination_address: destinationAddress,
+      destination_external_account_id: destinationExternalAccountId,
+      destination_currency: destinationCurrencyRequested,
       amount: amountRaw,
     };
     const requestHash = await sha256(requestBody);
@@ -443,7 +493,17 @@ Deno.serve(async (req: Request) => {
       }, 403);
     }
     const walletChain = text(wallet.chain).toLowerCase();
-    if (walletChain !== destinationRail) {
+    if (
+      walletChain === "base" &&
+      text(wallet.address).toLowerCase() !== TREASURY_CANONICAL_BASE_ADDRESS
+    ) {
+      return json(req, {
+        success: false,
+        code: "noncanonical_treasury_wallet",
+        error: "This Base wallet is not enabled for the treasury account.",
+      }, 403);
+    }
+    if (!isFiatPayout && walletChain !== destinationRail) {
       return json(req, {
         success: false,
         code: "network_mismatch",
@@ -459,6 +519,71 @@ Deno.serve(async (req: Request) => {
         code: "unsupported_treasury_asset",
         error: "This wallet asset is not enabled in BorderPay Treasury.",
       }, 400);
+    }
+    let fiatDestination:
+      | {
+        id: string;
+        currency: Extract<FiatCurrency, "USD" | "EUR" | "GBP">;
+        rail: BridgePaymentRail;
+      }
+      | null = null;
+    if (isFiatPayout) {
+      if (!["USDC", "USDT"].includes(currency)) {
+        return json(req, {
+          success: false,
+          code: "unsupported_fiat_source",
+          error: "Fiat payouts must use an available USDC or USDT balance.",
+        }, 400);
+      }
+      const externalAccounts = (await listExternalAccounts(customerId))
+        .map(externalAccountRow);
+      const externalAccount = externalAccounts.find((entry) =>
+        entry.id === destinationExternalAccountId &&
+        !["deleted", "deactivated", "inactive", "closed"].includes(entry.status)
+      );
+      if (!externalAccount) {
+        return json(req, {
+          success: false,
+          code: "external_account_not_owned",
+          error: "The selected bank account is not active on this treasury account.",
+        }, 403);
+      }
+      if (
+        !["USD", "EUR", "GBP"].includes(externalAccount.currency) ||
+        ![
+          "ach",
+          "wire",
+          "ach_push",
+          "ach_same_day",
+          "fednow",
+          "sepa",
+          "faster_payments",
+        ].includes(externalAccount.rail)
+      ) {
+        return json(req, {
+          success: false,
+          code: "unsupported_external_account",
+          error: "This bank-account payout route is not supported.",
+        }, 400);
+      }
+      if (
+        destinationCurrencyRequested &&
+        destinationCurrencyRequested !== externalAccount.currency
+      ) {
+        return json(req, {
+          success: false,
+          code: "external_account_currency_mismatch",
+          error: "The selected currency does not match the bank account.",
+        }, 400);
+      }
+      fiatDestination = {
+        id: externalAccount.id,
+        currency: externalAccount.currency as Extract<
+          FiatCurrency,
+          "USD" | "EUR" | "GBP"
+        >,
+        rail: externalAccount.rail as BridgePaymentRail,
+      };
     }
     const balances: Array<Record<string, unknown>> = await bridgeProvider
       .getWalletBalances(customerId, sourceWalletId);
@@ -515,11 +640,17 @@ Deno.serve(async (req: Request) => {
           bridge_wallet_id: sourceWalletId,
           amount: amountRaw,
         },
-        destination: {
-          payment_rail: destinationRail,
-          currency,
-          address: destinationAddress,
-        },
+        destination: fiatDestination
+          ? {
+            payment_rail: fiatDestination.rail,
+            currency: fiatDestination.currency,
+            external_account_id: fiatDestination.id,
+          }
+          : {
+            payment_rail: destinationRail,
+            currency,
+            address: destinationAddress,
+          },
         idempotency_key: `borderpay:operator:${user.id}:${idempotencyKey}`,
       });
       await db.from("operator_bridge_transfer_intents").update({
@@ -579,11 +710,19 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [profile, wallets, virtualAccounts, transfers, platformActivity] =
+    const [profile, wallets, virtualAccounts, externalAccountResult, transfers, platformActivity] =
       await Promise.all([
         bridgeProvider.getCustomerProfile(customerId),
         bridgeProvider.listWallets(customerId),
         bridgeProvider.listVirtualAccounts(customerId),
+        listExternalAccounts(customerId).then((rows) => ({ available: true, rows }))
+          .catch((error) => {
+            console.warn("bridge_operator_external_accounts_unavailable", {
+              bridge_customer_id: customerId,
+              error: error instanceof Error ? error.message : "unknown",
+            });
+            return { available: false, rows: [] as any[] };
+          }),
         listTransfers(customerId),
         listPlatformActivity(),
       ]);
@@ -591,9 +730,14 @@ Deno.serve(async (req: Request) => {
       const matches = wallets.filter((wallet) =>
         text(wallet.chain).toLowerCase() === asset.chain
       );
-      const wallet = matches.find((candidate) =>
+      const eligibleMatches = asset.chain === "base"
+        ? matches.filter((wallet) =>
+          text(wallet.address).toLowerCase() === TREASURY_CANONICAL_BASE_ADDRESS
+        )
+        : matches;
+      const wallet = eligibleMatches.find((candidate) =>
         text(candidate.status || "active").toLowerCase() === "active"
-      ) || matches[0];
+      ) || eligibleMatches[0];
       return wallet
         ? [{ ...wallet, currency: asset.currency, chain: asset.chain }]
         : [];
@@ -682,6 +826,10 @@ Deno.serve(async (req: Request) => {
         },
         wallets: walletRows,
         virtual_accounts: virtualAccounts.slice(0, 100).map(virtualAccountRow),
+        external_accounts: externalAccountResult.rows.map(externalAccountRow).filter((account) =>
+          account.id && !["deleted", "deactivated", "inactive", "closed"].includes(account.status)
+        ),
+        external_accounts_available: externalAccountResult.available,
         transactions: transfers,
         customer_transactions: platformActivity.transactions,
         notifications: platformActivity.notifications,

@@ -44,6 +44,17 @@ type TreasuryNotification = {
   created_at: string;
 };
 
+type TreasuryExternalAccount = {
+  id: string;
+  account_type: string;
+  currency: 'USD' | 'EUR' | 'GBP';
+  rail: string;
+  status: string;
+  account_owner_name: string;
+  bank_name: string;
+  last_4: string;
+};
+
 type OperatorSnapshot = {
   access_mode: 'read_only';
   account: { name: string; customer_id: string; status: string };
@@ -62,6 +73,8 @@ type OperatorSnapshot = {
     bic: string;
     created_at: string;
   }>;
+  external_accounts: TreasuryExternalAccount[];
+  external_accounts_available: boolean;
   transactions: Array<{
     id: string;
     state: string;
@@ -134,7 +147,9 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   const [balanceVisible, setBalanceVisible] = useState(false);
   const [sourceSelection, setSourceSelection] = useState('');
   const [sendAmount, setSendAmount] = useState('');
+  const [destinationType, setDestinationType] = useState<'wallet' | 'bank'>('wallet');
   const [destinationAddress, setDestinationAddress] = useState('');
+  const [externalAccountId, setExternalAccountId] = useState('');
   const [sendStep, setSendStep] = useState<'details' | 'pin' | 'submitting' | 'success'>('details');
   const [pin, setPin] = useState('');
   const [transferResult, setTransferResult] = useState<{ transfer_id: string; state: string } | null>(null);
@@ -155,6 +170,20 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
 
   useEffect(() => { void load(); }, [load]);
 
+  // The treasury owns the viewport while mounted. Keeping the document fixed
+  // prevents a second browser scrollbar; wheel, keyboard and touch scrolling
+  // remain available on the treasury shell itself.
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    root.classList.add('bp-treasury-active');
+    body.classList.add('bp-treasury-active');
+    return () => {
+      root.classList.remove('bp-treasury-active');
+      body.classList.remove('bp-treasury-active');
+    };
+  }, []);
+
   const assetRows = useMemo(() => (snapshot?.wallets || []).map((wallet) => ({ ...wallet, balance: walletBalance(wallet) })), [snapshot]);
   const usdTotal = useMemo(() => assetRows.filter((row) => row.currency === 'USDC' || row.currency === 'USDT').reduce((sum, row) => sum + (row.balance || 0), 0), [assetRows]);
   const unreadNotifications = snapshot?.notifications.filter((notification) => !notification.read).length || 0;
@@ -167,6 +196,7 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
     balance: String(wallet.balance || 0),
   })), [assetRows]);
   const selectedSource = sendSources.find((source) => source.key === sourceSelection) || null;
+  const selectedExternalAccount = snapshot?.external_accounts.find((account) => account.id === externalAccountId) || null;
 
   const navigate = (view: TreasuryView) => {
     setActiveView(view);
@@ -177,19 +207,27 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
     setSendStep('details');
     setPin('');
     setSendAmount('');
+    setDestinationType('wallet');
     setDestinationAddress('');
+    setExternalAccountId('');
     setTransferResult(null);
     setIdempotencyKey(crypto.randomUUID());
   };
 
   const submitTransfer = async () => {
     if (!selectedSource) return;
+    if (destinationType === 'bank' && !selectedExternalAccount) {
+      toast.error('Choose an active external bank account.');
+      return;
+    }
     setSendStep('submitting');
     const response = await backendAPI.bridge.operator.send({
       source_wallet_id: selectedSource.wallet_id,
       currency: selectedSource.currency,
-      destination_rail: selectedSource.chain,
-      destination_address: destinationAddress.trim(),
+      destination_rail: destinationType === 'bank' ? (selectedExternalAccount?.rail || '') : selectedSource.chain,
+      destination_address: destinationType === 'wallet' ? destinationAddress.trim() : '',
+      destination_external_account_id: destinationType === 'bank' ? (selectedExternalAccount?.id || '') : '',
+      destination_currency: destinationType === 'bank' ? (selectedExternalAccount?.currency || '') : '',
       amount: sendAmount.trim(),
       idempotency_key: idempotencyKey,
       pin,
@@ -206,11 +244,14 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   };
 
   return (
-    <div className="bp-treasury-shell bp-treasury-scroll min-h-dvh overflow-y-auto overflow-x-hidden bg-[#07090D] text-white">
+    <div className="bp-treasury-shell bp-treasury-scroll fixed inset-0 h-dvh overflow-y-auto overflow-x-hidden bg-[#07090D] text-white">
       <style>{`
-        .bp-treasury-shell{min-height:100vh;min-height:100svh;min-height:100dvh;overscroll-behavior-y:none;-webkit-text-size-adjust:100%}
+        html.bp-treasury-active,body.bp-treasury-active{height:100%;overflow:hidden!important;overscroll-behavior:none}
+        html.bp-treasury-active,body.bp-treasury-active,#root{scrollbar-width:none;-ms-overflow-style:none}
+        html.bp-treasury-active::-webkit-scrollbar,body.bp-treasury-active::-webkit-scrollbar,#root::-webkit-scrollbar{display:none;width:0;height:0}
+        .bp-treasury-shell{height:100vh;height:100svh;height:100dvh;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:100%;scrollbar-gutter:auto}
         .bp-treasury-scroll{scrollbar-width:none;-ms-overflow-style:none}
-        .bp-treasury-scroll::-webkit-scrollbar{display:none}
+        .bp-treasury-scroll::-webkit-scrollbar{display:none;width:0;height:0}
         .bp-treasury-header{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
         .bp-treasury-main{padding-left:max(1rem,env(safe-area-inset-left,0px));padding-right:max(1rem,env(safe-area-inset-right,0px))}
         .bp-treasury-bottom-nav{padding-right:max(.5rem,env(safe-area-inset-right,0px));padding-bottom:max(.5rem,env(safe-area-inset-bottom,0px));padding-left:max(.5rem,env(safe-area-inset-left,0px))}
@@ -279,7 +320,7 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
         {snapshot && !notificationsOpen && activeView === 'wallets' && <WalletsView wallets={snapshot.wallets} />}
         {snapshot && !notificationsOpen && activeView === 'receive' && <ReceiveView accounts={snapshot.virtual_accounts} />}
         {snapshot && !notificationsOpen && activeView === 'transactions' && <TransactionsView snapshot={snapshot} />}
-        {snapshot && !notificationsOpen && activeView === 'send' && <SendView sendStep={sendStep} sourceSelection={sourceSelection} setSourceSelection={setSourceSelection} sendSources={sendSources} selectedSource={selectedSource} sendAmount={sendAmount} setSendAmount={setSendAmount} destinationAddress={destinationAddress} setDestinationAddress={setDestinationAddress} pin={pin} setPin={setPin} transferResult={transferResult} setSendStep={setSendStep} submitTransfer={submitTransfer} resetSend={resetSend} />}
+        {snapshot && !notificationsOpen && activeView === 'send' && <SendView sendStep={sendStep} sourceSelection={sourceSelection} setSourceSelection={setSourceSelection} sendSources={sendSources} selectedSource={selectedSource} sendAmount={sendAmount} setSendAmount={setSendAmount} destinationType={destinationType} setDestinationType={setDestinationType} destinationAddress={destinationAddress} setDestinationAddress={setDestinationAddress} externalAccounts={snapshot.external_accounts} externalAccountsAvailable={snapshot.external_accounts_available} externalAccountId={externalAccountId} setExternalAccountId={setExternalAccountId} selectedExternalAccount={selectedExternalAccount} pin={pin} setPin={setPin} transferResult={transferResult} setSendStep={setSendStep} submitTransfer={submitTransfer} resetSend={resetSend} />}
       </main>
 
       <nav aria-label="Treasury navigation" className="bp-treasury-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-white/[0.08] bg-[#07090D]/95 pt-2 backdrop-blur-xl md:hidden">
@@ -310,14 +351,83 @@ type SendViewProps = {
   sendStep: 'details' | 'pin' | 'submitting' | 'success'; sourceSelection: string; setSourceSelection: (value: string) => void;
   sendSources: Array<{ key: string; wallet_id: string; currency: string; chain: string; balance: string }>;
   selectedSource: { key: string; wallet_id: string; currency: string; chain: string; balance: string } | null;
-  sendAmount: string; setSendAmount: (value: string) => void; destinationAddress: string; setDestinationAddress: (value: string) => void;
+  sendAmount: string; setSendAmount: (value: string) => void;
+  destinationType: 'wallet' | 'bank'; setDestinationType: (value: 'wallet' | 'bank') => void;
+  destinationAddress: string; setDestinationAddress: (value: string) => void;
+  externalAccounts: TreasuryExternalAccount[]; externalAccountsAvailable: boolean; externalAccountId: string; setExternalAccountId: (value: string) => void;
+  selectedExternalAccount: TreasuryExternalAccount | null;
   pin: string; setPin: (value: string) => void; transferResult: { transfer_id: string; state: string } | null;
   setSendStep: (value: 'details' | 'pin' | 'submitting' | 'success') => void; submitTransfer: () => Promise<void>; resetSend: () => void;
 };
 
 function SendView(props: SendViewProps) {
-  const { sendStep, sourceSelection, setSourceSelection, sendSources, selectedSource, sendAmount, setSendAmount, destinationAddress, setDestinationAddress, pin, setPin, transferResult, setSendStep, submitTransfer, resetSend } = props;
-  return <section className="rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-7" aria-labelledby="send-title"><PageHeading eyebrow="Money movement" title="Send from treasury" description="Execute an approved same-network digital-currency transfer." />{sendStep === 'details' && <div className="mt-6 grid gap-4 lg:grid-cols-2"><label className="block text-sm text-zinc-300">Source asset<select value={sourceSelection} onChange={(event) => setSourceSelection(event.target.value)} className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 text-base text-white ${FOCUS}`}><option value="">Choose asset</option>{sendSources.map((source) => <option key={source.key} value={source.key}>{source.currency} · {title(source.chain)}</option>)}</select></label><label className="block text-sm text-zinc-300">Amount<input inputMode="decimal" value={sendAmount} onChange={(event) => setSendAmount(event.target.value)} placeholder="0.00" className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 font-mono text-base text-white ${FOCUS}`} /></label><label className="block text-sm text-zinc-300 lg:col-span-2">Destination address {selectedSource ? `(${title(selectedSource.chain)})` : ''}<input value={destinationAddress} onChange={(event) => setDestinationAddress(event.target.value)} placeholder="Paste the destination wallet address" className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 font-mono text-base text-white ${FOCUS}`} /></label><div className="flex justify-end lg:col-span-2"><button type="button" disabled={!selectedSource || !sendAmount.trim() || !destinationAddress.trim()} onClick={() => setSendStep('pin')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#C7FF00] px-5 font-semibold text-black hover:bg-[#B8EB00] disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS}`}>Review transfer <ArrowRight className="h-4 w-4" /></button></div></div>}{(sendStep === 'pin' || sendStep === 'submitting') && <SecurityStep description={`Authorize ${sendAmount || '0'} ${selectedSource?.currency || ''} to ${shortId(destinationAddress)} using the standard BorderPay transaction PIN.`} value={pin} onChange={setPin} onBack={() => setSendStep('details')} onContinue={() => void submitTransfer()} submitting={sendStep === 'submitting'} />}{sendStep === 'success' && transferResult && <div role="status" className="mt-6 rounded-2xl border border-[#C7FF00]/25 bg-[#C7FF00]/[0.05] p-5"><div className="flex items-center gap-2 font-semibold text-[#C7FF00]"><CheckCircle2 className="h-5 w-5" />Transfer submitted</div><p className="mt-2 text-sm text-zinc-300">Status: {title(transferResult.state)}</p><p className="mt-1 break-all font-mono text-xs text-zinc-500">{transferResult.transfer_id}</p><button type="button" onClick={resetSend} className={`mt-4 min-h-11 rounded-xl border border-white/10 px-4 text-sm font-medium hover:bg-white/[0.06] ${FOCUS}`}>New transfer</button></div>}</section>;
+  const {
+    sendStep, sourceSelection, setSourceSelection, sendSources, selectedSource,
+    sendAmount, setSendAmount, destinationType, setDestinationType,
+    destinationAddress, setDestinationAddress, externalAccounts, externalAccountsAvailable,
+    externalAccountId, setExternalAccountId, selectedExternalAccount,
+    pin, setPin, transferResult, setSendStep, submitTransfer, resetSend,
+  } = props;
+  const availableSources = destinationType === 'bank'
+    ? sendSources.filter((source) => source.currency === 'USDC' || source.currency === 'USDT')
+    : sendSources;
+  const destinationReady = destinationType === 'bank'
+    ? Boolean(selectedExternalAccount)
+    : Boolean(destinationAddress.trim());
+  const destinationLabel = destinationType === 'bank'
+    ? `${selectedExternalAccount?.bank_name || selectedExternalAccount?.account_owner_name || 'bank account'} ending ${selectedExternalAccount?.last_4 || '—'}`
+    : shortId(destinationAddress);
+  const chooseDestinationType = (next: 'wallet' | 'bank') => {
+    setDestinationType(next);
+    if (next === 'bank' && selectedSource?.currency === 'EURC') setSourceSelection('');
+  };
+
+  return (
+    <section className="rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-7" aria-labelledby="send-title">
+      <PageHeading eyebrow="Money movement" title="Send from treasury" description="Send digital currency to a wallet or withdraw to a verified external bank account." />
+      {sendStep === 'details' && (
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <fieldset className="lg:col-span-2">
+            <legend className="text-sm text-zinc-300">Destination type</legend>
+            <div className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-[#07090D] p-1.5">
+              {(['wallet', 'bank'] as const).map((kind) => (
+                <button key={kind} type="button" aria-pressed={destinationType === kind} onClick={() => chooseDestinationType(kind)} className={`min-h-11 rounded-xl px-3 text-sm font-semibold transition-colors ${FOCUS} ${destinationType === kind ? 'bg-[#C7FF00] text-black' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'}`}>
+                  {kind === 'wallet' ? 'Digital-currency wallet' : 'External bank account'}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+          <label className="block text-sm text-zinc-300">Source asset
+            <select value={sourceSelection} onChange={(event) => setSourceSelection(event.target.value)} className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 text-base text-white ${FOCUS}`}>
+              <option value="">Choose asset</option>
+              {availableSources.map((source) => <option key={source.key} value={source.key}>{source.currency} · {title(source.chain)}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm text-zinc-300">Amount
+            <input inputMode="decimal" value={sendAmount} onChange={(event) => setSendAmount(event.target.value)} placeholder="0.00" className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 font-mono text-base text-white ${FOCUS}`} />
+          </label>
+          {destinationType === 'wallet' ? (
+            <label className="block text-sm text-zinc-300 lg:col-span-2">Destination address {selectedSource ? `(${title(selectedSource.chain)})` : ''}
+              <input value={destinationAddress} onChange={(event) => setDestinationAddress(event.target.value)} placeholder="Paste the destination wallet address" className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 font-mono text-base text-white ${FOCUS}`} />
+            </label>
+          ) : (
+            <label className="block text-sm text-zinc-300 lg:col-span-2">Verified external account
+              <select value={externalAccountId} onChange={(event) => setExternalAccountId(event.target.value)} className={`mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-[#07090D] px-3 text-base text-white ${FOCUS}`}>
+                <option value="">Choose bank account</option>
+                {externalAccounts.map((account) => <option key={account.id} value={account.id}>{account.currency} · {account.bank_name || account.account_owner_name || title(account.account_type)} · ending {account.last_4 || '—'}</option>)}
+              </select>
+              {!externalAccounts.length && <span className="mt-2 block text-xs text-zinc-500">{externalAccountsAvailable ? 'No active external bank account is available for this treasury account.' : 'External bank accounts are temporarily unavailable. Refresh before sending.'}</span>}
+            </label>
+          )}
+          <div className="flex justify-end lg:col-span-2">
+            <button type="button" disabled={!selectedSource || !sendAmount.trim() || !destinationReady} onClick={() => setSendStep('pin')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#C7FF00] px-5 font-semibold text-black hover:bg-[#B8EB00] disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS}`}>Review transfer <ArrowRight className="h-4 w-4" /></button>
+          </div>
+        </div>
+      )}
+      {(sendStep === 'pin' || sendStep === 'submitting') && <SecurityStep description={`Authorize ${sendAmount || '0'} ${selectedSource?.currency || ''} to ${destinationLabel} using the standard BorderPay transaction PIN.`} value={pin} onChange={setPin} onBack={() => setSendStep('details')} onContinue={() => void submitTransfer()} submitting={sendStep === 'submitting'} />}
+      {sendStep === 'success' && transferResult && <div role="status" className="mt-6 rounded-2xl border border-[#C7FF00]/25 bg-[#C7FF00]/[0.05] p-5"><div className="flex items-center gap-2 font-semibold text-[#C7FF00]"><CheckCircle2 className="h-5 w-5" />Transfer submitted</div><p className="mt-2 text-sm text-zinc-300">Status: {title(transferResult.state)}</p><p className="mt-1 break-all font-mono text-xs text-zinc-500">{transferResult.transfer_id}</p><button type="button" onClick={resetSend} className={`mt-4 min-h-11 rounded-xl border border-white/10 px-4 text-sm font-medium hover:bg-white/[0.06] ${FOCUS}`}>New transfer</button></div>}
+    </section>
+  );
 }
 
 function PageHeading({ eyebrow, title: heading, description }: { eyebrow: string; title: string; description: string }) {

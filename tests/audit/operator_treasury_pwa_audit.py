@@ -51,6 +51,15 @@ checks = {
         and 'preserveAspectRatio="none"' not in UI
     ),
     "motion preference is respected": "prefers-reduced-motion:reduce" in UI,
+    "treasury owns viewport and hides vertical scrollbar without disabling scroll": all(token in UI for token in (
+        "fixed inset-0 h-dvh overflow-y-auto overflow-x-hidden",
+        "-webkit-overflow-scrolling:touch",
+        ".bp-treasury-scroll::-webkit-scrollbar{display:none;width:0;height:0}",
+        "document.documentElement",
+        "classList.add('bp-treasury-active')",
+        "classList.remove('bp-treasury-active')",
+        "body.bp-treasury-active{height:100%;overflow:hidden!important",
+    )),
     "customer application component is not imported into treasury UI": (
         "MainApp" not in UI and "BusinessDashboard" not in UI
     ),
