@@ -2738,7 +2738,7 @@ export const supportAPI = {
     message: string;
     source?: 'app' | 'website';
   }) =>
-    apiCall<{ ticket_id: string }>('support-gateway', {
+    apiCall<{ ticket_id: string; ticket_number: string }>('support-gateway', {
       method: 'POST',
       body: JSON.stringify({ action: 'create_ticket', ...input }),
     }),
@@ -2756,7 +2756,7 @@ export const supportAPI = {
     }),
 
   addMessage: async (ticketId: string, message: string) =>
-    apiCall<{ ticket_id: string }>('support-gateway', {
+    apiCall<{ ticket_id: string; ticket_number: string }>('support-gateway', {
       method: 'POST',
       body: JSON.stringify({ action: 'add_message', ticket_id: ticketId, message }),
     }),

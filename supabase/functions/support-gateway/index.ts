@@ -31,6 +31,8 @@ type Action =
 const STATUSES = new Set(["open", "pending_support", "pending_user", "resolved", "closed"]);
 const ISSUE_TYPES = new Set(["account_access", "verification", "wallet_balances", "send_receive", "general"]);
 const HIGH_PRIORITY_ISSUES = new Set(["account_access", "verification", "wallet_balances", "send_receive"]);
+const BORDERPAY_WEBSITE = "https://www.borderpayafrica.com";
+const SUPPORT_OPERATOR_EMAIL = "markikaba@borderpayafrica.com";
 
 function trimText(v: unknown, max = 1000): string {
   return String(v || "").trim().slice(0, max);
@@ -58,6 +60,16 @@ function firstString(...values: Array<unknown>): string {
     if (text) return text;
   }
   return "";
+}
+
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 12_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 type EscalationDecision = {
@@ -115,6 +127,9 @@ async function generateSupportDraft(input: {
   const systemPrompt = [
     "You are BorderPay customer support assistant for a live fintech product.",
     "Write a concise, human reply to the customer.",
+    `Use only general, provider-neutral information published at ${BORDERPAY_WEBSITE}.`,
+    `When useful, direct the customer to ${BORDERPAY_WEBSITE} for product, eligibility, pricing, and compliance information.`,
+    "Never state or infer a customer's balance, transaction status, verification outcome, or account state.",
     "Do not expose internal systems, providers, stack traces, or implementation details.",
     "Do not promise money movement completion unless already confirmed in the conversation.",
     "If escalation is needed, clearly state support will follow up.",
@@ -157,7 +172,7 @@ async function generateSupportDraft(input: {
         (Deno.env.get("AZURE_OPENAI_API_STYLE") ?? "").toLowerCase() === "responses";
 
       if (useV1Responses) {
-        const res = await fetch(`${base}/responses`, {
+        const res = await fetchWithTimeout(`${base}/responses`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -182,7 +197,7 @@ async function generateSupportDraft(input: {
         return { draft: outText, provider: "azure_openai", model: azureDeployment };
       } else {
         const url = `${base}/openai/deployments/${encodeURIComponent(azureDeployment)}/chat/completions?api-version=${encodeURIComponent(azureApiVersion)}`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -211,7 +226,7 @@ async function generateSupportDraft(input: {
   }
 
   if (openaiKey) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const res = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -278,6 +293,153 @@ function supportHealthSnapshot() {
       openai_configured: openaiConfigured,
     },
   };
+}
+
+function ticketReference(ticketId: string): string {
+  return `BP-${String(ticketId || "").replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+}
+
+function humanHandoffReply(reference: string): string {
+  return [
+    `Your inquiry has been forwarded to a human support specialist. Your ticket number is ${reference}.`,
+    "Please allow up to 2 hours for a response and do not open another ticket for the same issue.",
+    "You can continue this conversation here.",
+  ].join(" ");
+}
+
+function safeGeneralFallback(reference: string): string {
+  return [
+    `We received your request. Your ticket number is ${reference}.`,
+    `You can find approved product, account, eligibility, pricing, and compliance information at ${BORDERPAY_WEBSITE}.`,
+    "If the published guidance does not answer your question, reply here and our support team will review it.",
+  ].join(" ");
+}
+
+async function sendOperatorHandoffEmail(input: {
+  ticketId: string;
+  requesterEmail: string;
+  requesterName?: string | null;
+  issueType: string;
+  subject: string;
+  message: string;
+  reasons: string[];
+  userMessageNumber: number;
+}): Promise<{ sent: boolean; error?: string }> {
+  const internalToken = (Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") ?? "").trim();
+  const supabaseUrl = (Deno.env.get("SUPABASE_URL") ?? "").trim();
+  if (!internalToken || !supabaseUrl) return { sent: false, error: "email_gateway_not_configured" };
+
+  const reference = ticketReference(input.ticketId);
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${internalToken}`,
+      },
+      body: JSON.stringify({
+        template: "admin.support_handoff",
+        to: SUPPORT_OPERATOR_EMAIL,
+        idempotency_key: `support-handoff:${input.ticketId}:${input.userMessageNumber}`,
+        reply_to: input.requesterEmail || undefined,
+        props: {
+          ticket_number: reference,
+          ticket_id: input.ticketId,
+          requester_email: input.requesterEmail,
+          requester_name: input.requesterName || "Customer",
+          issue_type: input.issueType,
+          subject: input.subject,
+          message: input.message,
+          reasons: input.reasons,
+          user_message_number: input.userMessageNumber,
+        },
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !(payload as any)?.success) {
+      return { sent: false, error: String((payload as any)?.error || `send-email HTTP ${response.status}`) };
+    }
+    return { sent: true };
+  } catch (error) {
+    return { sent: false, error: String((error as Error)?.message || "operator_email_failed") };
+  }
+}
+
+async function automateFirstResponse(input: {
+  ticket: any;
+  message: string;
+  requesterName?: string | null;
+}): Promise<void> {
+  const reference = ticketReference(input.ticket.id);
+  const conversation = [{ sender_type: "user", body: input.message }];
+  const escalation = shouldForceHumanHandoff({
+    issueType: String(input.ticket.issue_type || "general"),
+    subject: String(input.ticket.subject || ""),
+    conversation,
+  });
+
+  let reply = humanHandoffReply(reference);
+  let provider = "policy_handoff";
+  if (!escalation.escalate) {
+    try {
+      const generated = await generateSupportDraft({
+        ticketSubject: String(input.ticket.subject || "Support request"),
+        issueType: String(input.ticket.issue_type || "general"),
+        requesterEmail: String(input.ticket.requester_email || "customer"),
+        conversation,
+        operatorGuidance: `Include ticket number ${reference}. Use ${BORDERPAY_WEBSITE} as the approved help source. Do not claim access to customer-specific account or transaction data.`,
+      });
+      reply = `${generated.draft.trim()}\n\nTicket number: ${reference}`;
+      provider = generated.provider;
+    } catch {
+      reply = safeGeneralFallback(reference);
+      provider = "safe_fallback";
+    }
+  }
+
+  const now = new Date().toISOString();
+  const { error: replyError } = await supa.from("support_ticket_messages").insert({
+    ticket_id: input.ticket.id,
+    sender_type: "assistant",
+    sender_user_id: null,
+    body: reply,
+    is_internal: false,
+  });
+  if (replyError) throw replyError;
+
+  await supa.from("support_tickets").update({
+    status: escalation.escalate ? "pending_support" : "pending_user",
+    priority: escalation.escalate ? "high" : input.ticket.priority,
+    first_response_at: now,
+    last_message_at: now,
+  }).eq("id", input.ticket.id);
+
+  let notification: { sent: boolean; error?: string } = { sent: false, error: "not_required" };
+  if (escalation.escalate) {
+    notification = await sendOperatorHandoffEmail({
+      ticketId: input.ticket.id,
+      requesterEmail: String(input.ticket.requester_email || ""),
+      requesterName: input.requesterName,
+      issueType: String(input.ticket.issue_type || "general"),
+      subject: String(input.ticket.subject || "Support request"),
+      message: input.message,
+      reasons: escalation.reasons,
+      userMessageNumber: 1,
+    });
+  }
+
+  await supa.from("support_ticket_events").insert({
+    ticket_id: input.ticket.id,
+    event_type: escalation.escalate ? "automatic_human_handoff" : "automatic_first_response",
+    actor_user_id: null,
+    payload: {
+      ticket_number: reference,
+      provider,
+      reasons: escalation.reasons,
+      operator_notification_sent: notification.sent,
+      operator_notification_error: notification.error || null,
+    },
+  });
 }
 
 Deno.serve(async (req) => {
@@ -368,7 +530,18 @@ Deno.serve(async (req) => {
       payload: { source, issue_type: issueType },
     });
 
-    return json({ success: true, data: { ticket_id: ticket.id } });
+    try {
+      await automateFirstResponse({ ticket, message, requesterName: profile?.full_name || null });
+    } catch (error) {
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticket.id,
+        event_type: "automatic_first_response_failed",
+        actor_user_id: null,
+        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
+      });
+    }
+
+    return json({ success: true, data: { ticket_id: ticket.id, ticket_number: ticketReference(ticket.id) } });
   }
 
   if (action === "public_create_ticket") {
@@ -449,7 +622,18 @@ Deno.serve(async (req) => {
       },
     });
 
-    return json({ success: true, data: { ticket_id: ticket.id } });
+    try {
+      await automateFirstResponse({ ticket, message, requesterName: name || null });
+    } catch (error) {
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticket.id,
+        event_type: "automatic_first_response_failed",
+        actor_user_id: null,
+        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
+      });
+    }
+
+    return json({ success: true, data: { ticket_id: ticket.id, ticket_number: ticketReference(ticket.id) } });
   }
 
   if (action === "brevo_ingest") {
@@ -529,7 +713,17 @@ Deno.serve(async (req) => {
         source: "brevo",
       },
     });
-    return json({ success: true, data: { ticket_id: ticket.id } });
+    try {
+      await automateFirstResponse({ ticket, message, requesterName: requesterName || null });
+    } catch (error) {
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticket.id,
+        event_type: "automatic_first_response_failed",
+        actor_user_id: null,
+        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
+      });
+    }
+    return json({ success: true, data: { ticket_id: ticket.id, ticket_number: ticketReference(ticket.id) } });
   }
 
   if (action === "list_tickets") {
@@ -572,12 +766,19 @@ Deno.serve(async (req) => {
 
     const { data: ticket, error: ticketErr } = await supa
       .from("support_tickets")
-      .select("id, requester_user_id, status")
+      .select("id, requester_user_id, requester_email, requester_name, issue_type, subject, status")
       .eq("id", ticketId)
       .eq("requester_user_id", user.id)
       .maybeSingle();
     if (ticketErr) return json({ success: false, error: ticketErr.message }, 500);
     if (!ticket) return json({ success: false, error: "Ticket not found" }, 404);
+
+    const { count: priorUserMessageCount } = await supa
+      .from("support_ticket_messages")
+      .select("id", { count: "exact", head: true })
+      .eq("ticket_id", ticketId)
+      .eq("sender_type", "user")
+      .eq("is_internal", false);
 
     const { error: msgErr } = await supa.from("support_ticket_messages").insert({
       ticket_id: ticketId,
@@ -601,7 +802,46 @@ Deno.serve(async (req) => {
       payload: {},
     });
 
-    return json({ success: true, data: { ticket_id: ticketId } });
+    const userMessageNumber = Number(priorUserMessageCount || 0) + 1;
+    const escalation = shouldForceHumanHandoff({
+      issueType: String(ticket.issue_type || "general"),
+      subject: String(ticket.subject || ""),
+      conversation: [{ sender_type: "user", body: message }],
+    });
+    if (escalation.escalate) {
+      const acknowledgement = humanHandoffReply(ticketReference(ticketId));
+      await supa.from("support_ticket_messages").insert({
+        ticket_id: ticketId,
+        sender_type: "assistant",
+        sender_user_id: null,
+        body: acknowledgement,
+        is_internal: false,
+      });
+      const notification = await sendOperatorHandoffEmail({
+        ticketId,
+        requesterEmail: String(ticket.requester_email || user.email || ""),
+        requesterName: ticket.requester_name || profile?.full_name || null,
+        issueType: String(ticket.issue_type || "general"),
+        subject: String(ticket.subject || "Support request"),
+        message,
+        reasons: escalation.reasons,
+        userMessageNumber,
+      });
+      await supa.from("support_ticket_events").insert({
+        ticket_id: ticketId,
+        event_type: "followup_human_handoff",
+        actor_user_id: null,
+        payload: {
+          ticket_number: ticketReference(ticketId),
+          user_message_number: userMessageNumber,
+          reasons: escalation.reasons,
+          operator_notification_sent: notification.sent,
+          operator_notification_error: notification.error || null,
+        },
+      });
+    }
+
+    return json({ success: true, data: { ticket_id: ticketId, ticket_number: ticketReference(ticketId) } });
   }
 
   if (action === "support_health") {
@@ -610,20 +850,3 @@ Deno.serve(async (req) => {
 
   return json({ success: false, error: "Unsupported action" }, 400);
 });
-    // Idempotency/dedupe: if an identical ticket was created very recently
-    // (same requester email + subject + issue_type), return that ticket id.
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-    const { data: duplicateRows, error: duplicateErr } = await supa
-      .from("support_tickets")
-      .select("id")
-      .eq("source", "website")
-      .eq("requester_email", email)
-      .eq("issue_type", issueType)
-      .eq("subject", subject)
-      .gte("created_at", fiveMinutesAgo)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    if (duplicateErr) return json({ success: false, error: duplicateErr.message }, 500);
-    if (Array.isArray(duplicateRows) && duplicateRows.length > 0) {
-      return json({ success: true, data: { ticket_id: duplicateRows[0].id, deduped: true } });
-    }

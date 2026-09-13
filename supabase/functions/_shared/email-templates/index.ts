@@ -57,6 +57,7 @@ import { render as businessAppStoreAnnouncement } from "./business/app-store-ann
 import { render as businessAccountMaintenanceFee } from "./business/account-maintenance-fee.ts";
 import { render as businessPartnerInvoice } from "./business/partner-invoice.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
+import { render as adminSupportHandoff }                from "./admin/support-handoff.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -103,7 +104,8 @@ export type TemplateName =
   | "business.app_store_announcement"
   | "business.account_maintenance_fee"
   | "business.partner_invoice"
-  | "admin.incident_alert";
+  | "admin.incident_alert"
+  | "admin.support_handoff";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -153,6 +155,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.account_maintenance_fee": businessAccountMaintenanceFee,
   "business.partner_invoice":          businessPartnerInvoice,
   "admin.incident_alert":                adminIncidentAlert,
+  "admin.support_handoff":               adminSupportHandoff,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
