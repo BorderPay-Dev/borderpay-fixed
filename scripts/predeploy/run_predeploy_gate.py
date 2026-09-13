@@ -158,6 +158,33 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         "tests/audit/rc1_runtime_killswitch_audit.py",
         "tests/audit/business_performance_parity_phase2_audit.py",
         "tests/audit/business_platform_navigation_audit.py",
+        "tests/audit/public_auth_defense_audit.py",
+        "tests/audit/signup_compliance_release_audit.py",
+        "tests/audit/signup_abuse_protection_audit.py",
+        "tests/audit/signup_abuse_race_hardening_audit.py",
+        "tests/audit/signup_country_audit.py",
+        "tests/audit/signup_country_enforcement_audit.py",
+        "tests/audit/signup_phone_optional_app_review_audit.py",
+        "tests/audit/signup_provider_precreate_audit.py",
+        "tests/audit/operator_bridge_frontend_audit.py",
+        "tests/audit/operator_bridge_readonly_app_audit.py",
+        "tests/audit/operator_treasury_pwa_audit.py",
+        "tests/audit/support_auto_triage_audit.py",
+        "tests/audit/september_business_maintenance_automation_audit.py",
+        "tests/audit/partner_commercial_billing_audit.py",
+        "tests/audit/partner_direct_invite_admin_audit.py",
+        "tests/audit/partner_invoice_flutterwave_reconciliation_audit.py",
+        "tests/audit/partner_white_label_e2e_audit.py",
+        "tests/audit/partner_white_label_email_audit.py",
+        "tests/audit/partner_workspace_e2e_audit.py",
+        "tests/audit/bridge_wallet_activity_projection_audit.py",
+        "tests/audit/bridge_wallet_activity_schema_compat_audit.py",
+        "tests/audit/dashboard_instant_financial_cache_audit.py",
+        "tests/audit/dashboard_spendable_wallet_chips_audit.py",
+        "tests/audit/native_receipt_export_audit.py",
+        "tests/audit/verification_maintenance_email_audit.py",
+        "tests/audit/wallet_active_rows_audit.py",
+        "tests/audit/wallet_detail_navigation_audit.py",
     ]
     missing = [p for p in required_files if not (ROOT / p).is_file()]
     stage.checks.append(CheckResult(
@@ -359,6 +386,58 @@ def stage3_financial_correctness(ci_mode: bool = False) -> StageResult:
         remediation="Eliminate runtime lifecycle writes and disallowed bridge_webhook_events direct columns before deployment.",
     ))
     stage.passed = all(c.passed for c in stage.checks)
+    stage.ended_at = now_utc()
+    return stage
+
+
+def stage_recent_release_regressions() -> StageResult:
+    """Blocking static invariants for the current public-auth and treasury releases.
+
+    These checks intentionally run in both local and CI modes. They must never
+    be skipped merely because protected runtime credentials are unavailable.
+    """
+    stage = StageResult(
+        name="Mandatory Recent Release Regression Gates",
+        passed=True,
+        started_at=now_utc(),
+    )
+    audits = [
+        "tests/audit/public_auth_defense_audit.py",
+        "tests/audit/signup_compliance_release_audit.py",
+        "tests/audit/signup_abuse_protection_audit.py",
+        "tests/audit/signup_abuse_race_hardening_audit.py",
+        "tests/audit/signup_country_audit.py",
+        "tests/audit/signup_country_enforcement_audit.py",
+        "tests/audit/signup_phone_optional_app_review_audit.py",
+        "tests/audit/signup_provider_precreate_audit.py",
+        "tests/audit/operator_bridge_frontend_audit.py",
+        "tests/audit/operator_bridge_readonly_app_audit.py",
+        "tests/audit/operator_treasury_pwa_audit.py",
+        "tests/audit/support_auto_triage_audit.py",
+        "tests/audit/september_business_maintenance_automation_audit.py",
+        "tests/audit/partner_commercial_billing_audit.py",
+        "tests/audit/partner_direct_invite_admin_audit.py",
+        "tests/audit/partner_invoice_flutterwave_reconciliation_audit.py",
+        "tests/audit/partner_white_label_e2e_audit.py",
+        "tests/audit/partner_white_label_email_audit.py",
+        "tests/audit/partner_workspace_e2e_audit.py",
+        "tests/audit/bridge_wallet_activity_projection_audit.py",
+        "tests/audit/bridge_wallet_activity_schema_compat_audit.py",
+        "tests/audit/dashboard_instant_financial_cache_audit.py",
+        "tests/audit/dashboard_spendable_wallet_chips_audit.py",
+        "tests/audit/native_receipt_export_audit.py",
+        "tests/audit/verification_maintenance_email_audit.py",
+        "tests/audit/wallet_active_rows_audit.py",
+        "tests/audit/wallet_detail_navigation_audit.py",
+    ]
+    for audit in audits:
+        stage.checks.append(run_check_command(
+            f"Blocking regression audit {audit}",
+            f"python3 {shlex.quote(audit)}",
+            severity="critical",
+            remediation=f"Restore the protected signup/treasury invariant in {audit} before deployment.",
+        ))
+    stage.passed = all(check.passed for check in stage.checks)
     stage.ended_at = now_utc()
     return stage
 
@@ -622,6 +701,7 @@ def main() -> int:
     stage_fns = [
         lambda: stage1_repository_integrity(ci_mode=args.ci, allow_dirty=args.allow_dirty),
         lambda: stage2_runtime_contract(ci_mode=args.ci),
+        stage_recent_release_regressions,
         lambda: stage3_financial_correctness(ci_mode=args.ci),
         lambda: stage4_bridge_integration(ci_mode=args.ci),
         lambda: stage5_architecture_policy(ci_mode=args.ci),
