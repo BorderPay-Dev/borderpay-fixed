@@ -56,6 +56,24 @@ const RECAPTCHA_ALLOWED_HOSTNAMES = new Set(
     .filter(Boolean),
 );
 const SIGNUP_CAPTCHA_ACTION = "SIGNUP";
+const LEGACY_NATIVE_SIGNUP_FALLBACK_ENABLED =
+  (Deno.env.get("LEGACY_NATIVE_SIGNUP_FALLBACK_ENABLED") || "").trim().toLowerCase() === "true";
+const LEGACY_NATIVE_SIGNUP_FALLBACK_UNTIL = Date.parse(
+  Deno.env.get("LEGACY_NATIVE_SIGNUP_FALLBACK_UNTIL") || "1970-01-01T00:00:00Z",
+);
+
+function legacyNativeSignupEligible(req: Request): boolean {
+  if (!LEGACY_NATIVE_SIGNUP_FALLBACK_ENABLED || !Number.isFinite(LEGACY_NATIVE_SIGNUP_FALLBACK_UNTIL)) {
+    return false;
+  }
+  if (Date.now() >= LEGACY_NATIVE_SIGNUP_FALLBACK_UNTIL) return false;
+
+  const origin = (req.headers.get("origin") || "").trim().toLowerCase();
+  const ua = (req.headers.get("user-agent") || "").toLowerCase();
+  const iosShell = origin === "capacitor://localhost" && /iphone|ipad|ipod/.test(ua);
+  const androidShell = origin === "https://localhost" && /android/.test(ua) && /\bwv\b|; wv\)/.test(ua);
+  return iosShell || androidShell;
+}
 
 // This is an origin-side pressure valve, not the primary abuse control. Edge
 // isolates may be recycled at any time, so the database RPC remains the
@@ -331,7 +349,16 @@ Deno.serve(async (req: Request) => {
     }
 
     // Browser CAPTCHA or native App Check precedes all database work.
-    const captchaCheck = appCheckValid
+    // Compatibility is intentionally narrow and time-bounded: already-
+    // released native builds predate App Check token forwarding. They remain
+    // protected by the in-memory and durable database rate limits, business-
+    // email policy, and mandatory email verification. Browser requests never
+    // use this path, and invalid supplied tokens are never bypassed.
+    const legacyNativeFallback = !appCheckToken && !captchaToken && legacyNativeSignupEligible(req);
+    if (legacyNativeFallback) {
+      console.warn(JSON.stringify({ tag: "legacy_native_signup_attestation_fallback" }));
+    }
+    const captchaCheck = appCheckValid || legacyNativeFallback
       ? { ok: true } as const
       : await verifySignupCaptcha(captchaToken, requestIp);
     if (!captchaCheck.ok) {

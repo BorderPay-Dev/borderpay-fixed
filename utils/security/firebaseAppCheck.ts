@@ -14,6 +14,12 @@ async function initializeNativeAppCheck(): Promise<void> {
 export async function getNativeAppCheckToken(): Promise<string | undefined> {
   if (!isNativeRuntime()) return undefined;
   await initializeNativeAppCheck();
-  const result = await FirebaseAppCheck.getToken({ forceRefresh: false });
-  return result.token || undefined;
+  const cached = await FirebaseAppCheck.getToken({ forceRefresh: false });
+  if (cached.token) return cached.token;
+
+  // A newly installed app can return an empty cached token while platform
+  // attestation is still being established. Retry once with a forced refresh
+  // so signup does not fall through to the browser-CAPTCHA path.
+  const refreshed = await FirebaseAppCheck.getToken({ forceRefresh: true });
+  return refreshed.token || undefined;
 }
