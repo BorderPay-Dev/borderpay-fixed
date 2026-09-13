@@ -71,6 +71,15 @@ jobs:
       - name: Verify public authentication defenses
         run: python3 tests/audit/public_auth_defense_audit.py
 
+      - name: Verify business-only signup release contract
+        run: python3 tests/audit/signup_compliance_release_audit.py
+
+      - name: Verify founder-only treasury routing and UI
+        run: |
+          python3 tests/audit/operator_bridge_frontend_audit.py
+          python3 tests/audit/operator_bridge_readonly_app_audit.py
+          python3 tests/audit/operator_treasury_pwa_audit.py
+
       - name: Verify partner invite defenses
         run: python3 tests/audit/partner_invite_defense_audit.py
 
@@ -101,6 +110,9 @@ jobs:
           deno check --node-modules-dir=auto
           supabase/functions/partner-onboarding/index.ts
           supabase/functions/partner-application-admin/index.ts
+
+      - name: Type-check operator treasury Edge Function
+        run: deno check --node-modules-dir=auto supabase/functions/bridge-operator-readonly/index.ts
 
       - name: Test Firebase App Check JWT verification
         run: deno test --node-modules-dir=auto tests/firebase-app-check.test.ts

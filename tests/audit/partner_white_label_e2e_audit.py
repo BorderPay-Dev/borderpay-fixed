@@ -11,10 +11,18 @@ checks = {
     "logo upload is type and size bounded": "decodeWhiteLabelLogo" in portal and "1_048_576" in portal and "image/svg" not in portal,
     "logo URL is published to tenant metadata": "logo_url: publicLogo.publicUrl" in portal,
     "sandbox projects inherit approved products": "approvalCloneError" in portal and "sourceApproval" in portal,
-    "white-label keys support onboarding only": '"onboarding:write"' in portal and "scopes.every" in portal,
+    "white-label cannot create API projects or credentials": all(token in portal for token in [
+        'sourceApproval.approved_products.length !== 1',
+        'sourceApproval.approved_products[0] !== "api"',
+        'White-label projects are provisioned by BorderPay Operations',
+    ]),
     "partner CAPTCHA uses Google credential and fails closed": all(token in portal for token in ["FIREBASE_SERVICE_ACCOUNT_JSON", "googleAccessToken", "PARTNER_INVITE_CAPTCHA_REQUIRED", "return !required"]),
-    "email delivery mode is allowlisted": all(token in portal for token in ['"borderpay_managed"', '"partner_webhook"', 'Email delivery mode is invalid']),
-    "partner-managed email requires subscribed webhook": all(token in portal for token in ['email.delivery_requested', 'delivery_enabled', '.eq("is_active", true)', 'Add an active webhook subscribed']),
+    "white-label email delivery is BorderPay managed": all(token in portal for token in [
+        'emailDeliveryMode !== "borderpay_managed"',
+        'BorderPay manages white-label delivery',
+        'email_delivery_mode: emailDeliveryMode',
+    ]),
+    "partner API webhooks are rejected for white-label model": 'partner API webhooks are not available for this model' in portal,
     "portal webhooks retain deliverable encrypted secrets": all(token in portal for token in ['encryptApiWebhookSecret', 'signing_secret_ciphertext', 'signing_secret_nonce', 'delivery_enabled: true']),
 }
 
