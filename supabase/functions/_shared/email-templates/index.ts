@@ -55,6 +55,7 @@ import { render as businessAffiliateProgram }           from "./business/affilia
 import { render as businessStablecoinFreeAnnouncement } from "./business/stablecoin-free-announcement.ts";
 import { render as businessAppStoreAnnouncement } from "./business/app-store-announcement.ts";
 import { render as businessAccountMaintenanceFee } from "./business/account-maintenance-fee.ts";
+import { render as businessPartnerInvoice } from "./business/partner-invoice.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 
 export type TemplateName =
@@ -101,6 +102,7 @@ export type TemplateName =
   | "business.stablecoin_free_announcement"
   | "business.app_store_announcement"
   | "business.account_maintenance_fee"
+  | "business.partner_invoice"
   | "admin.incident_alert";
 
 type Renderer = (props: any) => RenderedEmail;
@@ -149,6 +151,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.stablecoin_free_announcement": businessStablecoinFreeAnnouncement,
   "business.app_store_announcement": businessAppStoreAnnouncement,
   "business.account_maintenance_fee": businessAccountMaintenanceFee,
+  "business.partner_invoice":          businessPartnerInvoice,
   "admin.incident_alert":                adminIncidentAlert,
 };
 
