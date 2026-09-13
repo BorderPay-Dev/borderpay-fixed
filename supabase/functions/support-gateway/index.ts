@@ -62,6 +62,20 @@ function firstString(...values: Array<unknown>): string {
   return "";
 }
 
+function extractAiText(payload: any): string {
+  const direct = String(payload?.output_text ?? payload?.choices?.[0]?.message?.content ?? "").trim();
+  if (direct) return direct;
+  const output = Array.isArray(payload?.output) ? payload.output : [];
+  for (const item of output) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    for (const part of content) {
+      const value = String(part?.text ?? part?.value ?? "").trim();
+      if (value) return value;
+    }
+  }
+  return "";
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 12_000): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -159,13 +173,15 @@ async function generateSupportDraft(input: {
     ?? Deno.env.get("AZURE_OPENAI_DEPLOYMENT")
     ?? ""
   ).trim();
+  const supportModel = (Deno.env.get("SUPPORT_AI_MODEL") ?? "").trim();
   const azureApiVersion = (Deno.env.get("AZURE_OPENAI_API_VERSION") ?? "2024-10-21").trim();
   const openaiKey = (Deno.env.get("OPENAI_API_KEY") ?? "").trim();
   const openaiModel = (Deno.env.get("OPENAI_MODEL") ?? "gpt-4o").trim();
 
   let azureFailureReason = "";
-  if (azureEndpoint && azureKey && azureDeployment) {
-    try {
+  if (azureEndpoint && azureKey && (azureDeployment || supportModel)) {
+    const deployments = [...new Set([supportModel, azureDeployment].filter(Boolean))];
+    for (const deployment of deployments) try {
       const base = azureEndpoint.replace(/\/+$/, "");
       const useV1Responses =
         /\/openai\/v1$/i.test(base) ||
@@ -179,12 +195,11 @@ async function generateSupportDraft(input: {
             "api-key": azureKey,
           },
           body: JSON.stringify({
-            model: azureDeployment,
+            model: deployment,
             input: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt },
             ],
-            temperature: 0.2,
           }),
         });
         const raw = await res.json().catch(() => ({}));
@@ -192,11 +207,11 @@ async function generateSupportDraft(input: {
           const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `Azure OpenAI error (${res.status})`;
           throw new Error(errMsg);
         }
-        const outText = String(raw?.output_text ?? "").trim();
+        const outText = extractAiText(raw);
         if (!outText) throw new Error("Azure OpenAI returned an empty draft");
-        return { draft: outText, provider: "azure_openai", model: azureDeployment };
+        return { draft: outText, provider: "azure_openai", model: deployment };
       } else {
-        const url = `${base}/openai/deployments/${encodeURIComponent(azureDeployment)}/chat/completions?api-version=${encodeURIComponent(azureApiVersion)}`;
+        const url = `${base}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=${encodeURIComponent(azureApiVersion)}`;
         const res = await fetchWithTimeout(url, {
           method: "POST",
           headers: {
@@ -216,9 +231,9 @@ async function generateSupportDraft(input: {
           const errMsg = typeof raw?.error?.message === "string" ? raw.error.message : `Azure OpenAI error (${res.status})`;
           throw new Error(errMsg);
         }
-        const draft = String(raw?.choices?.[0]?.message?.content ?? "").trim();
+        const draft = extractAiText(raw);
         if (!draft) throw new Error("Azure OpenAI returned an empty draft");
-        return { draft, provider: "azure_openai", model: azureDeployment };
+        return { draft, provider: "azure_openai", model: deployment };
       }
     } catch (e: any) {
       azureFailureReason = String(e?.message || "Azure OpenAI request failed");
@@ -766,11 +781,26 @@ Deno.serve(async (req) => {
     const ticket = (ticketRows || [])[0];
     if (!ticket) return json({ success: false, error: "Ticket not found" }, 404);
 
-    const { data: messages, error: msgErr } = await supa
-      .from("support_ticket_messages")
-      .select("*")
-      .eq("ticket_id", ticketId)
-      .order("created_at", { ascending: true });
+    let messages: any[] = [];
+    let msgErr: any = null;
+    // A ticket is returned before background AI triage completes. Briefly
+    // long-poll the first thread read so already-released native clients do
+    // not permanently cache a one-message conversation.
+    const createdAt = new Date(String(ticket.created_at || "")).getTime();
+    const shouldAwaitFirstResponse = ticket.status === "open"
+      && Number.isFinite(createdAt)
+      && Date.now() - createdAt < 120_000;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const result = await supa
+        .from("support_ticket_messages")
+        .select("*")
+        .eq("ticket_id", ticketId)
+        .order("created_at", { ascending: true });
+      messages = result.data || [];
+      msgErr = result.error;
+      if (!shouldAwaitFirstResponse || msgErr || messages.some((row: any) => row.sender_type !== "user") || attempt === 7) break;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
     if (msgErr) return json({ success: false, error: msgErr.message }, 500);
 
     return json({ success: true, data: { ticket, messages: messages || [] } });
