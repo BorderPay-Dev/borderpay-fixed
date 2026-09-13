@@ -148,6 +148,12 @@ verify_jwt = true
 [functions.external-wallet]
 verify_jwt = true
 
+# Dedicated master-treasury API. Access is rechecked server-side against the
+# operator allowlist; transfers additionally require an enabled entitlement,
+# transaction PIN, ownership checks, and an idempotency key.
+[functions.bridge-operator-readonly]
+verify_jwt = true
+
 # Yellow Card read-only commercial policy and sandbox provider discovery.
 [functions.yellowcard-capabilities]
 verify_jwt = true

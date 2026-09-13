@@ -90,7 +90,7 @@ export interface VirtualAccountCreateInput {
 
 /** A provider wallet as returned by GET /v0/customers/{id}/wallets. */
 export interface ProviderWalletSummary {
-  wallet_id: string; currency: string; chain: string; address: string; balance?: string;
+  wallet_id: string; currency: string; chain: string; address: string; balance?: string; status?: string;
 }
 /** A provider virtual account as returned by GET /v0/customers/{id}/virtual_accounts. */
 export interface ProviderVirtualAccountSummary {

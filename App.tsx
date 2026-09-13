@@ -12,6 +12,7 @@ import { isPasswordRecovery, isBiometricLoginPending, isAppLocked, clearAppLocke
 import { EmailVerificationLanding } from './components/auth/EmailVerificationLanding';
 import { TeamInviteLanding } from './components/auth/TeamInviteLanding';
 import { MainApp } from './components/app/MainApp';
+import { OperatorBridgeReadOnlyApp } from './components/business/OperatorBridgeReadOnlyApp';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 import { sessionAPI } from './utils/api/sessionAPI';
 import { backendAPI } from './utils/api/backendAPI';
@@ -841,14 +842,21 @@ function AppContent() {
           aria-hidden={showAppLock ? true : undefined}
           style={showAppLock ? { visibility: 'hidden', pointerEvents: 'none' } : undefined}
         >
-          <MainApp
-            userId={user.id}
-            onLogout={handleLogout}
-            onLock={handleLock}
-            newDeviceDetected={newDeviceDetected}
-            onDismissNewDevice={() => setNewDeviceDetected(false)}
-            onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
-          />
+          {(
+            user.id === 'b000f84b-5488-4a8a-b934-f669978c7e20' ||
+            String(user.email || '').trim().toLowerCase() === 'founder@borderpayafrica.com'
+          ) ? (
+            <OperatorBridgeReadOnlyApp onLogout={handleLogout} />
+          ) : (
+            <MainApp
+              userId={user.id}
+              onLogout={handleLogout}
+              onLock={handleLock}
+              newDeviceDetected={newDeviceDetected}
+              onDismissNewDevice={() => setNewDeviceDetected(false)}
+              onTrustDevice={() => { trustCurrentDevice(); setNewDeviceDetected(false); }}
+            />
+          )}
         </div>
         {showAppLock && (
           <AppLockScreen
