@@ -23,6 +23,9 @@ const cors = (req: Request) => ({
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), "Content-Type": "application/json" } });
 const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
 const comparable = (value: unknown) => clean(value, 300).toLowerCase().replace(/[^a-z0-9]/g, "");
+const normalizeEmail = (value: unknown) => clean(value, 254).toLowerCase();
+const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+const ilikeLiteral = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -75,6 +78,57 @@ Deno.serve(async (req) => {
         .order("requested_at", { ascending: false }).limit(250);
       if (error) throw error;
       return json(req, { success: true, requests: data || [] });
+    }
+
+    if (action === "send_direct_invite") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      const email = normalizeEmail(body?.email);
+      if (!validEmail(email)) return json(req, { success: false, error: "Enter a valid business email address" }, 400);
+      const emailPattern = ilikeLiteral(email);
+
+      const { data: organization, error: organizationError } = await db.from("partner_organizations")
+        .select("id,status").ilike("primary_email", emailPattern).limit(1).maybeSingle();
+      if (organizationError) throw organizationError;
+      if (organization) return json(req, { success: false, error: "This email already belongs to a partner organization" }, 409);
+
+      const { data: existing, error: existingError } = await db.from("partner_access_invite_requests")
+        .select("id,email,status,requested_at,invited_at,accepted_at")
+        .ilike("email", emailPattern).order("requested_at", { ascending: false }).limit(1).maybeSingle();
+      if (existingError) throw existingError;
+      if (existing?.status === "accepted") return json(req, { success: false, error: "This invitation has already been accepted" }, 409);
+      if (existing?.status === "invited") return json(req, { success: false, error: "An active invitation already exists for this email" }, 409);
+
+      let requestId = Number(existing?.id || 0);
+      const requestedAt = new Date().toISOString();
+      if (requestId) {
+        const { error } = await db.from("partner_access_invite_requests").update({
+          email, status: "pending", approved_by: null, approved_at: null,
+          invited_at: null, accepted_at: null, requested_at: requestedAt,
+        }).eq("id", requestId);
+        if (error) throw error;
+      } else {
+        const { data: created, error } = await db.from("partner_access_invite_requests")
+          .insert({ email, status: "pending", requested_at: requestedAt })
+          .select("id").single();
+        if (error) throw error;
+        requestId = Number(created.id);
+      }
+
+      const redirectTo = "https://portal.borderpayafrica.com/auth/callback?setup=password";
+      const { error: sendError } = await db.auth.admin.inviteUserByEmail(email, { redirectTo });
+      if (sendError) {
+        console.error("partner_direct_invite_delivery_failed", { request_id: requestId, email, message: sendError.message });
+        return json(req, { success: false, error: "Invitation delivery failed. The request remains pending and can be retried." }, 502);
+      }
+
+      const now = new Date().toISOString();
+      const { data: invitation, error: updateError } = await db.from("partner_access_invite_requests")
+        .update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now })
+        .eq("id", requestId).eq("status", "pending")
+        .select("id,email,status,requested_at,approved_at,invited_at,accepted_at").single();
+      if (updateError) throw updateError;
+      console.info("partner_direct_invite_sent", { request_id: requestId, email, operator_id: authData.user.id });
+      return json(req, { success: true, invitation });
     }
 
     if (action === "approve_invite") {
