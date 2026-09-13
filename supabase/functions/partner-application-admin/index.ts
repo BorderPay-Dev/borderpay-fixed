@@ -26,6 +26,38 @@ const comparable = (value: unknown) => clean(value, 300).toLowerCase().replace(/
 const normalizeEmail = (value: unknown) => clean(value, 254).toLowerCase();
 const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const ilikeLiteral = (value: string) => value.replace(/[\\%_]/g, "\\$&");
+const FLUTTERWAVE_SECRET_KEY = Deno.env.get("FLUTTERWAVE_SECRET_KEY") || "";
+
+const sha256 = async (value: string) => Array.from(new Uint8Array(
+  await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
+)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+
+const createFlutterwaveInvoiceLink = async (input: {
+  organizationId: string; invoiceNumber: string; amount: number; recipient: string; partnerName: string;
+}) => {
+  if (!FLUTTERWAVE_SECRET_KEY) throw new Error("Flutterwave invoice collection is not configured");
+  const digest = await sha256(`${input.organizationId}:${input.invoiceNumber.trim().toLowerCase()}`);
+  const reference = `bp-partner-invoice-${digest.slice(0, 32)}`;
+  const response = await fetch("https://api.flutterwave.com/v3/payments", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${FLUTTERWAVE_SECRET_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      tx_ref: reference,
+      amount: input.amount.toFixed(2),
+      currency: "USD",
+      redirect_url: "https://portal.borderpayafrica.com/?billing=invoice",
+      customer: { email: input.recipient, name: input.partnerName },
+      customizations: { title: "BorderPay partner invoice", description: `Invoice ${input.invoiceNumber}` },
+      meta: { borderpay_partner_organization_id: input.organizationId, borderpay_partner_invoice_number: input.invoiceNumber },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  const paymentUrl = clean(payload?.data?.link, 1000);
+  if (!response.ok || clean(payload?.status).toLowerCase() !== "success" || !paymentUrl.startsWith("https://")) {
+    throw new Error(`Flutterwave payment link failed (${response.status})`);
+  }
+  return { reference, paymentUrl };
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -327,23 +359,44 @@ Deno.serve(async (req) => {
       }
       const paymentMethod = clean(body.payment_method, 30);
       if (!new Set(["bank_transfer", "flutterwave"]).has(paymentMethod)) return json(req, { success: false, error: "Payment method is invalid" }, 400);
-      const paymentUrl = clean(body.payment_url, 1000);
+      const partnerName = application.partner_organizations?.trading_name || application.partner_organizations?.legal_name || "Partner";
+      const recipient = clean(application.partner_organizations?.primary_email, 254).toLowerCase();
+      if (!validEmail(recipient)) return json(req, { success: false, error: "Partner billing email is invalid" }, 409);
+      const { data: duplicateInvoice, error: duplicateError } = await db.from("partner_invoices")
+        .select("id").eq("invoice_number", invoiceNumber).maybeSingle();
+      if (duplicateError) throw duplicateError;
+      if (duplicateInvoice) return json(req, { success: false, error: "Invoice number already exists" }, 409);
+
+      let paymentReference = clean(body.payment_reference, 200) || null;
+      let paymentUrl = clean(body.payment_url, 1000);
       if (paymentUrl) {
         try { if (new URL(paymentUrl).protocol !== "https:") throw new Error(); }
         catch { return json(req, { success: false, error: "Payment URL must use HTTPS" }, 400); }
+      }
+      if (paymentMethod === "flutterwave") {
+        const invoiceTotal = normalizedLines.reduce((sum: number, line: any) => sum + line.quantity * line.unit_amount, 0);
+        if (!Number.isFinite(invoiceTotal) || invoiceTotal <= 0) return json(req, { success: false, error: "Flutterwave invoice total must be greater than zero" }, 400);
+        try {
+          const providerInvoice = await createFlutterwaveInvoiceLink({
+            organizationId: application.organization_id, invoiceNumber, amount: invoiceTotal, recipient, partnerName,
+          });
+          paymentReference = providerInvoice.reference;
+          paymentUrl = providerInvoice.paymentUrl;
+        } catch (error) {
+          console.error("partner_invoice_payment_link_failed", { organization_id: application.organization_id, invoice_number: invoiceNumber, error: error instanceof Error ? error.message : String(error) });
+          return json(req, { success: false, error: "Flutterwave payment link could not be created. No invoice was issued." }, 502);
+        }
       }
       const { data, error } = await db.rpc("admin_create_partner_invoice", {
         p_organization_id: application.organization_id,
         p_invoice_number: invoiceNumber,
         p_period_start: clean(body.period_start, 20), p_period_end: clean(body.period_end, 20),
         p_due_at: body.due_at, p_payment_method: paymentMethod,
-        p_payment_reference: clean(body.payment_reference, 200) || null,
+        p_payment_reference: paymentReference,
         p_payment_url: paymentUrl || null,
         p_lines: normalizedLines, p_created_by: authData.user.id,
       });
       if (error) throw error;
-      const partnerName = application.partner_organizations?.trading_name || application.partner_organizations?.legal_name || "Partner";
-      const recipient = clean(application.partner_organizations?.primary_email, 254).toLowerCase();
       const delivery = await sendPartnerInvoiceEmail(data, recipient, partnerName, `partner-invoice:${data.id}:issued`);
       if (delivery.sent) await db.from("partner_invoices").update({ sent_at: new Date().toISOString() }).eq("id", data.id).eq("organization_id", application.organization_id);
       await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: "partner_invoice_issued", metadata: { invoice_id: data?.id, invoice_number: invoiceNumber } });
