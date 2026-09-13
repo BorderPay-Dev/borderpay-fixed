@@ -52,7 +52,7 @@ function currentMonthEnd(): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
 }
 
-async function prepareApprovedBusinessBilling(dryRun = false) {
+async function prepareApprovedBusinessBilling(dryRun = false, queueBeforeDue = false) {
   const billingPeriod = currentMonthEnd();
   const { data: sync, error: syncError } = await db.rpc("sync_approved_business_maintenance_subscriptions", {
     p_billing_period: billingPeriod,
@@ -79,6 +79,18 @@ async function prepareApprovedBusinessBilling(dryRun = false) {
 
   if (dryRun) {
     return { billing_period: billingPeriod, sync, eligible: eligible.length, blocked, queued: 0, results: [] };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (!queueBeforeDue && today < billingPeriod) {
+    return {
+      billing_period: billingPeriod,
+      sync,
+      eligible: eligible.length,
+      blocked,
+      queued: 0,
+      results: [],
+      invoice_creation_scheduled_for: billingPeriod,
+    };
   }
 
   const results = [];
@@ -402,11 +414,14 @@ Deno.serve(async (req) => {
   try {
     const { mode = "drain" } = await req.json().catch(() => ({}));
     const out: Record<string, unknown> = {};
-    if (["prepare", "bill_due", "drain"].includes(mode)) {
-      out.business_maintenance = await prepareApprovedBusinessBilling(false);
+    if (mode === "prepare") {
+      out.business_maintenance = await prepareApprovedBusinessBilling(false, true);
+    }
+    if (["bill_due", "drain"].includes(mode)) {
+      out.business_maintenance = await prepareApprovedBusinessBilling(false, false);
     }
     if (mode === "prepare_dry_run") {
-      out.business_maintenance = await prepareApprovedBusinessBilling(true);
+      out.business_maintenance = await prepareApprovedBusinessBilling(true, false);
     }
     if (["bill_due", "drain"].includes(mode)) {
       out.billing = await billDue();
