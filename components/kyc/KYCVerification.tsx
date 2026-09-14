@@ -217,11 +217,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const openTopLevelHostedFallback = useCallback((url: string | null) => {
     if (!url) return;
-    // Persona cannot be rendered in the app WebView. Open the provider URL in
-    // a separate browsing context; Capacitor hands this to the device browser.
-    const externalWindow = window.open(url, '_blank');
-    if (externalWindow) externalWindow.opener = null;
-    else window.location.assign(url);
+    // Some Bridge hosted pages may refuse iframe embedding on specific hops.
+    // Hard fail-safe: open same link in current tab to avoid white-screen dead end.
+    window.location.href = url;
   }, []);
 
   useEffect(() => {
