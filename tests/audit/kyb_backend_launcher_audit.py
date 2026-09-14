@@ -9,7 +9,7 @@ checks = {
     "KYB does not return an HTML launcher": "externalLaunchUrl" not in kyb and "verification-launch" not in kyb,
     "raw provider URL remains internal until authenticated response": "bridge_kyb_link_url: link.link_url" in kyb,
     "ToS remains separately represented": "tos_link_url: tosRequired ? link.tos_link_url : null" in kyb,
-    "existing customers fetch the current Bridge URL first": kyb.find("if (existingCustomerId) {") < kyb.find("if ((!r.ok || !link?.link_url) && biz.bridge_kyb_link_id)"),
+    "existing customers fetch the current Bridge URL first": kyb.find("if (existingCustomerId) {") < kyb.find("if ((!r.ok || (!link?.link_url && !link?.tos_link_url)) && biz.bridge_kyb_link_id)"),
     "stored link is fallback only": "Compatibility fallback only when the authoritative customer-resume route" in kyb,
 }
 failed = [name for name, ok in checks.items() if not ok]
