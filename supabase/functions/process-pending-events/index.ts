@@ -905,11 +905,24 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
   if (!customer) throw new Error("bridge kyc/kyb event missing customer id");
 
   const status = String(d?.status ?? d?.kyc_status ?? ev.payload?.event_object_status ?? "").toLowerCase();
-  const normalized =
-    status === "approved"   || status === "verified" ? "approved"
-    : status === "rejected" || status === "denied"   ? "rejected"
-    : status === "under_review"                      ? "under_review"
-    : status === "pending"                           ? "pending"
+  const normalized = status === "verified" ? "approved"
+    : status === "denied" ? "rejected"
+    : status === "awaiting_ubo" ? "needs_ubos"
+    : status === "awaiting_questionnaire" ? "awaiting_rfi"
+    : status === "deposits_restricted" ? "needs_edd"
+    : [
+      "not_started",
+      "incomplete",
+      "awaiting_rfi",
+      "needs_edd",
+      "needs_ubos",
+      "under_review",
+      "pending",
+      "approved",
+      "rejected",
+      "paused",
+      "offboarded",
+    ].includes(status) ? status
     : "pending";
 
   const isKyb = ev.event_type.toLowerCase().includes("kyb")
