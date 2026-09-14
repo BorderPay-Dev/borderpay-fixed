@@ -153,6 +153,11 @@ export interface TransferCreateInput {
     flexible_amount?: boolean;
     allow_any_from_address?: boolean;
   };
+  sca_attestation?: {
+    outcome: "sca_used";
+    channel: "p2p_mobile_payment" | "other_mobile_payment" | "other";
+    subchannel: "remote";
+  };
   idempotency_key: string;
 }
 

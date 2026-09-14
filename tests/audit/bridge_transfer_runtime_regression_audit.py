@@ -5,6 +5,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "supabase/functions/bridge-transfer/index.ts").read_text()
+PROVIDER = (ROOT / "supabase/functions/_shared/providers/bridge.ts").read_text()
+SCA = (ROOT / "supabase/functions/_shared/sca.ts").read_text()
+SCOPE = (ROOT / "supabase/functions/_shared/bridge-sca-scope.ts").read_text()
 
 checks = {
     "legacy maintenance block removed": (
@@ -16,6 +19,46 @@ checks = {
     ),
     "frozen-account guard preserved": (
         "getFinancialAccessBlock" in SOURCE and "if (accessBlock)" in SOURCE
+    ),
+    "transfer consumes request-bound SCA authorization": (
+        "consumeScaAuthorization" in SOURCE
+        and 'resource: "bridge_transfer"' in SOURCE
+        and "request: body" in SOURCE
+    ),
+    "SCA is consumed before provider execution": (
+        SOURCE.find("const sca = await consumeScaAuthorization")
+        < SOURCE.find("const result = await bridgeProvider.createTransfer")
+    ),
+    "provider receives SCA only when required": (
+        "...(sca.required ?" in SOURCE and "sca_attestation" in SOURCE
+    ),
+    "provider serializes Bridge initiation attestation": (
+        "initiation:" in PROVIDER
+        and "attestations: { sca:" in PROVIDER
+        and "input.sca_attestation.outcome" in PROVIDER
+    ),
+    "non-EEA transfers bypass SCA": (
+        'scope.status === "not_required"' in SCA
+        and "required: false" in SCA
+    ),
+    "business scope uses incorporation data": (
+        'accountType === "business"' in SCOPE
+        and "country_of_incorporation" in SCOPE
+        and "registeredAddress.country" in SCOPE
+    ),
+    "UK and Switzerland excluded from EEA scope": (
+        '"GB"' not in SCOPE.split("const EEA_ISO3_TO_ISO2", 1)[0]
+        and '"CH"' not in SCOPE.split("const EEA_ISO3_TO_ISO2", 1)[0]
+    ),
+    "EEA scope contains exactly 30 countries": (
+        len(set(__import__("re").findall(r'"([A-Z]{2})"', SCOPE.split("const EEA_ISO3_TO_ISO2", 1)[0]))) == 30
+    ),
+    "SCA requires approved identity": (
+        'verificationStatus === "approved"' in SCOPE
+    ),
+    "SCA requires active custodial wallet": (
+        "isActiveBridgeCustodialWallet" in SCOPE
+        and 'reason: "no_custodial_wallet"' in SCOPE
     ),
 }
 

@@ -65,6 +65,8 @@ if "to_address: input.destination.address" not in provider_transfer:
     failures.append("provider must serialize the direct destination address as to_address")
 if "createLiquidationAddress" in provider_transfer:
     failures.append("provider transfer path must not call liquidation address APIs")
+if "initiation:" not in provider_transfer or "attestations: { sca:" not in provider_transfer:
+    failures.append("provider transfer must preserve the conditional EEA SCA initiation attestation")
 
 stablecoin_send = send_flow[
     send_flow.find("result = await backendAPI.stablecoin.sendTransfer"):

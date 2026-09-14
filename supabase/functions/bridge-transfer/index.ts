@@ -75,6 +75,7 @@ import {
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -566,6 +567,19 @@ Deno.serve(async (req) => {
     }
   }
 
+  // For verified EEA custodial-wallet customers, consume a one-time PIN +
+  // authenticator authorization bound to this exact transfer request. This is
+  // deliberately after replay/validation checks and before the provider call.
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body?.sca_authorization_id,
+    userId: user.id,
+    operation: "payment",
+    resource: "bridge_transfer",
+    request: body,
+  });
+  if (!sca.ok) return await failAfterAuth(sca.body, sca.status, profile.account_type);
+
   try {
     fxLog("bridge_request_sent", {
       user_id: user.id,
@@ -607,6 +621,13 @@ Deno.serve(async (req) => {
             ),
           }
         : undefined,
+      ...(sca.required ? {
+        sca_attestation: {
+          outcome: "sca_used" as const,
+          channel: "other" as const,
+          subchannel: "remote" as const,
+        },
+      } : {}),
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.
