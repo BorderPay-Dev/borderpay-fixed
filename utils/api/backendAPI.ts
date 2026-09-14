@@ -1914,6 +1914,7 @@ export const stablecoinAPI = {
     bridge_payment_route_id?: string | null;
     funding_source?: 'USD';
     transaction_pin?: string;
+    sca_authorization_id?: string;
     /**
      * Client-controlled idempotency key. REQUIRED.
      *
@@ -1936,6 +1937,7 @@ export const stablecoinAPI = {
         method: 'POST',
         body: JSON.stringify({
           idempotency_key: data.idempotency_key,
+          ...(data.sca_authorization_id ? { sca_authorization_id: data.sca_authorization_id } : {}),
           source:      {
             payment_rail: 'bridge_wallet',
             currency:     symbol,
@@ -2481,6 +2483,7 @@ export const bridgeAPI = {
       destination: { payment_rail: string; currency: string; chain?: string; address?: string; bridge_wallet_id?: string; external_account_id?: string; deposit_id?: string; bank_account?: { account_number?: string; routing_number?: string; iban?: string; bic?: string } };
       developer_fee?: { percentage?: number; flat_amount?: string };
       idempotency_key?: string;
+      sca_authorization_id?: string;
     }) =>
       apiCall<{ transfer_id: string; state: 'pending' | 'processing' | 'succeeded' | 'failed' }>(
         'bridge-transfer',
@@ -2571,6 +2574,25 @@ export const bridgeAPI = {
         { method: 'POST', body: JSON.stringify({ action: 'capabilities' }) },
       ),
   },
+};
+
+export const scaAPI = {
+  status: async () => apiCall<{ required: boolean; reason: string }>('sca-authorize', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'status' }),
+  }),
+  authorizePayment: async (input: { pin: string; totp: string; request: Record<string, unknown> }) =>
+    apiCall<{ required: boolean; authorization_id?: string; expires_at?: string }>('sca-authorize', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'authorize',
+        operation: 'payment',
+        resource: 'bridge_transfer',
+        pin: input.pin,
+        totp: input.totp,
+        request: input.request,
+      }),
+    }),
 };
 
 // ============================================================================
@@ -2886,6 +2908,7 @@ export const backendAPI = {
   provisioning: provisioningAPI,
   business: businessAPI,
   bridge: bridgeAPI,
+  sca: scaAPI,
   subscription: subscriptionAPI,
   payouts:      payoutsAPI,
   externalWallets: externalWalletsAPI,

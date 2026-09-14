@@ -125,6 +125,12 @@ verify_jwt = false
 [functions.bridge-transfer]
 verify_jwt = true
 
+[functions.sca-scope]
+verify_jwt = true
+
+[functions.sca-authorize]
+verify_jwt = true
+
 # Bulk payouts (payroll/supplier/contractor/marketplace) — same money gate as
 # bridge-transfer (BRIDGE_TRANSFERS_ENABLED) + KYC + activated plan.
 [functions.bridge-bulk-payout]

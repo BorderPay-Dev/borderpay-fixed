@@ -56,7 +56,7 @@ import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
 // ---------------------------------------------------------------------------
 
 type TransferMethod = 'us_ach_wire' | 'stablecoin' | AfricanRailChannel;
-type Step = 'method' | 'africa-destination' | 'africa-rail' | 'crypto-wallet' | 'details' | 'amount' | 'review' | 'security-gate' | 'pin' | 'processing' | 'success' | 'error';
+type Step = 'method' | 'africa-destination' | 'africa-rail' | 'crypto-wallet' | 'details' | 'amount' | 'review' | 'security-gate' | 'pin' | 'totp' | 'processing' | 'success' | 'error';
 
 type AfricanCountryOption = {
   countryCode: string;
@@ -849,6 +849,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // timeout or double tap cannot create a second provider transaction.
   const yellowCardSequenceRef = useRef<{ fingerprint: string; sequenceId: string } | null>(null);
   const transactionAuthorizationRef = useRef(false);
+  const verifiedScaPinRef = useRef('');
   const africanQuoteReqRef = useRef(0);
 
   // Instant fallback fee — shown immediately on first paint.
@@ -1002,8 +1003,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // PIN & result
   const [pin, setPin] = useState('');
+  const [totp, setTotp] = useState('');
   useEffect(() => {
     if (step !== 'pin') setPin('');
+    if (step !== 'totp') setTotp('');
   }, [step]);
   const [snapshotReady, setSnapshotReady] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -1317,6 +1320,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'review': setStep('amount'); break;
       case 'security-gate': setStep('review'); break;
       case 'pin': setStep('review'); break;
+      case 'totp': verifiedScaPinRef.current = ''; setStep('pin'); break;
       case 'error': setStep('review'); break;
       default: onBack();
     }
@@ -1392,7 +1396,49 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     });
   };
 
-  const processTransaction = async (verifiedPin: string) => {
+  const buildBridgeTransferRequest = () => {
+    if (method === 'stablecoin') {
+      const symbol = crypto.token.toUpperCase();
+      return {
+        idempotency_key: transferIdempotencyKey,
+        source: {
+          payment_rail: 'bridge_wallet',
+          currency: symbol,
+          amount: String(parseFloat(amount)),
+          ...(selectedWallet?.bridge_wallet_id ? { bridge_wallet_id: selectedWallet.bridge_wallet_id } : {}),
+        },
+        destination: {
+          payment_rail: crypto.network,
+          currency: symbol,
+          chain: crypto.network.toUpperCase(),
+          address: crypto.address.trim(),
+          ...(cryptoSavedWalletId ? { external_wallet_id: cryptoSavedWalletId } : {}),
+        },
+      };
+    }
+    if (method === 'us_ach_wire' && selectedExternalAccount && activeExternalFundingWallet?.bridge_wallet_id) {
+      const destinationRail = selectedExternalAccount.account_type === 'iban' ? 'sepa'
+        : selectedExternalAccount.account_type === 'gb' ? 'faster_payments'
+        : 'ach';
+      return {
+        idempotency_key: transferIdempotencyKey,
+        source: {
+          payment_rail: 'bridge_wallet',
+          currency: activeExternalFundingCurrency,
+          amount: String(parseFloat(amount)),
+          bridge_wallet_id: activeExternalFundingWallet.bridge_wallet_id,
+        },
+        destination: {
+          payment_rail: destinationRail,
+          currency: selectedExternalAccount.currency,
+          external_account_id: selectedExternalAccount.bridge_external_account_id,
+        },
+      };
+    }
+    return null;
+  };
+
+  const processTransaction = async (scaAuthorizationId?: string) => {
     setTransactionPending(false);
     // Never retain a transaction PIN while a request is in flight or after a
     // route transition. Non-stablecoin flows have already verified it locally.
@@ -1427,7 +1473,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
           bridge_wallet_id: selectedWallet.bridge_wallet_id,
           external_wallet_id: cryptoSavedWalletId,
-          transaction_pin: verifiedPin,
+          ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}),
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the
           // original transfer_id (server-side replay), not a duplicate.
@@ -1446,6 +1492,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           : 'ach';
         result = await backendAPI.bridge.transfer.create({
           idempotency_key: transferIdempotencyKey,
+          ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}),
           source: {
             payment_rail: 'bridge_wallet',
             currency: activeExternalFundingCurrency,
@@ -1584,11 +1631,58 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setPin('');
         return;
       }
+      if (method !== 'stablecoin' && method !== 'us_ach_wire') {
+        setPin('');
+        await processTransaction();
+        return;
+      }
+      const scaStatus: any = await backendAPI.sca.status();
+      if (!scaStatus?.success) {
+        toast.error(friendlyError(scaStatus?.error, 'Strong authentication is temporarily unavailable.'));
+        setPin('');
+        return;
+      }
+      if (scaStatus.data?.required) {
+        verifiedScaPinRef.current = value;
+        setStep('totp');
+        return;
+      }
       setPin('');
-      await processTransaction(method === 'stablecoin' ? value : '__verified__');
+      await processTransaction();
       } finally {
         transactionAuthorizationRef.current = false;
       }
+    }
+  };
+
+  const handleTotpComplete = async (value: string) => {
+    setTotp(value);
+    if (value.length !== 6 || transactionAuthorizationRef.current) return;
+    const request = buildBridgeTransferRequest();
+    if (!request || !verifiedScaPinRef.current) {
+      toast.error('Return to Review and authorize this payout again.');
+      verifiedScaPinRef.current = '';
+      setStep('review');
+      return;
+    }
+    transactionAuthorizationRef.current = true;
+    try {
+      const authorization: any = await backendAPI.sca.authorizePayment({
+        pin: verifiedScaPinRef.current,
+        totp: value,
+        request,
+      });
+      if (!authorization?.success || !authorization.data?.authorization_id) {
+        toast.error(friendlyError(authorization?.error, 'Could not verify the authenticator code.'));
+        setTotp('');
+        return;
+      }
+      const authorizationId = authorization.data.authorization_id;
+      verifiedScaPinRef.current = '';
+      setTotp('');
+      await processTransaction(authorizationId);
+    } finally {
+      transactionAuthorizationRef.current = false;
     }
   };
 
@@ -1613,6 +1707,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
+      case 'totp': return 'Authenticator verification';
       case 'processing': return t('send.processingTx');
       case 'success': return transactionPending ? 'Confirmation pending' : t('send.txSuccessful');
       case 'error': return t('send.txFailed');
@@ -3096,7 +3191,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     try {
                       const result = await BiometricManager.verify(userId);
                       if (result.success) {
-                        await processTransaction('__biometric__');
+                        if (method !== 'stablecoin' && method !== 'us_ach_wire') {
+                          await processTransaction();
+                          return;
+                        }
+                        const scaStatus: any = await backendAPI.sca.status();
+                        if (!scaStatus?.success) {
+                          toast.error(friendlyError(scaStatus?.error, 'Strong authentication is temporarily unavailable.'));
+                        } else if (scaStatus.data?.required) {
+                          toast.info('This EEA payout requires your transaction PIN and authenticator code.');
+                          setStep('pin');
+                        } else {
+                          await processTransaction();
+                        }
                       } else {
                         toast.error(friendlyError(result.error, 'Biometric verification failed'));
                       }
@@ -3111,6 +3218,48 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 </button>
               </div>
             )}
+          </motion.div>
+        )}
+
+        {/* EEA payment SCA: the authenticator is deliberately a separate
+            screen after PIN so the current 30-second code is entered fresh. */}
+        {step === 'totp' && (
+          <motion.div
+            key="totp"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="px-5 py-8"
+          >
+            <div className="text-center mb-8">
+              <div className="w-20 h-20 rounded-full bg-[#C7FF00]/10 flex items-center justify-center mx-auto mb-4">
+                <Shield className="w-10 h-10 text-[#C7FF00]" />
+              </div>
+              <p className="text-[11px] font-bold tracking-[0.18em] text-[#C7FF00] uppercase mb-2">Step 2 of 2</p>
+              <h2 className={`text-lg font-bold mb-2 ${tc.text}`}>Enter authenticator code</h2>
+              <p className={`text-sm ${tc.textSecondary}`}>
+                Enter the current 6-digit code from your authenticator app to authorize this payout.
+              </p>
+            </div>
+            <div className="flex justify-center mb-8">
+              <InputOTP
+                maxLength={6}
+                value={totp}
+                onChange={handleTotpComplete}
+                autoComplete="one-time-code"
+                inputMode="numeric"
+                pattern="[0-9]*"
+              >
+                <InputOTPGroup>
+                  <InputOTPSlot index={0} />
+                  <InputOTPSlot index={1} />
+                  <InputOTPSlot index={2} />
+                  <InputOTPSlot index={3} />
+                  <InputOTPSlot index={4} />
+                  <InputOTPSlot index={5} />
+                </InputOTPGroup>
+              </InputOTP>
+            </div>
           </motion.div>
         )}
 
