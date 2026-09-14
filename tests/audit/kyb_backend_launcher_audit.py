@@ -13,7 +13,8 @@ checks = {
     "raw URL is stored server-side": 'target_url: target.toString()' in kyb,
     "launcher cannot accept arbitrary target URL": 'searchParams.get("token")' in launcher and 'searchParams.get("url")' not in launcher,
     "provider host allowlist enforced twice": "withpersona.com" in kyb and "withpersona.com" in launcher,
-    "released embedded clients get top navigation": 'target="_top"' in launcher,
+    "released native clients open the system browser": 'target="_blank"' in launcher and 'rel="noopener noreferrer"' in launcher,
+    "provider is never opened inside the app WebView": 'target="_top"' not in launcher,
     "launcher response cannot be cached": 'Cache-Control": "no-store' in launcher,
     "token table is private": "revoke all on public.verification_launch_tokens from anon, authenticated" in migration,
 }
