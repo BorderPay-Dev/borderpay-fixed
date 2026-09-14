@@ -20,6 +20,9 @@ checks = {
     "verification screen exposes UBO action": "Ownership details required" in screen and "status === 'needs_ubos'" in screen,
     "shared derivation reads account-level UBO truth": "bridgeAcct === 'awaiting_ubo'" in environment,
     "status API preserves actionable UBO state": "status = 'needs_ubos'" in status_api,
+    "status API prioritizes actionable state before approval": status_api.find("status = 'needs_ubos'") < status_api.find("status = 'approved'"),
+    "business status ignores legacy individual approval": "(!isBusiness && (profile?.kyc_status === 'verified'" in status_api,
+    "status API returns raw account status": "bridge_account_status: bridgeAccountStatus || null" in status_api,
     "existing UBO businesses are backfilled": "when 'awaiting_ubo' then 'needs_ubos'" in backfill,
 }
 

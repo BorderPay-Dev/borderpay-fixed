@@ -42,9 +42,14 @@ def main() -> int:
                    bool(src) and "Deno.serve(" in src,
                    "supabase/functions/get-user-profile/index.ts must exist"))
 
-    checks.append(("P2 payload returns bridge_account_status (user_profiles)",
-                   "bridge_account_status: profile?.bridge_account_status" in src,
-                   "return object must include bridge_account_status from the user_profiles row"))
+    checks.append(("P2 payload returns bridge_account_status compatibility projection",
+                   "bridge_account_status: accountAccessRestricted ?" in src
+                   and "profile?.bridge_account_status || null" in src,
+                   "return object must include the provider-backed account status compatibility projection"))
+
+    checks.append(("P2b payload preserves raw provider account status",
+                   "bridge_provider_account_status: profile?.bridge_account_status || null" in src,
+                   "return object must preserve the raw provider account state separately"))
 
     p3 = ("bridge_kyb_status:" in src
           and "bridgeKybStatus" in src
