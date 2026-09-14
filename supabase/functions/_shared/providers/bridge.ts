@@ -614,8 +614,19 @@ export class BridgeProvider implements PaymentProvider {
     });
     return (Array.isArray(rows) ? rows : []).map((v: any) => ({
       virtual_account_id: String(v?.id),
-      currency:  String(v?.source_deposit_instructions?.currency || v?.currency || "").toUpperCase(),
-      rail:      v?.source_deposit_instructions?.payment_rail || v?.rail,
+      currency:  String(
+        v?.source_deposit_instructions?.currency ||
+        (Array.isArray(v?.source_deposit_instructions)
+          ? v.source_deposit_instructions[0]?.currency
+          : "") ||
+        v?.currency ||
+        "",
+      ).toUpperCase(),
+      rail:      v?.source_deposit_instructions?.payment_rail ||
+        (Array.isArray(v?.source_deposit_instructions)
+          ? v.source_deposit_instructions[0]?.payment_rail
+          : undefined) ||
+        v?.rail,
       status:    v?.status,
       developer_fee_percent:
         v?.developer_fee_percent != null && Number.isFinite(Number(v.developer_fee_percent))

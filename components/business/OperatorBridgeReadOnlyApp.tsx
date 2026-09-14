@@ -16,32 +16,13 @@ type WalletRow = {
   balances: Array<{ currency: string; chain: string; balance: string }>;
 };
 
-type CustomerTransaction = {
+type BridgeTransfer = {
   id: string;
-  user_id: string;
-  customer_name: string;
-  customer_email: string;
-  account_type: string;
-  type: string;
-  status: string;
-  amount: string;
-  currency: string;
-  fee: string;
-  description: string;
-  reference: string;
+  state: string;
+  source: { currency: string; payment_rail: string; amount: string };
+  destination: { currency: string; payment_rail: string; amount: string };
   created_at: string;
   updated_at: string;
-};
-
-type TreasuryNotification = {
-  id: string;
-  customer_name: string;
-  customer_email: string;
-  type: string;
-  title: string;
-  body: string;
-  read: boolean;
-  created_at: string;
 };
 
 type TreasuryExternalAccount = {
@@ -76,17 +57,11 @@ type OperatorSnapshot = {
   }>;
   external_accounts: TreasuryExternalAccount[];
   external_accounts_available: boolean;
-  transactions: Array<{
-    id: string;
-    state: string;
-    source: { currency: string; payment_rail: string; amount: string };
-    destination: { currency: string; payment_rail: string; amount: string };
-    created_at: string;
-    updated_at: string;
-  }>;
-  customer_transactions: CustomerTransaction[];
-  notifications: TreasuryNotification[];
-  platform_activity_available: boolean;
+  transactions: BridgeTransfer[];
+  transfers_available: boolean;
+  wallets_available: boolean;
+  virtual_accounts_available: boolean;
+  profile_available: boolean;
   refreshed_at: string;
 };
 
@@ -187,8 +162,8 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
 
   const assetRows = useMemo(() => (snapshot?.wallets || []).map((wallet) => ({ ...wallet, balance: walletBalance(wallet) })), [snapshot]);
   const usdTotal = useMemo(() => assetRows.filter((row) => row.currency === 'USDC' || row.currency === 'USDT').reduce((sum, row) => sum + (row.balance || 0), 0), [assetRows]);
-  const unreadNotifications = snapshot?.notifications.filter((notification) => !notification.read).length || 0;
-  const recentTransactions = snapshot?.customer_transactions.slice(0, 6) || [];
+  const pendingTransfers = snapshot?.transactions.filter((transaction) => !['completed', 'payment_processed', 'approved'].includes(transaction.state)).length || 0;
+  const recentTransactions = snapshot?.transactions.slice(0, 6) || [];
   const sendSources = useMemo(() => assetRows.filter((wallet) => wallet.balance !== null).map((wallet) => ({
     key: `${wallet.id}:${wallet.currency}`,
     wallet_id: wallet.id,
@@ -274,7 +249,7 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
           <div className="flex items-center gap-2">
             <button type="button" aria-label="Open treasury notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)} className={`relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white ${FOCUS}`}>
               <Bell className="h-5 w-5" aria-hidden="true" />
-              {unreadNotifications > 0 && <span className="absolute right-1.5 top-1.5 min-w-4 rounded-full bg-[#C7FF00] px-1 text-center text-[10px] font-bold leading-4 text-black">{Math.min(unreadNotifications, 99)}</span>}
+              {pendingTransfers > 0 && <span className="absolute right-1.5 top-1.5 min-w-4 rounded-full bg-[#C7FF00] px-1 text-center text-[10px] font-bold leading-4 text-black">{Math.min(pendingTransfers, 99)}</span>}
             </button>
             <button type="button" onClick={() => void load()} disabled={loading} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50 ${FOCUS}`} aria-label="Refresh treasury data"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" /></button>
             <button type="button" onClick={onLogout} className={`inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white ${FOCUS}`}><LogOut className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Sign out</span></button>
@@ -307,19 +282,19 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
               </div>
             </section>
 
-            <TreasuryActivityChart transactions={snapshot.customer_transactions} />
+            <TreasuryActivityChart transactions={snapshot.transactions} />
 
             <QuickActions onNavigate={navigate} />
 
             <section className="bp-treasury-card rounded-3xl border border-white/[0.08] bg-[#0D1016] p-4 sm:p-6" aria-labelledby="recent-activity-title">
-              <div className="flex items-end justify-between gap-4"><div><h2 id="recent-activity-title" className="text-lg font-semibold">Recent activity</h2><p className="mt-1 text-sm text-zinc-500">Latest customer transactions</p></div><button type="button" onClick={() => navigate('transactions')} className={`min-h-11 text-sm font-semibold text-[#C7FF00] ${FOCUS}`}>View all</button></div>
-              <TransactionCards transactions={recentTransactions} />
+              <div className="flex items-end justify-between gap-4"><div><h2 id="recent-activity-title" className="text-lg font-semibold">Recent activity</h2><p className="mt-1 text-sm text-zinc-500">Live master-account transfers</p></div><button type="button" onClick={() => navigate('transactions')} className={`min-h-11 text-sm font-semibold text-[#C7FF00] ${FOCUS}`}>View all</button></div>
+              <TransferCards transactions={recentTransactions} available={snapshot.transfers_available} />
             </section>
           </div>
         )}
 
         {snapshot && !notificationsOpen && activeView === 'wallets' && <WalletsView wallets={snapshot.wallets} />}
-        {snapshot && !notificationsOpen && activeView === 'receive' && <ReceiveView accounts={snapshot.virtual_accounts} />}
+        {snapshot && !notificationsOpen && activeView === 'receive' && <ReceiveView accounts={snapshot.virtual_accounts} available={snapshot.virtual_accounts_available} />}
         {snapshot && !notificationsOpen && activeView === 'transactions' && <TransactionsView snapshot={snapshot} />}
         {snapshot && !notificationsOpen && activeView === 'send' && <SendView sendStep={sendStep} sourceSelection={sourceSelection} setSourceSelection={setSourceSelection} sendSources={sendSources} selectedSource={selectedSource} sendAmount={sendAmount} setSendAmount={setSendAmount} destinationType={destinationType} setDestinationType={setDestinationType} destinationAddress={destinationAddress} setDestinationAddress={setDestinationAddress} externalAccounts={snapshot.external_accounts} externalAccountsAvailable={snapshot.external_accounts_available} externalAccountId={externalAccountId} setExternalAccountId={setExternalAccountId} selectedExternalAccount={selectedExternalAccount} pin={pin} setPin={setPin} transferResult={transferResult} setSendStep={setSendStep} submitTransfer={submitTransfer} resetSend={resetSend} />}
       </main>
@@ -332,20 +307,21 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
 }
 
 function NotificationPanel({ snapshot, onClose }: { snapshot: OperatorSnapshot | null; onClose: () => void }) {
-  return <section aria-label="Treasury notifications" className="bp-treasury-card ml-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0D1016] p-4 shadow-2xl shadow-black/40"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><h1 className="text-lg font-semibold">Notifications</h1><p className="mt-1 truncate text-sm text-zinc-500">Latest customer and treasury activity</p></div><button type="button" aria-label="Close notifications" onClick={onClose} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.06] hover:text-white ${FOCUS}`}><X className="h-5 w-5" /></button></div><div className="mt-4 max-h-[min(65dvh,36rem)] space-y-2 overflow-y-auto overscroll-contain">{(snapshot?.notifications || []).map((notification) => <article key={notification.id} className="rounded-2xl border border-white/[0.07] bg-black/20 p-4"><div className="flex items-start justify-between gap-3"><p className="break-words font-medium">{notification.title || title(notification.type)}</p>{!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#C7FF00]" aria-label="Unread" />}</div><p className="mt-1 break-words text-sm text-zinc-400">{notification.body}</p><p className="mt-2 break-words text-xs text-zinc-500">{notification.customer_name}{notification.customer_email ? ` · ${notification.customer_email}` : ''} · {formatDate(notification.created_at)}</p></article>)}{snapshot?.platform_activity_available === false && <EmptyState text="Customer notifications are temporarily unavailable." />}{snapshot?.platform_activity_available !== false && !(snapshot?.notifications.length) && <EmptyState text="No notifications yet." />}</div></section>;
+  const pending = (snapshot?.transactions || []).filter((transaction) => !['completed', 'payment_processed', 'approved'].includes(transaction.state));
+  return <section aria-label="Treasury notifications" className="bp-treasury-card ml-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0D1016] p-4 shadow-2xl shadow-black/40"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><h1 className="text-lg font-semibold">Treasury updates</h1><p className="mt-1 truncate text-sm text-zinc-500">Transfers requiring attention</p></div><button type="button" aria-label="Close notifications" onClick={onClose} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.06] hover:text-white ${FOCUS}`}><X className="h-5 w-5" /></button></div><div className="mt-4 max-h-[min(65dvh,36rem)] space-y-2 overflow-y-auto overscroll-contain">{pending.map((transaction) => <article key={transaction.id} className="rounded-2xl border border-white/[0.07] bg-black/20 p-4"><div className="flex items-start justify-between gap-3"><p className="break-words font-medium">{title(transaction.state || 'Transfer update')}</p><StatusPill status={transaction.state} /></div><p className="mt-2 break-words text-sm text-zinc-400">{title(transaction.source.payment_rail)} → {title(transaction.destination.payment_rail)}</p><p className="mt-2 break-words font-mono text-xs text-zinc-500">{shortId(transaction.id)} · {formatDate(transaction.updated_at || transaction.created_at)}</p></article>)}{snapshot?.transfers_available === false && <EmptyState text="Live transfer updates are temporarily unavailable." />}{snapshot?.transfers_available !== false && !pending.length && <EmptyState text="No transfers require attention." />}</div></section>;
 }
 
 function WalletsView({ wallets }: { wallets: WalletRow[] }) {
   return <section aria-labelledby="wallets-title"><PageHeading eyebrow="Treasury assets" title="Wallets" description="Approved operating assets and deposit addresses. Balances are intentionally consolidated on Home." /><div className="mt-5 grid gap-4 sm:mt-6 sm:grid-cols-2 xl:grid-cols-3">{wallets.map((wallet) => <article key={`${wallet.id}:${wallet.currency}`} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5"><div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><AssetMark currency={wallet.currency} /><div className="min-w-0"><h2 className="font-semibold">{wallet.currency}</h2><p className="truncate text-sm text-zinc-500">{title(wallet.chain)} network</p></div></div><StatusPill status={wallet.status} /></div><p className="mt-8 text-xs font-medium uppercase tracking-[0.15em] text-zinc-600">Deposit address</p><button type="button" onClick={() => copy(wallet.address, `${wallet.currency} address`)} className={`mt-2 flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-black/20 px-3 text-left ${FOCUS}`}><span className="min-w-0 truncate font-mono text-xs text-zinc-300">{wallet.address || 'Address unavailable'}</span><Copy className="h-4 w-4 shrink-0 text-zinc-500" /></button></article>)}{!wallets.length && <EmptyState text="No treasury wallets are available." />}</div></section>;
 }
 
-function ReceiveView({ accounts }: { accounts: OperatorSnapshot['virtual_accounts'] }) {
+function ReceiveView({ accounts, available }: { accounts: OperatorSnapshot['virtual_accounts']; available: boolean }) {
   const railOrder: Record<string, number> = { USD: 0, EUR: 1, GBP: 2 };
-  return <section aria-labelledby="receive-title"><PageHeading eyebrow="Collections" title="Receiving accounts" description="Share these named account details to receive eligible business payments. New USD and GBP rails appear here automatically when enabled on the master account." /><div className="mt-5 grid gap-4 sm:mt-6 xl:grid-cols-2">{[...accounts].sort((a, b) => (railOrder[a.currency] ?? 99) - (railOrder[b.currency] ?? 99)).map((account) => <article key={account.id} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><RailMark currency={account.currency} /><div className="min-w-0"><h2 className="truncate font-semibold">{account.currency} business account</h2><p className="truncate text-sm text-zinc-500">{account.currency === 'EUR' ? 'SEPA bank transfer' : account.currency === 'GBP' ? 'Faster Payments' : account.currency === 'USD' ? 'ACH / Wire' : title(account.rail)}</p></div></div><StatusPill status={account.status} /></div><dl className="mt-6 grid min-w-0 gap-4 text-sm sm:grid-cols-2"><Detail label="Account holder" value={account.account_holder_name} /><Detail label="Bank name" value={account.bank_name} /><Detail label="IBAN" value={account.iban} copyable /><Detail label="BIC / SWIFT" value={account.bic} copyable /><Detail label="Account number" value={account.account_number} copyable /><Detail label="Routing number" value={account.routing_number} copyable /><Detail label="Bank address" value={account.bank_address} /></dl></article>)}{!accounts.length && <EmptyState text="No receiving account details are available." />}</div></section>;
+  return <section aria-labelledby="receive-title"><PageHeading eyebrow="Collections" title="Receiving accounts" description="Live payment instructions for the master operating account. Each card displays only the fields returned for that currency and rail." /><div className="mt-5 grid gap-4 sm:mt-6 xl:grid-cols-2">{[...accounts].sort((a, b) => (railOrder[a.currency] ?? 99) - (railOrder[b.currency] ?? 99)).map((account) => <article key={account.id} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><RailMark currency={account.currency} /><div className="min-w-0"><h2 className="truncate font-semibold">{account.currency} business account</h2><p className="truncate text-sm text-zinc-500">{account.currency === 'EUR' ? 'SEPA' : account.currency === 'GBP' ? 'Faster Payments' : account.currency === 'USD' ? title(account.rail || 'ACH / Wire') : title(account.rail)}</p></div></div><StatusPill status={account.status} /></div><dl className="mt-6 grid min-w-0 gap-4 text-sm sm:grid-cols-2"><Detail label="Account holder" value={account.account_holder_name} /><Detail label="Bank name" value={account.bank_name} />{account.currency === 'EUR' && <><Detail label="IBAN" value={account.iban} copyable /><Detail label="BIC / SWIFT" value={account.bic} copyable /></>}{account.currency !== 'EUR' && <><Detail label="Account number" value={account.account_number} copyable /><Detail label={account.currency === 'USD' ? 'Routing number' : 'Sort code'} value={account.routing_number} copyable /></>}<Detail label="Bank address" value={account.bank_address} /></dl></article>)}{!accounts.length && <EmptyState text={available ? 'No live receiving accounts are enabled for this treasury yet.' : 'Receiving account data is temporarily unavailable. Other treasury sections remain available.'} />}</div></section>;
 }
 
 function TransactionsView({ snapshot }: { snapshot: OperatorSnapshot }) {
-  return <section aria-labelledby="transactions-title"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live master-account transfers from Bridge, followed by customer activity recorded by BorderPay." /><BridgeTransferLedger transactions={snapshot.transactions} /><div className="mt-8"><h2 className="text-lg font-semibold">Customer activity</h2>{snapshot.platform_activity_available ? <TransactionLedger transactions={snapshot.customer_transactions} /> : <div className="mt-4"><EmptyState text="Customer transaction activity is temporarily unavailable. Treasury balances are unaffected." /></div>}</div></section>;
+  return <section aria-labelledby="transactions-title"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live transfers for the BorderPay Africa master operating account only." />{snapshot.transfers_available ? <BridgeTransferLedger transactions={snapshot.transactions} /> : <div className="mt-6"><EmptyState text="Live transfer data is temporarily unavailable. Wallets and receiving accounts remain accessible." /></div>}</section>;
 }
 
 function BridgeTransferLedger({ transactions }: { transactions: OperatorSnapshot['transactions'] }) {
@@ -460,14 +436,14 @@ function QuickActions({ onNavigate }: { onNavigate: (view: TreasuryView) => void
   return <section aria-labelledby="quick-actions-title"><h2 id="quick-actions-title" className="text-lg font-semibold">Quick actions</h2><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{actions.map(({ view, label, detail, icon: Icon }) => <button key={view} type="button" onClick={() => onNavigate(view)} className={`bp-treasury-card group min-h-24 min-w-0 rounded-2xl border border-white/[0.08] bg-[#0D1016] p-3 text-left transition-colors hover:border-[#C7FF00]/30 hover:bg-white/[0.04] sm:min-h-28 sm:p-4 ${FOCUS}`}><div className="flex items-start justify-between"><span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.05] text-[#C7FF00]"><Icon className="h-5 w-5" aria-hidden="true" /></span><ArrowRight className="h-4 w-4 text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-zinc-300" aria-hidden="true" /></div><p className="mt-3 truncate font-semibold sm:mt-4">{label}</p><p className="mt-1 hidden truncate text-xs text-zinc-500 min-[380px]:block">{detail}</p></button>)}</div></section>;
 }
 
-function transactionUsdAmount(transaction: CustomerTransaction): number | null {
-  const value = String(transaction.currency || '').toUpperCase();
+function transactionUsdAmount(transaction: BridgeTransfer): number | null {
+  const value = String(transaction.source.currency || transaction.destination.currency || '').toUpperCase();
   if (!['USD', 'USDC', 'USDT'].includes(value)) return null;
-  const amount = Number(transaction.amount);
+  const amount = Number(transaction.source.amount || transaction.destination.amount);
   return Number.isFinite(amount) ? amount : null;
 }
 
-function TreasuryActivityChart({ transactions }: { transactions: CustomerTransaction[] }) {
+function TreasuryActivityChart({ transactions }: { transactions: BridgeTransfer[] }) {
   const ranges = [
     { id: '1M', days: 30 },
     { id: '3M', days: 90 },
@@ -487,7 +463,7 @@ function TreasuryActivityChart({ transactions }: { transactions: CustomerTransac
     const byDay = new Map(days.map((day) => [day.key, day]));
     for (const transaction of transactions) {
       const usdAmount = transactionUsdAmount(transaction);
-      if (!completed.has(transaction.status) || usdAmount === null) continue;
+      if (!completed.has(transaction.state) || usdAmount === null) continue;
       const occurredAt = new Date(transaction.created_at);
       if (Number.isNaN(occurredAt.getTime())) continue;
       const key = occurredAt.toISOString().slice(0, 10);
@@ -511,12 +487,8 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`rounded-full border px-2.5 py-1 text-xs font-medium ${active ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-300' : 'border-white/10 text-zinc-400'}`}>{title(status)}</span>;
 }
 
-function TransactionCards({ transactions }: { transactions: CustomerTransaction[] }) {
-  return <div className="mt-4 divide-y divide-white/[0.07]">{transactions.map((transaction) => <article key={transaction.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-medium">{transaction.customer_name}</p><p className="truncate text-sm text-zinc-500">{transaction.customer_email || transaction.description || title(transaction.type)}</p></div><div className="flex items-center justify-between gap-6 sm:text-right"><div><p className="font-mono font-semibold tabular-nums">{formatMoney(transaction.amount, transaction.currency || 'USD')}</p><p className="text-xs text-zinc-500">{formatDate(transaction.created_at)}</p></div><StatusPill status={transaction.status} /></div></article>)}{!transactions.length && <EmptyState text="No customer transactions yet." />}</div>;
-}
-
-function TransactionLedger({ transactions }: { transactions: CustomerTransaction[] }) {
-  return <div className="mt-6 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-3 sm:p-5"><div className="space-y-3 md:hidden">{transactions.map((transaction) => <article key={transaction.id} className="rounded-2xl border border-white/[0.07] bg-black/20 p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate font-semibold">{transaction.customer_name}</p><p className="truncate text-sm text-zinc-500">{transaction.customer_email}</p></div><StatusPill status={transaction.status} /></div><p className="mt-5 font-mono text-xl font-semibold">{formatMoney(transaction.amount, transaction.currency || 'USD')}</p><div className="mt-3 flex justify-between gap-3 text-xs text-zinc-500"><span>{title(transaction.type)}</span><span>{formatDate(transaction.created_at)}</span></div></article>)}</div><div className="hidden overflow-x-auto md:block"><table className="w-full min-w-[860px] border-collapse text-left text-sm"><thead className="text-xs uppercase tracking-wider text-zinc-600"><tr className="border-b border-white/[0.08]"><th className="px-3 py-3 font-medium">Customer</th><th className="px-3 py-3 font-medium">Transaction</th><th className="px-3 py-3 font-medium">Amount</th><th className="px-3 py-3 font-medium">Status</th><th className="px-3 py-3 font-medium">When</th><th className="px-3 py-3 font-medium">Reference</th></tr></thead><tbody>{transactions.map((transaction) => <tr key={transaction.id} className="border-b border-white/[0.06] last:border-0"><td className="px-3 py-4"><p className="font-medium">{transaction.customer_name}</p><p className="text-xs text-zinc-500">{transaction.customer_email}</p></td><td className="px-3 py-4">{title(transaction.type)}<p className="text-xs text-zinc-500">{transaction.description}</p></td><td className="px-3 py-4 font-mono font-semibold tabular-nums">{formatMoney(transaction.amount, transaction.currency || 'USD')}</td><td className="px-3 py-4"><StatusPill status={transaction.status} /></td><td className="px-3 py-4 text-zinc-400">{formatDate(transaction.created_at)}</td><td className="px-3 py-4"><button type="button" onClick={() => copy(transaction.reference || transaction.id, 'Reference')} className={`inline-flex min-h-11 items-center gap-2 font-mono text-xs text-zinc-300 ${FOCUS}`}>{shortId(transaction.reference || transaction.id)}<Copy className="h-3.5 w-3.5" /></button></td></tr>)}</tbody></table></div>{!transactions.length && <EmptyState text="No customer transactions yet." />}</div>;
+function TransferCards({ transactions, available }: { transactions: BridgeTransfer[]; available: boolean }) {
+  return <div className="mt-4 divide-y divide-white/[0.07]">{transactions.map((transaction) => <article key={transaction.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-medium">{title(transaction.source.payment_rail || 'Treasury')} → {title(transaction.destination.payment_rail || 'Destination')}</p><p className="truncate font-mono text-xs text-zinc-500">{transaction.id}</p></div><div className="flex items-center justify-between gap-6 sm:text-right"><div><p className="font-mono font-semibold tabular-nums">{formatMoney(transaction.source.amount || transaction.destination.amount, transaction.source.currency || transaction.destination.currency || 'USD')}</p><p className="text-xs text-zinc-500">{formatDate(transaction.updated_at || transaction.created_at)}</p></div><StatusPill status={transaction.state} /></div></article>)}{!transactions.length && <EmptyState text={available ? 'No master-account transfers yet.' : 'Live transfer activity is temporarily unavailable.'} />}</div>;
 }
 
 function Detail({ label, value, copyable = false }: { label: string; value: string; copyable?: boolean }) {

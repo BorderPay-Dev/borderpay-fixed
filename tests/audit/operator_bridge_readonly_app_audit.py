@@ -15,7 +15,7 @@ checks = {
     "master account is explicitly mapped": "founder@borderpayafrica.com" in MIGRATION and "de412f3c-53c3-4d4a-987e-09d17c9cd7e2" in MIGRATION,
     "access remains read only": "check (access_mode = 'read_only')" in MIGRATION and 'access.access_mode !== "read_only"' in WORKER,
     "money movement requires per-operator grant": "can_transfer boolean not null default false" in MIGRATION and "access.can_transfer !== true" in WORKER,
-    "customer activity identity lookup is read only": '.from("user_profiles").select(' in WORKER and '.from("business_profiles").select(' in WORKER,
+    "master treasury excludes the customer transaction ledger": 'customer_transactions:' not in WORKER,
     "confirmed auth identity required": "email_confirmed_at" in WORKER and "db.auth.getUser(token)" in WORKER,
     "customer id is server selected": 'body?.bridge_customer_id' not in WORKER and '.eq("auth_email", email)' in WORKER,
     "operator registry rechecked": 'from("operator_bridge_accounts")' in WORKER and '.eq("active", true)' in WORKER,
@@ -69,9 +69,8 @@ checks = {
         and "bridge_operator_nonproduction_base_url" in WORKER
     ),
     "master-account transfers are visible in treasury": "BridgeTransferLedger" in UI and "snapshot.transactions" in UI,
-    "one-year customer transaction ledger is bounded": '.from("transactions")' in WORKER and '.limit(1000)' in WORKER and "customer_transactions" in WORKER,
-    "treasury notifications are bounded": '.from("notifications")' in WORKER and '.limit(30)' in WORKER and "platform_activity_available" in WORKER,
-    "provider payload is projected": "virtualAccountRow" in WORKER and "raw:" not in WORKER,
+    "production reads fail soft by resource": all(token in WORKER for token in ("profileResult", "walletResult", "virtualAccountResult", "transferResult", "transfers_available")),
+    "provider payload is projected": "virtualAccountRows" in WORKER and "raw:" not in WORKER,
     "reads are audited": "operator_bridge_read_audit" in WORKER and "operator_bridge_read_audit" in MIGRATION,
     "response cannot be cached": '"Cache-Control": "no-store"' in WORKER,
     "function requires platform JWT": "[functions.bridge-operator-readonly]" in CONFIG and "verify_jwt = true" in CONFIG.split("[functions.bridge-operator-readonly]", 1)[1].split("[", 1)[0],
@@ -95,7 +94,7 @@ checks = {
     "unavailable wallet balances are never displayed as zero": "if (!wallet.balance_available) return null" in UI and "wallet.balance !== null" in UI,
     "master treasury is isolated from customer UI": "BorderPay Africa Treasury" in UI and "<OperatorBridgeReadOnlyApp" in APP,
     "receiving rails are dynamically rendered": ".map((account)" in UI and "ReceiveView" in UI and "RailMark" in UI,
-    "operator home uses ledger data for its chart": "TreasuryActivityChart" in UI and "customer_transactions" in WORKER,
+    "operator home uses the master transfer ledger for its chart": "TreasuryActivityChart transactions={snapshot.transactions}" in UI,
     "operator total balance is privacy protected": "balanceVisible" in UI and "aria-pressed={balanceVisible}" in UI,
 }
 

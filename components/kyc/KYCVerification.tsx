@@ -217,9 +217,17 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const openTopLevelHostedFallback = useCallback((url: string | null) => {
     if (!url) return;
-    // Some Bridge hosted pages may refuse iframe embedding on specific hops.
-    // Hard fail-safe: open same link in current tab to avoid white-screen dead end.
-    window.location.href = url;
+    // Identity verification explicitly forbids iframe/WebView embedding. Keep
+    // Terms inside BorderPay, then hand the verification URL to a separate
+    // browsing context so iOS/Android do not strand the user on a white page.
+    const externalWindow = window.open(url, '_blank');
+    if (externalWindow) {
+      externalWindow.opener = null;
+      return;
+    }
+    // Desktop browsers can block new tabs. Falling back in the browser is
+    // preferable there; native clients normally take the branch above.
+    window.location.assign(url);
   }, []);
 
   useEffect(() => {
