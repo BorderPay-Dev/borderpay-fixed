@@ -17,7 +17,7 @@ import { useThemeLanguage, useThemeClasses } from '../../../utils/i18n/ThemeLang
 import { BRIDGE_ONBOARDING_LIVE } from '../../../utils/featureFlags';
 import { deriveKycStatus } from '../../../utils/config/environment';
 
-type CardStatus = 'not_started' | 'incomplete' | 'pending' | 'under_review' | 'approved' | 'rejected';
+type CardStatus = 'not_started' | 'incomplete' | 'awaiting_rfi' | 'needs_edd' | 'needs_ubos' | 'pending' | 'under_review' | 'approved' | 'rejected';
 type AccountType  = 'individual' | 'business';
 
 interface Props {
@@ -116,6 +116,9 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const ctaLabel =
     status === 'not_started' ? (isBusiness ? tt('dash.kyb.start',     'Start business verification')   : tt('dash.kyc.start',     'Start identity verification'))
   : status === 'incomplete'  ? tt('dash.kyc.continue', 'Continue verification')
+  : status === 'needs_ubos' ? tt('dash.kyb.addOwners', 'Add ownership details')
+  : status === 'awaiting_rfi' ? tt('dash.kyb.continueQuestionnaire', 'Complete questionnaire')
+  : status === 'needs_edd' ? tt('dash.kyb.continueAdditionalReview', 'Continue verification')
   : status === 'pending'     ? (isBusiness ? tt('dash.kyb.continue',  'Continue verification')         : tt('dash.kyc.continue',  'Continue verification'))
   : status === 'rejected'    ? tt('dash.kyc.contactSupport', 'Contact support')
   : null;
@@ -123,6 +126,9 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
   const headline =
     status === 'approved'      ? (isBusiness ? tt('dash.kyb.approved.title','Business verified') : tt('dash.kyc.approved.title','Identity verified'))
   : status === 'under_review'  ? tt('dash.kyc.review.title',  'We are reviewing your submission')
+  : status === 'needs_ubos' ? tt('dash.kyb.awaitingUbo.title', 'Ownership details required')
+  : status === 'awaiting_rfi' ? tt('dash.kyb.awaitingQuestionnaire.title', 'Business questionnaire required')
+  : status === 'needs_edd' ? tt('dash.kyb.needsEdd.title', 'Additional information required')
   : status === 'incomplete'    ? tt('dash.kyc.incomplete.title', 'Verification incomplete')
   : status === 'pending'       ? tt('dash.kyc.pending.title', 'Verification in progress')
   : status === 'rejected'      ? tt('dash.kyc.rejected.title','Verification did not pass')
@@ -149,6 +155,9 @@ export function BridgeKycStatusCard({ userId, onStartVerification }: Props) {
       ? (isBusiness
           ? tt('dash.kyb.review.body', 'We are reviewing your business submission. Timelines vary depending on the business and required documents.')
           : tt('dash.kyc.review.body', 'Most reviews complete in a few minutes.'))
+  : status === 'needs_ubos' ? tt('dash.kyb.awaitingUbo.body', 'Add every required beneficial owner or control person to continue verification.')
+  : status === 'awaiting_rfi' ? tt('dash.kyb.awaitingQuestionnaire.body', 'Complete the remaining business questions to continue verification.')
+  : status === 'needs_edd' ? tt('dash.kyb.needsEdd.body', 'Complete the requested verification information to continue.')
   : status === 'incomplete'   ? tt('dash.kyc.incomplete.body', 'You started verification but still have steps to complete.')
   : status === 'pending'      ? tt('dash.kyc.pending.body',  'Pick up where you left off.')
   : status === 'rejected'     ? tt('dash.kyc.rejected.body', 'Contact support so our team can review the account and advise the next step.')

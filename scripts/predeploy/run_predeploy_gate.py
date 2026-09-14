@@ -188,6 +188,7 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         "tests/audit/bridge_transfer_runtime_regression_audit.py",
         "tests/audit/crypto_to_crypto_route_fee_audit.py",
         "tests/audit/verification_tos_external_handoff_audit.py",
+        "tests/audit/bridge_kyb_existing_customer_resume_audit.py",
     ]
     missing = [p for p in required_files if not (ROOT / p).is_file()]
     stage.checks.append(CheckResult(
@@ -435,6 +436,7 @@ def stage_recent_release_regressions() -> StageResult:
         "tests/audit/bridge_transfer_runtime_regression_audit.py",
         "tests/audit/crypto_to_crypto_route_fee_audit.py",
         "tests/audit/verification_tos_external_handoff_audit.py",
+        "tests/audit/bridge_kyb_existing_customer_resume_audit.py",
     ]
     for audit in audits:
         stage.checks.append(run_check_command(

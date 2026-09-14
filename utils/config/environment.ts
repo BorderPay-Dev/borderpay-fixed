@@ -66,7 +66,8 @@ export function isFullEnrollment(kycStatus: string | null | undefined): boolean 
 
 /** Canonical KYC status used by display + gating across the app. */
 export type DerivedKycStatus =
-  | 'rejected' | 'verified' | 'under_review' | 'incomplete' | 'pending' | 'not_started';
+  | 'rejected' | 'verified' | 'under_review' | 'needs_ubos'
+  | 'awaiting_rfi' | 'needs_edd' | 'incomplete' | 'pending' | 'not_started';
 
 /** Minimal profile shape deriveKycStatus reads (all optional / defensive). */
 export interface KycProfileLike {
@@ -118,6 +119,9 @@ export function deriveKycStatus(profile: KycProfileLike | null | undefined): Der
   //    `not_started` before onboarding and `incomplete` after the customer has
   //    started but still owes identity steps. A stale legacy `pending` must not
   //    erase that distinction.
+  if (bridgeAcct === 'awaiting_ubo' || bridgeAcct === 'needs_ubos' || bridgeKyc === 'awaiting_ubo' || bridgeKyc === 'needs_ubos') return 'needs_ubos';
+  if (bridgeAcct === 'awaiting_questionnaire' || bridgeAcct === 'awaiting_rfi' || bridgeKyc === 'awaiting_questionnaire' || bridgeKyc === 'awaiting_rfi') return 'awaiting_rfi';
+  if (bridgeAcct === 'deposits_restricted' || bridgeAcct === 'needs_edd' || bridgeKyc === 'deposits_restricted' || bridgeKyc === 'needs_edd') return 'needs_edd';
   if (bridgeKyc === 'under_review') return 'under_review';
   if (bridgeKyc === 'incomplete') return 'incomplete';
   if (bridgeKyc === 'pending') return 'pending';

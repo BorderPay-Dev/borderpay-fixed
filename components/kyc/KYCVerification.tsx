@@ -29,7 +29,7 @@ interface KYCVerificationProps {
 }
 
 type AccountType  = 'individual' | 'business';
-type KycView      = 'not_started' | 'incomplete' | 'pending' | 'under_review' | 'verified' | 'rejected';
+type KycView      = 'not_started' | 'incomplete' | 'awaiting_rfi' | 'needs_edd' | 'needs_ubos' | 'pending' | 'under_review' | 'verified' | 'rejected';
 
 function mapBridge(raw: string | null | undefined): KycView {
   switch ((raw || '').toLowerCase()) {
@@ -43,6 +43,12 @@ function mapBridge(raw: string | null | undefined): KycView {
     case 'rejected':     return 'rejected';
     case 'review_pending':
     case 'under_review': return 'under_review';
+    case 'awaiting_ubo':
+    case 'needs_ubos': return 'needs_ubos';
+    case 'awaiting_questionnaire':
+    case 'awaiting_rfi': return 'awaiting_rfi';
+    case 'deposits_restricted':
+    case 'needs_edd': return 'needs_edd';
     case 'incomplete':   return 'incomplete';
     case 'pending':      return 'pending';
     default:             return 'not_started';
@@ -57,7 +63,9 @@ function deriveStatus(input: {
 }): KycView {
   const accountStatus = (input.bridgeAccountStatus || '').toLowerCase();
   if (['rejected', 'blocked', 'suspended'].includes(accountStatus)) return 'rejected';
-  if (['active', 'approved', 'authorized'].includes(accountStatus)) return 'verified';
+  if (['awaiting_ubo', 'needs_ubos'].includes(accountStatus)) return 'needs_ubos';
+  if (['awaiting_questionnaire', 'awaiting_rfi'].includes(accountStatus)) return 'awaiting_rfi';
+  if (['deposits_restricted', 'needs_edd'].includes(accountStatus)) return 'needs_edd';
   const verificationRaw = input.accountType === 'business' ? input.bridgeKybStatus : input.bridgeKycStatus;
   return mapBridge(verificationRaw);
 }
@@ -503,6 +511,21 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       title: tt('kyc.status.incomplete.title', 'Verification incomplete'),
       body: tt('kyc.status.incomplete.body', 'You started verification but still have steps to complete.'),
     },
+    needs_ubos: {
+      Icon: Clock, tone: 'text-amber-400', bg: 'bg-amber-500/15',
+      title: tt('kyc.status.awaitingUbo.title', 'Ownership details required'),
+      body: tt('kyc.status.awaitingUbo.body', 'Add the required beneficial owner or control-person details to continue business verification.'),
+    },
+    awaiting_rfi: {
+      Icon: Clock, tone: 'text-amber-400', bg: 'bg-amber-500/15',
+      title: tt('kyc.status.awaitingQuestionnaire.title', 'Business questionnaire required'),
+      body: tt('kyc.status.awaitingQuestionnaire.body', 'Complete the remaining business questions to continue verification.'),
+    },
+    needs_edd: {
+      Icon: Clock, tone: 'text-amber-400', bg: 'bg-amber-500/15',
+      title: tt('kyc.status.needsEdd.title', 'Additional information required'),
+      body: tt('kyc.status.needsEdd.body', 'Complete the requested verification information to continue.'),
+    },
     under_review: {
       Icon: Clock, tone: 'text-blue-400', bg: 'bg-blue-500/15',
       title: tt('kyc.status.review.title', 'Under review'),
@@ -555,7 +578,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
             <div className="min-w-0">
               <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${tc.borderLight} ${tc.bgAlt} mb-2`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${v.bg} ${v.tone}`} style={{ backgroundColor: 'currentColor' }} />
-                <span className={`text-[10px] font-bold tracking-wider uppercase ${v.tone}`}>{status.replace('_', ' ')}</span>
+                <span className={`text-[10px] font-bold tracking-wider uppercase ${v.tone}`}>{status.replace(/_/g, ' ')}</span>
               </span>
               <h2 className={`text-xl font-semibold ${tc.text} tracking-tight mb-1.5`}>{v.title}</h2>
               <p className={`text-sm ${tc.textMuted} leading-relaxed`}>{v.body}</p>
@@ -565,7 +588,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           {/* Start/continue is available until Bridge moves the submission into review.
               to (re)open the hosted verification link. The provider handles link reuse
               / regeneration idempotently server-side. */}
-          {(status === 'not_started' || status === 'incomplete' || status === 'pending') && (
+          {(status === 'not_started' || status === 'incomplete' || status === 'needs_ubos' || status === 'awaiting_rfi' || status === 'needs_edd' || status === 'pending') && (
             <button
               onClick={() => { void startVerification(); }}
               className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"

@@ -73,6 +73,31 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
   };
 }
 
+async function bridgeGet(path: string): Promise<BridgeFetchResult> {
+  if (!BRIDGE_API_KEY) {
+    return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
+  }
+  const res = await fetch(`${BRIDGE_BASE_URL}${path}`, {
+    method: "GET",
+    headers: {
+      "Api-Key":    BRIDGE_API_KEY,
+      "Accept":     "application/json",
+      "User-Agent": "borderpay-edge/1.0",
+    },
+  });
+  const text = await res.text();
+  let parsed: any = null;
+  if (text) { try { parsed = JSON.parse(text); } catch { /* keep null */ } }
+  return {
+    ok:         res.ok,
+    status:     res.status,
+    data:       parsed,
+    raw_text:   text,
+    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
+    request_id: res.headers.get("x-request-id") || undefined,
+  };
+}
+
 function extractLink(parsed: any): {
   link_url: string | null;
   link_id: string | null;
@@ -107,6 +132,23 @@ function isVerifiedStatus(value: string | null | undefined): boolean {
   return ["approved", "active", "authorized", "verified", "completed", "complete"].includes(
     String(value || "").toLowerCase(),
   );
+}
+
+const BRIDGE_KYB_STATUSES = new Set([
+  "not_started", "incomplete", "awaiting_rfi", "needs_edd", "needs_ubos",
+  "under_review", "pending", "approved", "rejected", "paused", "offboarded",
+]);
+
+function extractKybStatus(parsed: any): string | null {
+  const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
+  for (const candidate of candidates) {
+    let raw = String(candidate?.kyc_status ?? candidate?.status ?? "").trim().toLowerCase();
+    if (raw === "awaiting_ubo") raw = "needs_ubos";
+    if (raw === "awaiting_questionnaire") raw = "awaiting_rfi";
+    if (raw === "deposits_restricted") raw = "needs_edd";
+    if (BRIDGE_KYB_STATUSES.has(raw)) return raw;
+  }
+  return null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -167,39 +209,45 @@ Deno.serve(async (req: Request) => {
   if (isVerifiedStatus(biz.bridge_kyb_status)) {
     return json({ success: true, data: { already_approved: true, bridge_kyb_status: "approved" } });
   }
-  // Do not short-circuit to cached link_url: old links can expire and trap users
-  // in repeated verification errors. Always ask Bridge for the current link state.
-
-  const reqBody: Record<string, unknown> = {
-    type:                 "business",
-    email:                profile.email,
-    // The hosted KYC-link contract uses full_name for both account types.
-    // For a business, full_name must contain the entity's full legal name.
-    full_name:             biz.company_name,
-    endorsements:         body.endorsements ?? ["base"],
-    redirect_uri:         body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
-  };
   const existingCustomerId = biz.bridge_customer_id || profile.bridge_customer_id;
-  if (existingCustomerId) reqBody.customer_id = existingCustomerId;
 
-  const idemSource = existingCustomerId || user.id;
-  let r = await bridgePost(
-    "/v0/kyc_links",
-    reqBody,
-    `borderpay:kyb:business:${KYB_LINK_CONTRACT_VERSION}:${idemSource}`,
-  );
+  // Bridge has separate contracts for new and existing customers:
+  //   - POST /kyc_links creates a new customer/link and does NOT accept customer_id.
+  //   - GET /customers/{id}/kyc_link resumes an existing customer's hosted flow.
+  // Re-posting an existing customer/email produces Bridge's generic 400 and blocks
+  // actionable states such as awaiting_ubo from completing verification.
+  let r: BridgeFetchResult;
+  let link: ReturnType<typeof extractLink> = null;
 
-  let link = extractLink(r.data);
+  if (biz.bridge_kyb_link_id) {
+    r = await bridgeGet(`/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}`);
+    link = extractLink(r.data);
+  } else {
+    r = { ok: false, status: 404, data: null, raw_text: "", error: "No stored KYB link" };
+  }
 
-  // Legacy safety: stale/invalid stored bridge_customer_id can block KYB.
-  // Retry once without customer_id so Bridge hosted flow can create/recover.
-  if (!r.ok && !link && existingCustomerId) {
-    const fallbackBody = { ...reqBody };
-    delete fallbackBody.customer_id;
+  if ((!r.ok || !link?.link_url) && existingCustomerId) {
+    const params = new URLSearchParams();
+    params.set("redirect_uri", body.redirect_url || `${APP_URL}/onboarding/kyc-complete`);
+    r = await bridgeGet(
+      `/v0/customers/${encodeURIComponent(existingCustomerId)}/kyc_link?${params.toString()}`,
+    );
+    link = extractLink(r.data);
+    if (link) link.customer_id ||= existingCustomerId;
+  }
+
+  if (!existingCustomerId && (!r.ok || (!link?.link_url && !link?.tos_link_url))) {
+    const reqBody: Record<string, unknown> = {
+      type:         "business",
+      email:        profile.email,
+      full_name:    biz.company_name,
+      endorsements: body.endorsements ?? ["base"],
+      redirect_uri: body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
+    };
     r = await bridgePost(
       "/v0/kyc_links",
-      fallbackBody,
-      `borderpay:kyb:business:${KYB_LINK_CONTRACT_VERSION}:fallback:${user.id}`,
+      reqBody,
+      `borderpay:kyb:business:${KYB_LINK_CONTRACT_VERSION}:${user.id}`,
     );
     link = extractLink(r.data);
   }
@@ -225,10 +273,12 @@ Deno.serve(async (req: Request) => {
   }
 
   const customerId = link.customer_id || existingCustomerId || null;
+  const bridgeKybStatus = extractKybStatus(r.data);
   const { error: updateErr } = await supa.from("business_profiles").update({
     ...(link.link_id ? { bridge_kyb_link_id: link.link_id } : {}),
     ...(link.link_url ? { bridge_kyb_link_url: link.link_url } : {}),
     ...(customerId ? { bridge_customer_id: customerId } : {}),
+    ...(bridgeKybStatus ? { bridge_kyb_status: bridgeKybStatus } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("user_id", user.id);
   if (updateErr) {
@@ -267,9 +317,12 @@ Deno.serve(async (req: Request) => {
       link_url: link.link_url,
       // Always lead an unverified business through the Terms page when the
       // hosted flow supplies it. The Continue CTA then opens KYB top-level.
-      tos_link_url: link.tos_link_url,
+      // Omit an already-accepted ToS URL so older native bundles proceed to
+      // the actionable KYB link instead of reopening the Terms screen.
+      tos_link_url: tosRequired ? link.tos_link_url : null,
       tos_required: tosRequired,
       tos_status: tosStatus || null,
+      bridge_kyb_status: bridgeKybStatus,
       expires_at,
       reused: !r.ok ? true : undefined,
     },
