@@ -218,26 +218,41 @@ Deno.serve(async (req: Request) => {
   // actionable states such as awaiting_ubo from completing verification.
   let r: BridgeFetchResult;
   let link: ReturnType<typeof extractLink> = null;
+  let resolvedTosStatus = "";
 
-  // Existing businesses must always ask Bridge for the customer's current
-  // resumable hosted URL. A stored link ID can still return HTTP 200 after its
-  // Persona inquiry token has become stale, which strands released clients on
-  // a white page.
+  // Existing businesses have two distinct hosted flows. Bridge is the source
+  // of truth for whether ToS has been accepted: keep the customer inside the
+  // mandatory ToS gate until acceptance, then fetch the current Persona URL.
   if (existingCustomerId) {
-    const params = new URLSearchParams();
-    params.set("redirect_uri", body.redirect_url || `${APP_URL}/onboarding/kyc-complete`);
-    r = await bridgeGet(
-      `/v0/customers/${encodeURIComponent(existingCustomerId)}/kyc_link?${params.toString()}`,
-    );
-    link = extractLink(r.data);
-    if (link) link.customer_id ||= existingCustomerId;
+    const encodedCustomerId = encodeURIComponent(existingCustomerId);
+    const customerResult = await bridgeGet(`/v0/customers/${encodedCustomerId}`);
+    const customer = customerResult.data?.data ?? customerResult.data;
+
+    if (customerResult.ok && customer?.has_accepted_terms_of_service !== true) {
+      r = await bridgeGet(`/v0/customers/${encodedCustomerId}/tos_acceptance_link`);
+      const tosPayload = r.data?.data ?? r.data;
+      const tosUrl = typeof tosPayload?.url === "string" ? tosPayload.url : null;
+      link = tosUrl
+        ? { link_url: null, link_id: null, customer_id: existingCustomerId, tos_link_url: tosUrl }
+        : null;
+      resolvedTosStatus = "pending";
+    } else if (customerResult.ok) {
+      const params = new URLSearchParams();
+      params.set("redirect_uri", body.redirect_url || `${APP_URL}/onboarding/kyc-complete`);
+      r = await bridgeGet(`/v0/customers/${encodedCustomerId}/kyc_link?${params.toString()}`);
+      link = extractLink(r.data);
+      if (link) link.customer_id ||= existingCustomerId;
+      resolvedTosStatus = "approved";
+    } else {
+      r = customerResult;
+    }
   } else {
     r = { ok: false, status: 404, data: null, raw_text: "", error: "No existing Bridge customer" };
   }
 
   // Compatibility fallback only when the authoritative customer-resume route
   // is unavailable. Never prefer this cached-link lookup.
-  if ((!r.ok || !link?.link_url) && biz.bridge_kyb_link_id) {
+  if ((!r.ok || (!link?.link_url && !link?.tos_link_url)) && biz.bridge_kyb_link_id) {
     r = await bridgeGet(`/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}`);
     link = extractLink(r.data);
   }
@@ -312,7 +327,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
-  const tosStatus = String(
+  const tosStatus = resolvedTosStatus || String(
     r.data?.data?.tos_status || r.data?.tos_status || r.data?.existing_kyc_link?.tos_status || "",
   ).trim().toLowerCase();
   const tosRequired = Boolean(link.tos_link_url && tosStatus !== "approved" && tosStatus !== "accepted");
