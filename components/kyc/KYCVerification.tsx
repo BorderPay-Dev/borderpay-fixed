@@ -214,6 +214,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     window.location.href = url;
   }, []);
 
+  const reserveExternalVerificationWindow = useCallback((): Window | null => {
+    // Reserve the browser window synchronously from the user's CTA click.
+    // Waiting until after the hosted-link request causes Safari/Chrome popup
+    // protection to reject the external KYB handoff.
+    const externalWindow = window.open('about:blank', '_blank');
+    if (externalWindow) {
+      try { externalWindow.opener = null; } catch { /* cross-window hardening best effort */ }
+    }
+    return externalWindow;
+  }, []);
+
+  const openExternalVerificationUrl = useCallback((url: string, reservedWindow: Window | null) => {
+    if (reservedWindow && !reservedWindow.closed) {
+      reservedWindow.location.replace(url);
+      return;
+    }
+    // Web popup blockers can still reject the reserved window. Fall back to
+    // top-level navigation so verification is never trapped in an iframe.
+    window.location.assign(url);
+  }, []);
+
   useEffect(() => {
     if (!embeddedUrl) return;
     const t = window.setTimeout(() => {
@@ -396,9 +417,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   };
 
   const continueFromEmbeddedTos = async () => {
+    const externalWindow = reserveExternalVerificationWindow();
     try {
       const ctx = await resolveVerificationContext();
       if (!ctx.emailConfirmed) {
+        externalWindow?.close();
         toast.error('Verify your email first, then retry verification.');
         return;
       }
@@ -420,18 +443,24 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         // open Persona/Bridge KYC externally (not in embedded iframe).
         // Keep callback marker so return lands back on verification screen.
         try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* noop */ }
-        try {
-          sessionStorage.removeItem('borderpay_verification_embed_open');
-          sessionStorage.removeItem('borderpay_verification_embed_title');
-          sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
-          window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
-        } catch { /* noop */ }
-        setEmbeddedPolling(false);
-        setEmbeddedUrl(null);
-        openTopLevelHostedFallback(r.data.link_url);
+        // Navigate the already-reserved external window before changing the
+        // in-app ToS surface. This prevents a visible return to the
+        // verification screen between accepting Terms and opening KYB.
+        openExternalVerificationUrl(r.data.link_url, externalWindow);
+        window.setTimeout(() => {
+          try {
+            sessionStorage.removeItem('borderpay_verification_embed_open');
+            sessionStorage.removeItem('borderpay_verification_embed_title');
+            sessionStorage.removeItem('borderpay_verification_embed_return_enabled');
+            window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: false, title: '', returnEnabled: false } }));
+          } catch { /* noop */ }
+          setEmbeddedPolling(false);
+          setEmbeddedUrl(null);
+        }, 0);
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
+        externalWindow?.close();
         persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
         const now = Date.now();
@@ -444,11 +473,14 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       if (r?.success && r.data?.already_approved) {
+        externalWindow?.close();
         await refresh();
         return;
       }
+      externalWindow?.close();
       toast.error(friendlyError(r?.error || 'Could not continue verification.', 'Could not continue verification.'));
     } catch (e) {
+      externalWindow?.close();
       toast.error(friendlyError(e, 'Could not continue verification.'));
     }
   };
