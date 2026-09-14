@@ -73,20 +73,34 @@ async function bridgePost(path: string, body: unknown, idemKey: string): Promise
   };
 }
 
-function extractLink(parsed: any): { link_url: string; link_id: string; customer_id?: string } | null {
+function extractLink(parsed: any): {
+  link_url: string | null;
+  link_id: string | null;
+  customer_id?: string;
+  tos_link_url: string | null;
+} | null {
   if (!parsed) return null;
   const candidates = [parsed?.data, parsed, parsed?.existing_kyc_link].filter(Boolean);
+  let link_url: string | null = null;
+  let link_id: string | null = null;
+  let customer_id: string | undefined;
+  let tos_link_url: string | null = null;
   for (const c of candidates) {
-    const link_url: string | null =
+    link_url ||= (
       c?.kyc_link?.url ||
       (typeof c?.kyc_link === "string" ? c.kyc_link : null) ||
       c?.url ||
-      c?.link;
-    const link_id: string | null  = c?.kyc_link?.id || c?.id;
-    const customer_id: string | undefined = c?.customer_id || c?.kyc_link?.customer_id;
-    if (link_url && link_id) return { link_url, link_id, customer_id };
+      c?.link || null
+    );
+    link_id ||= c?.kyc_link?.id || c?.id || null;
+    customer_id ||= c?.customer_id || c?.kyc_link?.customer_id;
+    tos_link_url ||= c?.tos_link?.url ||
+      (typeof c?.tos_link === "string" ? c.tos_link : null) ||
+      c?.tos_acceptance_link?.url ||
+      (typeof c?.tos_acceptance_link === "string" ? c.tos_acceptance_link : null) ||
+      null;
   }
-  return null;
+  return link_url || tos_link_url ? { link_url, link_id, customer_id, tos_link_url } : null;
 }
 
 function isVerifiedStatus(value: string | null | undefined): boolean {
@@ -201,7 +215,7 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
-  if (!link) {
+  if (!link || (!link.link_url && !link.tos_link_url)) {
     console.error(`bridge-kyb-link: missing link/url body=${(r.raw_text || "").slice(0, 800)}`);
     return json({
       success: false,
@@ -212,8 +226,8 @@ Deno.serve(async (req: Request) => {
 
   const customerId = link.customer_id || existingCustomerId || null;
   const { error: updateErr } = await supa.from("business_profiles").update({
-    bridge_kyb_link_id:  link.link_id,
-    bridge_kyb_link_url: link.link_url,
+    ...(link.link_id ? { bridge_kyb_link_id: link.link_id } : {}),
+    ...(link.link_url ? { bridge_kyb_link_url: link.link_url } : {}),
     ...(customerId ? { bridge_customer_id: customerId } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("user_id", user.id);
@@ -242,8 +256,22 @@ Deno.serve(async (req: Request) => {
   }
 
   const expires_at = r.data?.data?.expires_at || r.data?.expires_at || r.data?.existing_kyc_link?.expires_at;
+  const tosStatus = String(
+    r.data?.data?.tos_status || r.data?.tos_status || r.data?.existing_kyc_link?.tos_status || "",
+  ).trim().toLowerCase();
+  const tosRequired = Boolean(link.tos_link_url && tosStatus !== "approved" && tosStatus !== "accepted");
   return json({
     success: true,
-    data: { link_id: link.link_id, link_url: link.link_url, expires_at, reused: !r.ok ? true : undefined },
+    data: {
+      link_id: link.link_id,
+      link_url: link.link_url,
+      // Always lead an unverified business through the Terms page when the
+      // hosted flow supplies it. The Continue CTA then opens KYB top-level.
+      tos_link_url: link.tos_link_url,
+      tos_required: tosRequired,
+      tos_status: tosStatus || null,
+      expires_at,
+      reused: !r.ok ? true : undefined,
+    },
   });
 });

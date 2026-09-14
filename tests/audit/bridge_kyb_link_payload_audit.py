@@ -38,6 +38,9 @@ def main() -> int:
         "redirect URI remains HTTPS application callback": "redirect_uri:" in body and "APP_URL" in body,
         "stale customer id has a no-id retry": "delete fallbackBody.customer_id" in SOURCE,
         "provider validation remains server-side": 'bridgePost(\n    "/v0/kyc_links"' in SOURCE,
+        "backend extracts the hosted Terms URL": "tos_link_url ||= c?.tos_link?.url" in SOURCE,
+        "backend returns Terms before identity verification": "tos_link_url: link.tos_link_url" in SOURCE,
+        "Terms state recognizes approved status": 'tosStatus !== "approved"' in SOURCE,
     }
     failed = [name for name, passed in checks.items() if not passed]
     for name, passed in checks.items():
