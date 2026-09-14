@@ -182,144 +182,55 @@ async function listTransfers(customerId: string): Promise<any[]> {
   }));
 }
 
-type PlatformActivity = {
-  available: boolean;
-  transactions: Array<Record<string, unknown>>;
-  notifications: Array<Record<string, unknown>>;
-};
-
-async function listPlatformActivity(): Promise<PlatformActivity> {
-  try {
-    const [
-      { data: transactions, error: transactionError },
-      { data: notifications, error: notificationError },
-    ] = await Promise.all([
-      db.from("transactions")
-        .select(
-          "id,user_id,type,status,amount,currency,fee,description,reference,created_at,updated_at",
-        )
-        .order("created_at", { ascending: false })
-        .limit(1000),
-      db.from("notifications")
-        .select("id,user_id,type,title,body,is_read,created_at")
-        .order("created_at", { ascending: false })
-        .limit(30),
-    ]);
-    if (transactionError) throw transactionError;
-    if (notificationError) throw notificationError;
-
-    const userIds = Array.from(
-      new Set([
-        ...(transactions || []).map((row) => text(row.user_id)),
-        ...(notifications || []).map((row) => text(row.user_id)),
-      ].filter(Boolean)),
-    );
-    const profileById = new Map<
-      string,
-      { email: string; full_name: string; account_type: string }
-    >();
-    const companyById = new Map<string, string>();
-    if (userIds.length) {
-      const [
-        { data: profiles, error: profileError },
-        { data: businesses, error: businessError },
-      ] = await Promise.all([
-        db.from("user_profiles").select("id,email,full_name,account_type").in(
-          "id",
-          userIds,
-        ),
-        db.from("business_profiles").select("user_id,company_name").in(
-          "user_id",
-          userIds,
-        ),
-      ]);
-      if (profileError) throw profileError;
-      if (businessError) throw businessError;
-      for (const profile of profiles || []) {
-        profileById.set(text(profile.id), {
-          email: text(profile.email),
-          full_name: text(profile.full_name),
-          account_type: text(profile.account_type).toLowerCase(),
-        });
-      }
-      for (const business of businesses || []) {
-        companyById.set(text(business.user_id), text(business.company_name));
-      }
-    }
-
-    const identity = (userId: string) => {
-      const profile = profileById.get(userId);
-      return {
-        customer_name: companyById.get(userId) || profile?.full_name ||
-          "BorderPay customer",
-        customer_email: profile?.email || "",
-        account_type: profile?.account_type || "",
-      };
-    };
-    return {
-      available: true,
-      transactions: (transactions || []).map((row) => ({
-        id: text(row.id),
-        user_id: text(row.user_id),
-        ...identity(text(row.user_id)),
-        type: text(row.type).toLowerCase(),
-        status: text(row.status).toLowerCase(),
-        amount: amount(row.amount),
-        currency: text(row.currency).toUpperCase(),
-        fee: amount(row.fee),
-        description: text(row.description),
-        reference: text(row.reference),
-        created_at: text(row.created_at),
-        updated_at: text(row.updated_at),
-      })),
-      notifications: (notifications || []).map((row) => ({
-        id: text(row.id),
-        user_id: text(row.user_id),
-        ...identity(text(row.user_id)),
-        type: text(row.type).toLowerCase(),
-        title: text(row.title),
-        body: text(row.body),
-        read: row.is_read === true,
-        created_at: text(row.created_at),
-      })),
-    };
-  } catch (error) {
-    console.warn("operator_platform_activity_unavailable", {
-      error: error instanceof Error ? error.message : "unknown",
-    });
-    return { available: false, transactions: [], notifications: [] };
-  }
-}
-
-function virtualAccountRow(row: any) {
+function virtualAccountRows(row: any) {
   const details =
     row?.account_details && typeof row.account_details === "object"
       ? row.account_details
       : {};
-  const instructions = details?.source_deposit_instructions &&
-      typeof details.source_deposit_instructions === "object"
-    ? details.source_deposit_instructions
-    : details;
-  return {
-    id: text(row?.virtual_account_id),
-    currency: text(row?.currency || instructions?.currency).toUpperCase(),
-    rail: text(row?.rail || instructions?.payment_rail).toLowerCase(),
-    status: text(row?.status).toLowerCase(),
-    account_holder_name: text(
-      instructions?.account_holder_name || instructions?.beneficiary_name,
-    ),
-    bank_name: text(instructions?.bank_name),
-    bank_address: text(instructions?.bank_address),
-    account_number: text(
-      instructions?.bank_account_number || instructions?.account_number,
-    ),
-    routing_number: text(
-      instructions?.bank_routing_number || instructions?.routing_number,
-    ),
-    iban: text(instructions?.iban),
-    bic: text(instructions?.bic || instructions?.swift_code),
-    created_at: text(row?.created_at),
-  };
+  const rawInstructions = details?.source_deposit_instructions ??
+    details?.deposit_instructions ?? details?.payment_instructions ?? details;
+  const candidates: any[] = Array.isArray(rawInstructions)
+    ? rawInstructions
+    : rawInstructions && typeof rawInstructions === "object" &&
+        !rawInstructions.currency && !rawInstructions.payment_rail &&
+        ["USD", "EUR", "GBP"].some((currency) => rawInstructions[currency] || rawInstructions[currency.toLowerCase()])
+    ? ["USD", "EUR", "GBP"].flatMap((currency) => {
+      const value = rawInstructions[currency] || rawInstructions[currency.toLowerCase()];
+      return value && typeof value === "object" ? [{ currency, ...value }] : [];
+    })
+    : [rawInstructions];
+
+  return candidates.map((instructions, index) => {
+    const bank = instructions?.bank_account && typeof instructions.bank_account === "object"
+      ? instructions.bank_account
+      : instructions;
+    const address = instructions?.bank_address && typeof instructions.bank_address === "object"
+      ? Object.values(instructions.bank_address).filter(Boolean).join(", ")
+      : instructions?.bank_address;
+    return {
+      id: `${text(row?.virtual_account_id)}${candidates.length > 1 ? `:${index}` : ""}`,
+      currency: text(instructions?.currency || row?.currency).toUpperCase(),
+      rail: text(instructions?.payment_rail || instructions?.rail || row?.rail).toLowerCase(),
+      status: text(row?.status || details?.status || "active").toLowerCase(),
+      account_holder_name: text(
+        instructions?.account_holder_name || instructions?.beneficiary_name ||
+          bank?.account_holder_name || bank?.beneficiary_name,
+      ),
+      bank_name: text(instructions?.bank_name || bank?.bank_name),
+      bank_address: text(address || bank?.bank_address),
+      account_number: text(
+        instructions?.bank_account_number || instructions?.account_number ||
+          bank?.bank_account_number || bank?.account_number,
+      ),
+      routing_number: text(
+        instructions?.bank_routing_number || instructions?.routing_number ||
+          bank?.bank_routing_number || bank?.routing_number,
+      ),
+      iban: text(instructions?.iban || bank?.iban),
+      bic: text(instructions?.bic || instructions?.swift_code || bank?.bic || bank?.swift_code),
+      created_at: text(row?.created_at || details?.created_at),
+    };
+  }).filter((account) => account.currency || account.rail || account.account_number || account.iban);
 }
 
 Deno.serve(async (req: Request) => {
@@ -721,11 +632,26 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [profile, wallets, virtualAccounts, externalAccountResult, transfers, platformActivity] =
+    const [profileResult, walletResult, virtualAccountResult, externalAccountResult, transferResult] =
       await Promise.all([
-        bridgeProvider.getCustomerProfile(customerId),
-        bridgeProvider.listWallets(customerId),
-        bridgeProvider.listVirtualAccounts(customerId),
+        bridgeProvider.getCustomerProfile(customerId)
+          .then((data) => ({ available: true, data }))
+          .catch((error) => {
+            console.warn("bridge_operator_profile_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
+            return { available: false, data: null };
+          }),
+        bridgeProvider.listWallets(customerId)
+          .then((rows) => ({ available: true, rows }))
+          .catch((error) => {
+            console.warn("bridge_operator_wallets_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
+            return { available: false, rows: [] as any[] };
+          }),
+        bridgeProvider.listVirtualAccounts(customerId)
+          .then((rows) => ({ available: true, rows }))
+          .catch((error) => {
+            console.warn("bridge_operator_virtual_accounts_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
+            return { available: false, rows: [] as any[] };
+          }),
         listExternalAccounts(customerId).then((rows) => ({ available: true, rows }))
           .catch((error) => {
             console.warn("bridge_operator_external_accounts_unavailable", {
@@ -734,9 +660,16 @@ Deno.serve(async (req: Request) => {
             });
             return { available: false, rows: [] as any[] };
           }),
-        listTransfers(customerId),
-        listPlatformActivity(),
+        listTransfers(customerId)
+          .then((rows) => ({ available: true, rows }))
+          .catch((error) => {
+            console.warn("bridge_operator_transfers_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
+            return { available: false, rows: [] as any[] };
+          }),
       ]);
+    const wallets = walletResult.rows;
+    const virtualAccounts = virtualAccountResult.rows;
+    const transfers = transferResult.rows;
     const selectedWallets = TREASURY_ASSETS.flatMap((asset) => {
       const matches = wallets.filter((wallet) =>
         text(wallet.chain).toLowerCase() === asset.chain
@@ -820,9 +753,10 @@ Deno.serve(async (req: Request) => {
         wallets: walletRows.length,
         virtual_accounts: virtualAccounts.length,
         transfers: transfers.length,
-        customer_transactions: platformActivity.transactions.length,
-        notifications: platformActivity.notifications.length,
-        platform_activity_available: platformActivity.available,
+        profile_available: profileResult.available,
+        wallets_available: walletResult.available,
+        virtual_accounts_available: virtualAccountResult.available,
+        transfers_available: transferResult.available,
       },
     });
 
@@ -837,15 +771,16 @@ Deno.serve(async (req: Request) => {
           status: "active",
         },
         wallets: walletRows,
-        virtual_accounts: virtualAccounts.slice(0, 100).map(virtualAccountRow),
+        virtual_accounts: virtualAccounts.slice(0, 100).flatMap(virtualAccountRows),
+        virtual_accounts_available: virtualAccountResult.available,
         external_accounts: externalAccountResult.rows.map(externalAccountRow).filter((account) =>
           account.id && !["deleted", "deactivated", "inactive", "closed"].includes(account.status)
         ),
         external_accounts_available: externalAccountResult.available,
         transactions: transfers,
-        customer_transactions: platformActivity.transactions,
-        notifications: platformActivity.notifications,
-        platform_activity_available: platformActivity.available,
+        transfers_available: transferResult.available,
+        wallets_available: walletResult.available,
+        profile_available: profileResult.available,
         refreshed_at: new Date().toISOString(),
       },
     });
