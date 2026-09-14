@@ -147,7 +147,7 @@ export class BridgeProvider implements PaymentProvider {
   //     customer (requires the customer to already have signed_agreement_id +
   //     base profile — i.e. went through /v0/customers).
   //   • If customer_id is NOT supplied, Bridge accepts full_name + email
-  //     (+ business_legal_name for KYB) and creates the customer when the
+  //     (full_name contains the legal entity name for KYB) and creates the customer when the
   //     user completes the hosted flow. TOS is collected on the same page,
   //     so we don't need a separate /v0/customers/tos_links round-trip.
   //
@@ -174,7 +174,7 @@ export class BridgeProvider implements PaymentProvider {
       if (input.account_type === "individual") {
         if (input.full_name)  body.full_name = input.full_name;
       } else {
-        if (input.company_name) body.business_legal_name = input.company_name;
+        if (input.company_name) body.full_name = input.company_name;
       }
     }
     const idemSource =
