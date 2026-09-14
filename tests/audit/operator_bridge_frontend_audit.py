@@ -47,7 +47,10 @@ checks = {
     "home total is USD spendable wallets only": all(token in UI for token in ("row.currency === 'USDC' || row.currency === 'USDT'", "formatMoney(usdTotal, 'USD')")) and "eurTotal" not in UI,
     "total balance is hidden by default": "useState(false)" in UI and "Hide treasury balance" in UI and "Show treasury balance" in UI,
     "home contains a real provider-transfer-derived line chart": "TreasuryActivityChart" in UI and "Completed activity in USD" in UI and "transaction.state" in UI,
-    "chart does not synthesize unsupported FX": "if (!['USD', 'USDC', 'USDT'].includes(value)) return null" in UI,
+    "chart does not synthesize unsupported FX": (
+        "['USD', 'USDC', 'USDT'].includes(String(candidate.currency" in UI
+        and "EURC" not in UI[UI.index("function transactionUsdAmount"):UI.index("function TreasuryActivityChart")]
+    ),
     "chart exposes requested treasury periods": all(token in UI for token in ("{ id: '1M', days: 30 }", "{ id: '3M', days: 90 }", "{ id: '6M', days: 180 }", "{ id: '1Y', days: 365 }")),
     "home action order is dashboard then quick actions then recent activity": UI.index("<TreasuryActivityChart") < UI.index("<QuickActions") < UI.index('id="recent-activity-title"'),
     "quick actions expose the four requested destinations": all(token in UI for token in ("Asset details", "Receiving rails", "Operations ledger", "Move funds")),

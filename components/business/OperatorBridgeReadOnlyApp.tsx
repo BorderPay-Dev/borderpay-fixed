@@ -19,6 +19,9 @@ type WalletRow = {
 type BridgeTransfer = {
   id: string;
   state: string;
+  activity_kind?: 'transfer' | 'virtual_account';
+  activity_type?: string;
+  reference?: string;
   source: { currency: string; payment_rail: string; amount: string };
   destination: { currency: string; payment_rail: string; amount: string };
   created_at: string;
@@ -59,6 +62,7 @@ type OperatorSnapshot = {
   external_accounts_available: boolean;
   transactions: BridgeTransfer[];
   transfers_available: boolean;
+  virtual_account_history_available?: boolean;
   wallets_available: boolean;
   virtual_accounts_available: boolean;
   profile_available: boolean;
@@ -131,13 +135,13 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   const [transferResult, setTransferResult] = useState<{ transfer_id: string; state: string } | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
+  const load = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    if (!silent) setError('');
     const response = await backendAPI.bridge.operator.getSnapshot();
     if (!response.success || !response.data) {
-      setError(response.error || 'Treasury data is temporarily unavailable.');
-      setLoading(false);
+      if (!silent) setError(response.error || 'Treasury data is temporarily unavailable.');
+      if (!silent) setLoading(false);
       return;
     }
     setSnapshot(response.data as OperatorSnapshot);
@@ -145,6 +149,16 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') void load(true); };
+    const interval = window.setInterval(refresh, 30_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [load]);
 
   // The treasury owns the viewport while mounted. Keeping the document fixed
   // prevents a second browser scrollbar; wheel, keyboard and touch scrolling
@@ -437,10 +451,13 @@ function QuickActions({ onNavigate }: { onNavigate: (view: TreasuryView) => void
 }
 
 function transactionUsdAmount(transaction: BridgeTransfer): number | null {
-  const value = String(transaction.source.currency || transaction.destination.currency || '').toUpperCase();
-  if (!['USD', 'USDC', 'USDT'].includes(value)) return null;
-  const amount = Number(transaction.source.amount || transaction.destination.amount);
-  return Number.isFinite(amount) ? amount : null;
+  const candidates = [transaction.destination, transaction.source];
+  for (const candidate of candidates) {
+    if (!['USD', 'USDC', 'USDT'].includes(String(candidate.currency || '').toUpperCase())) continue;
+    const value = Number(candidate.amount);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function TreasuryActivityChart({ transactions }: { transactions: BridgeTransfer[] }) {
@@ -453,7 +470,7 @@ function TreasuryActivityChart({ transactions }: { transactions: BridgeTransfer[
   const [range, setRange] = useState<(typeof ranges)[number]['id']>('1M');
   const dayCount = ranges.find((option) => option.id === range)?.days || 30;
   const points = useMemo(() => {
-    const completed = new Set(['completed', 'payment_processed', 'approved', 'settlement_complete']);
+    const completed = new Set(['completed', 'payment_processed', 'approved', 'settlement_complete', 'funds_received']);
     const days = Array.from({ length: dayCount }, (_, index) => {
       const date = new Date();
       date.setHours(0, 0, 0, 0);
