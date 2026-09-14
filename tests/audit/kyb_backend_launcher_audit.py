@@ -10,6 +10,7 @@ checks = {
     "handoff tokens expire quickly": "Date.now() + 10 * 60 * 1000" in kyb,
     "only the approved identity host is accepted": "host !== \"bridge.withpersona.com\"" in kyb and "host.endsWith(\".withpersona.com\")" in kyb,
     "provider URL stays server-side behind the one-time token": "verification_launch_tokens" in kyb and "target_url" in kyb,
+    "client handoff stays on the BorderPay application domain": '`${APP_URL.replace(/\\/+$/, "")}/verification/continue?token=' in kyb,
     "launcher validates token expiry": "Date.parse(data.expires_at) <= Date.now()" in launcher,
     "launcher opens provider outside the embedded surface": 'target="_blank"' in launcher and 'rel="noopener noreferrer"' in launcher,
     "launcher always renders HTML": '"Content-Type": "text/html; charset=utf-8"' in launcher,

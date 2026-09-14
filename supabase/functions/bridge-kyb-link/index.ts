@@ -167,7 +167,7 @@ async function createExternalLaunchUrl(userId: string, targetUrl: string): Promi
     expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
   });
   if (error) throw new Error(`Could not create secure verification launch: ${error.message}`);
-  return `${SUPABASE_URL}/functions/v1/verification-launch?token=${encodeURIComponent(token)}`;
+  return `${APP_URL.replace(/\/+$/, "")}/verification/continue?token=${encodeURIComponent(token)}`;
 }
 
 Deno.serve(async (req: Request) => {
