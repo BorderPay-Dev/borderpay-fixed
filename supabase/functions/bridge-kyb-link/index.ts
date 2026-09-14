@@ -20,7 +20,6 @@ import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
 const APP_URL         = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
-const SUPABASE_URL    = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
 const KYB_LINK_CONTRACT_VERSION = "full-name-v2";
 
 const CORS = {
@@ -150,24 +149,6 @@ function extractKybStatus(parsed: any): string | null {
     if (BRIDGE_KYB_STATUSES.has(raw)) return raw;
   }
   return null;
-}
-
-async function createExternalLaunchUrl(userId: string, targetUrl: string): Promise<string> {
-  let target: URL;
-  try { target = new URL(targetUrl); } catch { throw new Error("Invalid hosted verification URL"); }
-  const host = target.hostname.toLowerCase();
-  if (target.protocol !== "https:" || (host !== "bridge.withpersona.com" && !host.endsWith(".withpersona.com"))) {
-    throw new Error("Untrusted hosted verification URL");
-  }
-  const token = crypto.randomUUID();
-  const { error } = await supa.from("verification_launch_tokens").insert({
-    token,
-    user_id: userId,
-    target_url: target.toString(),
-    expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-  });
-  if (error) throw new Error(`Could not create secure verification launch: ${error.message}`);
-  return `${SUPABASE_URL}/functions/v1/verification-launch?token=${encodeURIComponent(token)}`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -329,23 +310,13 @@ Deno.serve(async (req: Request) => {
     r.data?.data?.tos_status || r.data?.tos_status || r.data?.existing_kyc_link?.tos_status || "",
   ).trim().toLowerCase();
   const tosRequired = Boolean(link.tos_link_url && tosStatus !== "approved" && tosStatus !== "accepted");
-  let externalLaunchUrl: string | null = null;
-  if (link.link_url) {
-    try {
-      externalLaunchUrl = await createExternalLaunchUrl(user.id, link.link_url);
-    } catch (error) {
-      console.error(`bridge-kyb-link: secure launch creation failed user=${user.id}: ${(error as Error).message}`);
-      return json({ success: false, error: "Could not open secure business verification. Please try again." }, 500);
-    }
-  }
   return json({
     success: true,
     data: {
       link_id: link.link_id,
-      // Never hand an iframe-hostile provider URL directly to released apps.
-      // The short-lived BorderPay launcher converts the existing embedded flow
-      // into an explicit top-level navigation that works on web/iOS/Android.
-      link_url: externalLaunchUrl,
+      // Released clients already open this actionable KYB URL externally after
+      // the embedded Terms step. Do not wrap it in HTML or another URL.
+      link_url: link.link_url,
       // Always lead an unverified business through the Terms page when the
       // hosted flow supplies it. The Continue CTA then opens KYB top-level.
       // Omit an already-accepted ToS URL so older native bundles proceed to
