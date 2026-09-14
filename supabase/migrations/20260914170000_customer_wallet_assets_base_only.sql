@@ -24,9 +24,9 @@ create policy wallets_own on public.wallets
 for all to public
 using (
   auth.uid() = user_id
-  and upper(coalesce(currency, '')) <> 'USDT'
+  and upper(coalesce(currency::text, '')) <> 'USDT'
 )
 with check (
   auth.uid() = user_id
-  and upper(coalesce(currency, '')) <> 'USDT'
+  and upper(coalesce(currency::text, '')) <> 'USDT'
 );
