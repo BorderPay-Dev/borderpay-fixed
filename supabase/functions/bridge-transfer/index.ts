@@ -282,6 +282,10 @@ Deno.serve(async (req) => {
     });
     return json({ success: false, error: "Invalid JSON" }, 400);
   }
+  // Bind SCA to the exact client request before validation derives or appends
+  // provider-only fields such as destination.to_address. Hashing the mutated
+  // object makes a valid PIN + TOTP authorization impossible to consume.
+  const scaAuthorizedRequest = structuredClone(body);
   const failAfterAuth = async (payload: Record<string, unknown>, status: number, accountType?: string | null) => {
     try {
       await recordTransferProviderAlert({
@@ -576,7 +580,7 @@ Deno.serve(async (req) => {
     userId: user.id,
     operation: "payment",
     resource: "bridge_transfer",
-    request: body,
+    request: scaAuthorizedRequest,
   });
   if (!sca.ok) return await failAfterAuth(sca.body, sca.status, profile.account_type);
 

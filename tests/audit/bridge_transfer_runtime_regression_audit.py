@@ -23,7 +23,12 @@ checks = {
     "transfer consumes request-bound SCA authorization": (
         "consumeScaAuthorization" in SOURCE
         and 'resource: "bridge_transfer"' in SOURCE
-        and "request: body" in SOURCE
+        and "request: scaAuthorizedRequest" in SOURCE
+    ),
+    "SCA hashes the client request before provider-only mutation": (
+        "const scaAuthorizedRequest = structuredClone(body)" in SOURCE
+        and SOURCE.find("const scaAuthorizedRequest = structuredClone(body)")
+        < SOURCE.find("body.destination = {")
     ),
     "SCA is consumed before provider execution": (
         SOURCE.find("const sca = await consumeScaAuthorization")
