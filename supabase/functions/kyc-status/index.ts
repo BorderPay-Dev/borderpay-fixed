@@ -53,15 +53,19 @@ serve(async (req) => {
         ? (biz?.bridge_kyb_status ?? null)
         : (profile?.bridge_kyc_status ?? null);
 
+    const isBusiness = profile?.account_type === 'business';
     const bridgeAccountStatus = String(profile?.bridge_account_status || '').toLowerCase();
     let status: 'none' | 'draft' | 'needs_ubos' | 'awaiting_rfi' | 'needs_edd' | 'under_review' | 'approved' | 'rejected' = 'none';
-    if (bridgeStatus === 'approved' || profile?.kyc_status === 'verified' || sub?.submission_status === 'approved') status = 'approved';
-    else if (bridgeStatus === 'rejected' || sub?.submission_status === 'rejected') status = 'rejected';
-    else if (['awaiting_ubo', 'needs_ubos'].includes(bridgeAccountStatus) || ['awaiting_ubo', 'needs_ubos'].includes(String(bridgeStatus))) status = 'needs_ubos';
+    // Account-level actionable states are authoritative. They must win over a
+    // stale business_profiles value or legacy kyc_submissions row; otherwise a
+    // business that still needs owners can be rendered as approved/reviewing.
+    if (['awaiting_ubo', 'needs_ubos'].includes(bridgeAccountStatus) || ['awaiting_ubo', 'needs_ubos'].includes(String(bridgeStatus))) status = 'needs_ubos';
     else if (['awaiting_questionnaire', 'awaiting_rfi'].includes(bridgeAccountStatus) || ['awaiting_questionnaire', 'awaiting_rfi'].includes(String(bridgeStatus))) status = 'awaiting_rfi';
     else if (['deposits_restricted', 'needs_edd'].includes(bridgeAccountStatus) || ['deposits_restricted', 'needs_edd'].includes(String(bridgeStatus))) status = 'needs_edd';
-    else if (bridgeStatus === 'under_review' || sub?.submission_status === 'under_review') status = 'under_review';
-    else if (bridgeStatus === 'pending' || sub?.submission_status === 'draft') status = 'draft';
+    else if (bridgeStatus === 'rejected' || (!isBusiness && sub?.submission_status === 'rejected')) status = 'rejected';
+    else if (bridgeStatus === 'approved' || (!isBusiness && (profile?.kyc_status === 'verified' || sub?.submission_status === 'approved'))) status = 'approved';
+    else if (bridgeStatus === 'under_review' || (!isBusiness && sub?.submission_status === 'under_review')) status = 'under_review';
+    else if (bridgeStatus === 'pending' || bridgeStatus === 'incomplete' || bridgeStatus === 'not_started' || (!isBusiness && sub?.submission_status === 'draft')) status = 'draft';
 
     return new Response(JSON.stringify({
       success: true,
@@ -71,6 +75,7 @@ serve(async (req) => {
       account_type:        profile?.account_type ?? 'individual',
       bridge_customer_id:  profile?.bridge_customer_id || null,
       bridge_kyc_status:   bridgeStatus,
+      bridge_account_status: bridgeAccountStatus || null,
     }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (err) {
