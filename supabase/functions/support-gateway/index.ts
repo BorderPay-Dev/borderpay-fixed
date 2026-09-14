@@ -1,5 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import {
+  knowledgeSources,
+  renderSupportKnowledge,
+  retrieveSupportKnowledge,
+  SUPPORT_KNOWLEDGE_VERSION,
+  type SupportKnowledgeEntry,
+} from "../_shared/support-knowledge-base.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -31,7 +38,6 @@ type Action =
 const STATUSES = new Set(["open", "pending_support", "pending_user", "resolved", "closed"]);
 const ISSUE_TYPES = new Set(["account_access", "verification", "wallet_balances", "send_receive", "general"]);
 const HIGH_PRIORITY_ISSUES = new Set(["account_access", "verification", "wallet_balances", "send_receive"]);
-const BORDERPAY_WEBSITE = "https://www.borderpayafrica.com";
 const SUPPORT_OPERATOR_EMAIL = "markikaba@borderpayafrica.com";
 
 function trimText(v: unknown, max = 1000): string {
@@ -116,6 +122,11 @@ function shouldForceHumanHandoff(input: {
     [/\b(kyc|kyb|verify|verification)\b.*\b(rejected|failed|blocked|stuck|unable)\b/, "verification_failure"],
     [/\b(can't login|cannot login|locked out|account locked|reset password not working)\b/, "account_lockout"],
     [/\b(balance wrong|wallet missing|funds missing|money missing|cannot see funds)\b/, "funds_visibility_incident"],
+    [/\b(my|our)\b.*\b(account|wallet|transaction|transfer|payment|payout|deposit|balance|verification)\b.*\b(blocked|disabled|failed|frozen|missing|paused|pending|rejected|stuck|wrong)\b/, "account_specific_request"],
+    [/\b(why|check|review|investigate)\b.*\b(my|our)\b.*\b(account|wallet|transaction|transfer|payment|payout|deposit|balance|verification)\b/, "account_specific_request"],
+    [/\b(transaction|transfer|payment|payout|deposit)\s*(id|reference|number)\s*[:#-]?\s*[a-z0-9-]{8,}\b/, "transaction_reference_supplied"],
+    [/\b(is|are|will)\b.*\b(my|our)\b.*\b(company|business|account)\b.*\b(eligible|approved|accepted|restricted)\b/, "customer_specific_eligibility"],
+    [/\b(ignore|reveal|repeat|override)\b.*\b(instruction|prompt|policy|system message|secret)\b/, "prompt_injection_attempt"],
     [/\b(lawsuit|legal|regulator|compliance complaint|report to)\b/, "legal_or_regulatory_risk"],
   ];
 
@@ -129,9 +140,9 @@ function shouldForceHumanHandoff(input: {
 async function generateSupportDraft(input: {
   ticketSubject: string;
   issueType: string;
-  requesterEmail: string;
   conversation: Array<{ sender_type: string; body: string; created_at?: string }>;
   operatorGuidance?: string;
+  knowledge: SupportKnowledgeEntry[];
 }): Promise<{ draft: string; provider: "azure_openai" | "openai"; model: string }> {
   const supportAiEnabled = (Deno.env.get("SUPPORT_AI_ENABLED") ?? "true").toLowerCase() === "true";
   if (!supportAiEnabled) {
@@ -141,12 +152,13 @@ async function generateSupportDraft(input: {
   const systemPrompt = [
     "You are BorderPay customer support assistant for a live fintech product.",
     "Write a concise, human reply to the customer.",
-    `Use only general, provider-neutral information published at ${BORDERPAY_WEBSITE}.`,
-    `When useful, direct the customer to ${BORDERPAY_WEBSITE} for product, eligibility, pricing, and compliance information.`,
+    "Use only the APPROVED BORDERPAY KNOWLEDGE supplied below. Do not use outside knowledge.",
+    "Do not mention infrastructure providers or internal implementation details.",
+    "Do not change, estimate, reinterpret or combine fees, eligibility rules, product availability or compliance requirements.",
     "Never state or infer a customer's balance, transaction status, verification outcome, or account state.",
-    "Do not expose internal systems, providers, stack traces, or implementation details.",
+    "Never promise approval, account activation, a deadline, a refund or completion of money movement.",
     "Do not promise money movement completion unless already confirmed in the conversation.",
-    "If escalation is needed, clearly state support will follow up.",
+    "If the supplied knowledge cannot answer the question, return exactly HANDOFF_REQUIRED.",
     "Keep tone professional and calm.",
   ].join(" ");
 
@@ -158,8 +170,10 @@ async function generateSupportDraft(input: {
   const userPrompt = [
     `Ticket subject: ${input.ticketSubject}`,
     `Issue type: ${input.issueType}`,
-    `Requester: ${input.requesterEmail}`,
     input.operatorGuidance ? `Operator guidance: ${input.operatorGuidance}` : "",
+    `Knowledge version: ${SUPPORT_KNOWLEDGE_VERSION}`,
+    "APPROVED BORDERPAY KNOWLEDGE:",
+    renderSupportKnowledge(input.knowledge),
     "Recent conversation:",
     convoLines || "(no prior messages)",
     "",
@@ -300,6 +314,7 @@ function supportHealthSnapshot() {
   return {
     timestamp: new Date().toISOString(),
     ai_enabled: supportAiEnabled,
+    knowledge_version: SUPPORT_KNOWLEDGE_VERSION,
     provider,
     model,
     ready: supportAiEnabled && provider !== "none",
@@ -322,12 +337,51 @@ function humanHandoffReply(reference: string): string {
   ].join(" ");
 }
 
-function safeGeneralFallback(reference: string): string {
+function groundedFallback(
+  reference: string,
+  entries: SupportKnowledgeEntry[],
+): string {
+  const answers = entries.slice(0, 2).map((entry) => entry.answer);
+  const sources = knowledgeSources(entries);
   return [
-    `We received your request. Your ticket number is ${reference}.`,
-    `You can find approved product, account, eligibility, pricing, and compliance information at ${BORDERPAY_WEBSITE}.`,
-    "If the published guidance does not answer your question, reply here and our support team will review it.",
-  ].join(" ");
+    ...answers,
+    sources.length ? `More information: ${sources.join(" · ")}` : "",
+    `Ticket number: ${reference}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+function groundedReply(
+  draft: string,
+  reference: string,
+  entries: SupportKnowledgeEntry[],
+): string {
+  const sources = knowledgeSources(entries);
+  return [
+    draft.trim(),
+    sources.length ? `More information: ${sources.join(" · ")}` : "",
+    `Ticket number: ${reference}`,
+  ].filter(Boolean).join("\n\n");
+}
+
+function validateGroundedDraft(
+  draft: string,
+  entries: SupportKnowledgeEntry[],
+): boolean {
+  const normalized = draft.trim();
+  if (!normalized || normalized.length > 1800) return false;
+  if (/\b(guaranteed|guarantee approval|definitely approved|we approved your|your balance is|your transaction is)\b/i.test(normalized)) {
+    return false;
+  }
+  if (/\b(bridge\.xyz|yellow card|flutterwave|brevo|supabase|azure openai|openai)\b/i.test(normalized)) {
+    return false;
+  }
+  const approvedText = entries.map((entry) => entry.answer).join(" ");
+  const approvedNumbers = new Set(approvedText.match(/\b\d+(?:\.\d+)?%?\b/g) || []);
+  const draftNumbers = normalized.match(/\b\d+(?:\.\d+)?%?\b/g) || [];
+  if (!draftNumbers.every((value) => approvedNumbers.has(value))) return false;
+  const allowedUrls = new Set(knowledgeSources(entries));
+  const draftUrls = normalized.match(/https?:\/\/[^\s)]+/gi) || [];
+  return draftUrls.every((value) => allowedUrls.has(value.replace(/[.,;]+$/, "")));
 }
 
 async function sendOperatorHandoffEmail(input: {
@@ -392,6 +446,14 @@ async function automateFirstResponse(input: {
     subject: String(input.ticket.subject || ""),
     conversation,
   });
+  const knowledge = retrieveSupportKnowledge([
+    String(input.ticket.subject || ""),
+    input.message,
+  ].join("\n"));
+  if (!escalation.escalate && knowledge.length === 0) {
+    escalation.escalate = true;
+    escalation.reasons.push("knowledge_not_found");
+  }
 
   let reply = humanHandoffReply(reference);
   let provider = "policy_handoff";
@@ -400,16 +462,29 @@ async function automateFirstResponse(input: {
       const generated = await generateSupportDraft({
         ticketSubject: String(input.ticket.subject || "Support request"),
         issueType: String(input.ticket.issue_type || "general"),
-        requesterEmail: String(input.ticket.requester_email || "customer"),
         conversation,
-        operatorGuidance: `Include ticket number ${reference}. Use ${BORDERPAY_WEBSITE} as the approved help source. Do not claim access to customer-specific account or transaction data.`,
+        operatorGuidance: "Do not include a ticket number or source list; the server appends those. Do not claim access to customer-specific account or transaction data.",
+        knowledge,
       });
-      reply = `${generated.draft.trim()}\n\nTicket number: ${reference}`;
-      provider = generated.provider;
+      if (generated.draft.trim() === "HANDOFF_REQUIRED") {
+        escalation.escalate = true;
+        escalation.reasons.push("model_requested_handoff");
+      } else if (!validateGroundedDraft(generated.draft, knowledge)) {
+        reply = groundedFallback(reference, knowledge);
+        provider = "knowledge_fallback";
+      } else {
+        reply = groundedReply(generated.draft, reference, knowledge);
+        provider = generated.provider;
+      }
     } catch {
-      reply = safeGeneralFallback(reference);
-      provider = "safe_fallback";
+      reply = groundedFallback(reference, knowledge);
+      provider = "knowledge_fallback";
     }
+  }
+
+  if (escalation.escalate) {
+    reply = humanHandoffReply(reference);
+    provider = "policy_handoff";
   }
 
   const now = new Date().toISOString();
@@ -450,6 +525,123 @@ async function automateFirstResponse(input: {
     payload: {
       ticket_number: reference,
       provider,
+      knowledge_version: SUPPORT_KNOWLEDGE_VERSION,
+      knowledge_ids: knowledge.map((entry) => entry.id),
+      knowledge_sources: knowledgeSources(knowledge),
+      reasons: escalation.reasons,
+      operator_notification_sent: notification.sent,
+      operator_notification_error: notification.error || null,
+    },
+  });
+}
+
+async function automateFollowupResponse(input: {
+  ticket: any;
+  message: string;
+  requesterName?: string | null;
+  userMessageNumber: number;
+}): Promise<void> {
+  const reference = ticketReference(input.ticket.id);
+  const { data: rows } = await supa.from("support_ticket_messages")
+    .select("sender_type,body,created_at")
+    .eq("ticket_id", input.ticket.id)
+    .eq("is_internal", false)
+    .order("created_at", { ascending: true })
+    .limit(30);
+  const conversation = (rows || []).slice(-12).map((row: any) => ({
+    sender_type: String(row.sender_type || "user"),
+    body: String(row.body || ""),
+    created_at: String(row.created_at || ""),
+  }));
+  const escalation = shouldForceHumanHandoff({
+    issueType: String(input.ticket.issue_type || "general"),
+    subject: String(input.ticket.subject || ""),
+    conversation,
+  });
+  const knowledge = retrieveSupportKnowledge([
+    String(input.ticket.subject || ""),
+    input.message,
+  ].join("\n"));
+  if (!escalation.escalate && knowledge.length === 0) {
+    escalation.escalate = true;
+    escalation.reasons.push("knowledge_not_found");
+  }
+
+  let reply = humanHandoffReply(reference);
+  let provider = "policy_handoff";
+  if (!escalation.escalate) {
+    try {
+      const generated = await generateSupportDraft({
+        ticketSubject: String(input.ticket.subject || "Support request"),
+        issueType: String(input.ticket.issue_type || "general"),
+        conversation,
+        operatorGuidance: "Answer only from the supplied knowledge. Do not claim access to customer-specific account or transaction data.",
+        knowledge,
+      });
+      if (generated.draft.trim() === "HANDOFF_REQUIRED") {
+        escalation.escalate = true;
+        escalation.reasons.push("model_requested_handoff");
+      } else if (!validateGroundedDraft(generated.draft, knowledge)) {
+        reply = groundedFallback(reference, knowledge);
+        provider = "knowledge_fallback";
+      } else {
+        reply = groundedReply(generated.draft, reference, knowledge);
+        provider = generated.provider;
+      }
+    } catch {
+      reply = groundedFallback(reference, knowledge);
+      provider = "knowledge_fallback";
+    }
+  }
+
+  if (escalation.escalate) {
+    reply = humanHandoffReply(reference);
+    provider = "policy_handoff";
+  }
+
+  const now = new Date().toISOString();
+  const { error: replyError } = await supa.from("support_ticket_messages").insert({
+    ticket_id: input.ticket.id,
+    sender_type: "assistant",
+    sender_user_id: null,
+    body: reply,
+    is_internal: false,
+  });
+  if (replyError) throw replyError;
+
+  await supa.from("support_tickets").update({
+    status: escalation.escalate ? "pending_support" : "pending_user",
+    priority: escalation.escalate ? "high" : input.ticket.priority,
+    last_message_at: now,
+  }).eq("id", input.ticket.id);
+
+  let notification: { sent: boolean; error?: string } = { sent: false, error: "not_required" };
+  if (escalation.escalate) {
+    notification = await sendOperatorHandoffEmail({
+      ticketId: input.ticket.id,
+      requesterEmail: String(input.ticket.requester_email || ""),
+      requesterName: input.requesterName,
+      issueType: String(input.ticket.issue_type || "general"),
+      subject: String(input.ticket.subject || "Support request"),
+      message: input.message,
+      reasons: escalation.reasons,
+      userMessageNumber: input.userMessageNumber,
+    });
+  }
+
+  await supa.from("support_ticket_events").insert({
+    ticket_id: input.ticket.id,
+    event_type: escalation.escalate
+      ? "followup_human_handoff"
+      : "automatic_followup_response",
+    actor_user_id: null,
+    payload: {
+      ticket_number: reference,
+      provider,
+      user_message_number: input.userMessageNumber,
+      knowledge_version: SUPPORT_KNOWLEDGE_VERSION,
+      knowledge_ids: knowledge.map((entry) => entry.id),
+      knowledge_sources: knowledgeSources(knowledge),
       reasons: escalation.reasons,
       operator_notification_sent: notification.sent,
       operator_notification_error: notification.error || null,
@@ -813,7 +1005,7 @@ Deno.serve(async (req) => {
 
     const { data: ticket, error: ticketErr } = await supa
       .from("support_tickets")
-      .select("id, requester_user_id, requester_email, requester_name, issue_type, subject, status")
+      .select("id, requester_user_id, requester_email, requester_name, issue_type, subject, status, priority")
       .eq("id", ticketId)
       .eq("requester_user_id", user.id)
       .maybeSingle();
@@ -850,43 +1042,19 @@ Deno.serve(async (req) => {
     });
 
     const userMessageNumber = Number(priorUserMessageCount || 0) + 1;
-    const escalation = shouldForceHumanHandoff({
-      issueType: String(ticket.issue_type || "general"),
-      subject: String(ticket.subject || ""),
-      conversation: [{ sender_type: "user", body: message }],
-    });
-    if (escalation.escalate) {
-      const acknowledgement = humanHandoffReply(ticketReference(ticketId));
-      await supa.from("support_ticket_messages").insert({
-        ticket_id: ticketId,
-        sender_type: "assistant",
-        sender_user_id: null,
-        body: acknowledgement,
-        is_internal: false,
-      });
-      const notification = await sendOperatorHandoffEmail({
-        ticketId,
-        requesterEmail: String(ticket.requester_email || user.email || ""),
-        requesterName: ticket.requester_name || profile?.full_name || null,
-        issueType: String(ticket.issue_type || "general"),
-        subject: String(ticket.subject || "Support request"),
-        message,
-        reasons: escalation.reasons,
-        userMessageNumber,
-      });
+    continueSupportAutomation(automateFollowupResponse({
+      ticket,
+      message,
+      requesterName: ticket.requester_name || profile?.full_name || null,
+      userMessageNumber,
+    }).catch(async (error) => {
       await supa.from("support_ticket_events").insert({
         ticket_id: ticketId,
-        event_type: "followup_human_handoff",
+        event_type: "automatic_followup_response_failed",
         actor_user_id: null,
-        payload: {
-          ticket_number: ticketReference(ticketId),
-          user_message_number: userMessageNumber,
-          reasons: escalation.reasons,
-          operator_notification_sent: notification.sent,
-          operator_notification_error: notification.error || null,
-        },
+        payload: { reason: String((error as Error)?.message || "unknown").slice(0, 300) },
       });
-    }
+    }));
 
     return json({ success: true, data: { ticket_id: ticketId, ticket_number: ticketReference(ticketId) } });
   }
