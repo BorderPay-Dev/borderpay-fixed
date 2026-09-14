@@ -26,6 +26,7 @@ import { AppLockScreen } from './components/security/AppLockScreen';
 import { isNativeRuntime } from './utils/native/mobileRuntime';
 import { unregisterNativePush } from './utils/notifications/nativePush';
 import { captureReferralAttributionFromLocation } from './utils/affiliate/referralAttribution';
+import { VerificationContinuePage } from './components/verification/VerificationContinuePage';
 
 // Capture shared affiliate links before the auth router can replace the route.
 captureReferralAttributionFromLocation();
@@ -918,6 +919,19 @@ function AppContent() {
 }
 
 export default function App() {
+  const isVerificationContinue = (() => {
+    try { return String(window.location.pathname || '').replace(/\/+$/, '') === '/verification/continue'; }
+    catch { return false; }
+  })();
+
+  if (isVerificationContinue) {
+    return (
+      <ErrorBoundary>
+        <VerificationContinuePage />
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <ThemeLanguageProvider>

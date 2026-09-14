@@ -35,10 +35,6 @@
     }
   ],
   "rewrites": [
-    {
-      "source": "/verification/continue",
-      "destination": "https://orwrcpwsffjlvzuraxjc.supabase.co/functions/v1/verification-launch"
-    },
     { "source": "/privacy-policy", "destination": "/legal/privacy-policy.html" },
     { "source": "/privacy-policy/", "destination": "/legal/privacy-policy.html" },
     { "source": "/terms", "destination": "/legal/terms-of-service.html" },
