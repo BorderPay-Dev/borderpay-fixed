@@ -1,10 +1,10 @@
 // bridge-kyb-link v5 — embedded /v0/kyc_links flow for business accounts.
 //
-// Mirrors bridge-kyc-link v6: always send email + business_legal_name;
+// Mirrors bridge-kyc-link v6: always send email + full_name;
 // attach customer_id when present; handle Bridge's 400 existing_kyc_link
 // as success. KYB-specific differences:
 //   • type = "business"
-//   • business_legal_name (instead of full_name)
+//   • full_name contains the business entity's legal name
 //   • reads business_profiles for company_name + bridge_kyb_status
 //   • writes bridge_kyb_status (not bridge_kyc_status)
 
@@ -158,7 +158,9 @@ Deno.serve(async (req: Request) => {
   const reqBody: Record<string, unknown> = {
     type:                 "business",
     email:                profile.email,
-    business_legal_name:  biz.company_name,
+    // The hosted KYC-link contract uses full_name for both account types.
+    // For a business, full_name must contain the entity's full legal name.
+    full_name:             biz.company_name,
     endorsements:         body.endorsements ?? ["base"],
     redirect_uri:         body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
   };

@@ -124,7 +124,7 @@ async function emailVerificationLink(userId: string, accountType: "individual" |
       let link_url = biz.bridge_kyb_link_url as string | null;
       if (!link_url) {
         const reqBody: Record<string, unknown> = {
-          type: "business", email, business_legal_name: biz.company_name,
+          type: "business", email, full_name: biz.company_name,
           endorsements: ["base"], redirect_uri: `${APP_URL}/onboarding/kyc-complete`,
         };
         if (biz.bridge_customer_id) reqBody.customer_id = biz.bridge_customer_id;
