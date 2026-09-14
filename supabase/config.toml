@@ -73,6 +73,12 @@ verify_jwt = true
 [functions.send-email]
 verify_jwt = false
 
+# Support accepts both authenticated in-app tickets and a public website/chat
+# intake. The function verifies user JWTs for private actions and authenticates
+# Brevo ingestion with SUPPORT_WEBHOOK_SECRET in code.
+[functions.support-gateway]
+verify_jwt = false
+
 # Legacy confirmation sender (deprecated). Kept for compatibility only and now
 # locked down in-code by SEND_EMAIL_INTERNAL_TOKEN + app-origin validation.
 [functions.send-confirmation-email]
