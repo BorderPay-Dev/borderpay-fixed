@@ -36,7 +36,10 @@ def main() -> int:
         "shared provider key uses contract version": "${KYC_LINK_CONTRACT_VERSION}:${input.account_type}" in provider_body,
         "subscription fallback key uses contract version": "business:full-name-v2" in UPGRADE,
         "redirect URI remains application callback": "redirect_uri:" in body and "APP_URL" in body,
-        "existing customer resumes through customer KYB endpoint": "/v0/customers/${encodeURIComponent(existingCustomerId)}/kyc_link" in SOURCE,
+        "existing customer resumes through customer KYB endpoint": (
+            "const encodedCustomerId = encodeURIComponent(existingCustomerId)" in SOURCE
+            and "/v0/customers/${encodedCustomerId}/kyc_link" in SOURCE
+        ),
         "stored link is refreshed before creating another": "/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}" in SOURCE,
         "new-customer payload does not send customer_id": "customer_id" not in body,
         "new customer creation remains server-side": 'bridgePost(\n      "/v0/kyc_links"' in SOURCE,
