@@ -19,6 +19,12 @@ require("text-red-400" in kyc and "border-red-500/40" in kyc and "bg-red-500/15"
         "KYC ToS warning must be visibly red, not neutral helper copy.")
 require("Continue verification <ArrowRight" in kyc,
         "KYC ToS branch must still expose Continue verification CTA after warning.")
+require("openHostedVerificationUrl(r.data.tos_link_url" in kyc,
+        "Terms of Service must open in the protected embedded WebView.")
+require("openTopLevelHostedFallback(r.data.link_url)" in kyc,
+        "KYB identity verification must leave the iframe and open top-level.")
+require("openHostedVerificationUrl(r.data.link_url" not in kyc,
+        "KYB identity verification must never be embedded in an iframe.")
 
 if failures:
     print("kyc_tos_warning_audit: FAIL")
