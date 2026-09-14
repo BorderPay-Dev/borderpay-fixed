@@ -10,8 +10,9 @@ import type {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz")
-  .replace(/\/+$/, "");
+const BRIDGE_BASE_URL =
+  (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz")
+    .replace(/\/+$/, "");
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -108,7 +109,11 @@ async function verifyTransactionPin(authorization: string, pin: string) {
 function listRows(payload: any): any[] {
   if (Array.isArray(payload?.data)) return payload.data;
   if (Array.isArray(payload?.transfers)) return payload.transfers;
-  if (Array.isArray(payload?.external_accounts)) return payload.external_accounts;
+  if (Array.isArray(payload?.activities)) return payload.activities;
+  if (Array.isArray(payload?.history)) return payload.history;
+  if (Array.isArray(payload?.external_accounts)) {
+    return payload.external_accounts;
+  }
   if (Array.isArray(payload)) return payload;
   return [];
 }
@@ -127,17 +132,22 @@ async function listExternalAccounts(customerId: string): Promise<any[]> {
 
 function externalAccountRow(row: any) {
   const accountType = text(row?.account_type).toLowerCase();
-  const currency = text(row?.currency ||
-    (accountType === "iban" ? "EUR" : accountType === "gb" ? "GBP" : "USD"))
+  const currency = text(
+    row?.currency ||
+      (accountType === "iban" ? "EUR" : accountType === "gb" ? "GBP" : "USD"),
+  )
     .toUpperCase();
-  const rail = text(row?.payment_rail || row?.rail ||
-    (accountType === "iban"
-      ? "sepa"
-      : accountType === "gb"
-      ? "faster_payments"
-      : "ach")).toLowerCase();
+  const rail = text(
+    row?.payment_rail || row?.rail ||
+      (accountType === "iban"
+        ? "sepa"
+        : accountType === "gb"
+        ? "faster_payments"
+        : "ach"),
+  ).toLowerCase();
   const accountNumber = text(
-    row?.account_number || row?.account?.account_number || row?.iban_number || row?.iban,
+    row?.account_number || row?.account?.account_number || row?.iban_number ||
+      row?.iban,
   ).replace(/\s+/g, "");
   return {
     id: text(row?.id || row?.external_account_id),
@@ -161,25 +171,82 @@ async function listTransfers(customerId: string): Promise<any[]> {
   if (!response.ok) {
     throw new Error(`Bridge transfer read failed (${response.status})`);
   }
-  return listRows(response.data).slice(0, 100).map((row) => ({
+  return listRows(response.data).slice(0, 100).map((row) =>
+    normalizeTreasuryActivity(row, "transfer")
+  );
+}
+
+function normalizeTreasuryActivity(
+  row: any,
+  activityKind: "transfer" | "virtual_account",
+) {
+  return {
     id: text(row?.id),
     state: text(row?.state || row?.status).toLowerCase(),
+    activity_kind: activityKind,
+    activity_type: text(row?.type || row?.activity_type).toLowerCase(),
+    reference: text(row?.reference || row?.deposit_id || row?.tracking_id),
     source: {
-      currency: text(row?.source?.currency).toUpperCase(),
-      payment_rail: text(row?.source?.payment_rail || row?.source?.rail)
+      currency: text(
+        row?.source?.currency || row?.source_currency || row?.currency,
+      ).toUpperCase(),
+      payment_rail: text(
+        row?.source?.payment_rail || row?.source?.rail || row?.payment_rail,
+      )
         .toLowerCase(),
-      amount: amount(row?.source?.amount),
+      amount: amount(row?.source?.amount || row?.source_amount || row?.amount),
     },
     destination: {
-      currency: text(row?.destination?.currency).toUpperCase(),
+      currency: text(row?.destination?.currency || row?.destination_currency)
+        .toUpperCase(),
       payment_rail: text(
         row?.destination?.payment_rail || row?.destination?.rail,
       ).toLowerCase(),
-      amount: amount(row?.destination?.amount || row?.amount),
+      amount: amount(
+        row?.destination?.amount || row?.destination_amount || row?.subtotal,
+      ),
     },
     created_at: text(row?.created_at),
     updated_at: text(row?.updated_at),
-  }));
+  };
+}
+
+async function listVirtualAccountHistory(
+  customerId: string,
+  virtualAccountId: string,
+): Promise<any[]> {
+  const response = await bridgeFetch({
+    method: "GET",
+    path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${
+      encodeURIComponent(virtualAccountId)
+    }/history`,
+    query: { limit: 100 },
+    retryable: true,
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Virtual-account history read failed (${response.status}) for ${virtualAccountId}`,
+    );
+  }
+  return listRows(response.data).slice(0, 100).map((row) =>
+    normalizeTreasuryActivity(row, "virtual_account")
+  );
+}
+
+function mergeTreasuryActivity(...groups: any[][]): any[] {
+  const rows = new Map<string, any>();
+  for (const row of groups.flat()) {
+    if (!row?.id) continue;
+    const existing = rows.get(row.id);
+    const existingTime =
+      Date.parse(existing?.updated_at || existing?.created_at || "") || 0;
+    const nextTime = Date.parse(row.updated_at || row.created_at || "") || 0;
+    if (!existing || nextTime >= existingTime) rows.set(row.id, row);
+  }
+  return [...rows.values()].sort((a, b) =>
+    (Date.parse(b.updated_at || b.created_at || "") || 0) -
+    (Date.parse(a.updated_at || a.created_at || "") || 0)
+  ).slice(0, 300);
 }
 
 function virtualAccountRows(row: any) {
@@ -193,28 +260,45 @@ function virtualAccountRows(row: any) {
     ? rawInstructions
     : rawInstructions && typeof rawInstructions === "object" &&
         !rawInstructions.currency && !rawInstructions.payment_rail &&
-        ["USD", "EUR", "GBP"].some((currency) => rawInstructions[currency] || rawInstructions[currency.toLowerCase()])
+        ["USD", "EUR", "GBP"].some((currency) =>
+          rawInstructions[currency] || rawInstructions[currency.toLowerCase()]
+        )
     ? ["USD", "EUR", "GBP"].flatMap((currency) => {
-      const value = rawInstructions[currency] || rawInstructions[currency.toLowerCase()];
-      return value && typeof value === "object" ? [{ currency, ...value }] : [];
+      const value = rawInstructions[currency] ||
+        rawInstructions[currency.toLowerCase()];
+      return value && typeof value === "object"
+        ? [{ currency, ...value }]
+        : [];
     })
     : [rawInstructions];
 
   return candidates.map((instructions, index) => {
-    const bank = instructions?.bank_account && typeof instructions.bank_account === "object"
+    const bank = instructions?.bank_account &&
+        typeof instructions.bank_account === "object"
       ? instructions.bank_account
       : instructions;
-    const address = instructions?.bank_address && typeof instructions.bank_address === "object"
+    const address = instructions?.bank_address &&
+        typeof instructions.bank_address === "object"
       ? Object.values(instructions.bank_address).filter(Boolean).join(", ")
       : instructions?.bank_address;
     return {
-      id: `${text(row?.virtual_account_id)}${candidates.length > 1 ? `:${index}` : ""}`,
+      id: `${text(row?.virtual_account_id)}${
+        candidates.length > 1 ? `:${index}` : ""
+      }`,
       currency: text(instructions?.currency || row?.currency).toUpperCase(),
-      rail: text(instructions?.payment_rail || instructions?.rail || row?.rail).toLowerCase(),
+      rail: text(instructions?.payment_rail || instructions?.rail || row?.rail)
+        .toLowerCase(),
       status: text(row?.status || details?.status || "active").toLowerCase(),
       account_holder_name: text(
-        instructions?.account_holder_name || instructions?.beneficiary_name ||
-          bank?.account_holder_name || bank?.beneficiary_name,
+        instructions?.account_holder_name ||
+          instructions?.bank_beneficiary_name ||
+          instructions?.beneficiary_name || instructions?.beneficiary?.name ||
+          instructions?.beneficiary?.business_name ||
+          bank?.account_holder_name ||
+          bank?.bank_beneficiary_name || bank?.beneficiary_name ||
+          details?.account_holder_name || details?.bank_beneficiary_name ||
+          details?.beneficiary_name || row?.account_holder_name ||
+          row?.bank_beneficiary_name || row?.beneficiary_name,
       ),
       bank_name: text(instructions?.bank_name || bank?.bank_name),
       bank_address: text(address || bank?.bank_address),
@@ -227,10 +311,15 @@ function virtualAccountRows(row: any) {
           bank?.bank_routing_number || bank?.routing_number,
       ),
       iban: text(instructions?.iban || bank?.iban),
-      bic: text(instructions?.bic || instructions?.swift_code || bank?.bic || bank?.swift_code),
+      bic: text(
+        instructions?.bic || instructions?.swift_code || bank?.bic ||
+          bank?.swift_code,
+      ),
       created_at: text(row?.created_at || details?.created_at),
     };
-  }).filter((account) => account.currency || account.rail || account.account_number || account.iban);
+  }).filter((account) =>
+    account.currency || account.rail || account.account_number || account.iban
+  );
 }
 
 Deno.serve(async (req: Request) => {
@@ -243,10 +332,13 @@ Deno.serve(async (req: Request) => {
   // This endpoint is exclusively for BorderPay's master production treasury.
   // Never render or move sandbox data under a production operator identity.
   if (BRIDGE_BASE_URL !== "https://api.bridge.xyz") {
-    console.error("bridge_operator_nonproduction_base_url", { base_url: BRIDGE_BASE_URL });
+    console.error("bridge_operator_nonproduction_base_url", {
+      base_url: BRIDGE_BASE_URL,
+    });
     return json(req, {
       success: false,
-      error: "Production treasury data is unavailable because the provider environment is misconfigured",
+      error:
+        "Production treasury data is unavailable because the provider environment is misconfigured",
     }, 503);
   }
 
@@ -322,10 +414,14 @@ Deno.serve(async (req: Request) => {
       : {};
     const sourceWalletId = text(request?.source_wallet_id);
     const currency = text(request?.currency).toUpperCase() as StablecoinSymbol;
-    const destinationRail = text(request?.destination_rail).toLowerCase() as BridgePaymentRail;
+    const destinationRail = text(request?.destination_rail)
+      .toLowerCase() as BridgePaymentRail;
     const destinationAddress = text(request?.destination_address);
-    const destinationExternalAccountId = text(request?.destination_external_account_id);
-    const destinationCurrencyRequested = text(request?.destination_currency).toUpperCase();
+    const destinationExternalAccountId = text(
+      request?.destination_external_account_id,
+    );
+    const destinationCurrencyRequested = text(request?.destination_currency)
+      .toUpperCase();
     const isFiatPayout = Boolean(destinationExternalAccountId);
     const amountRaw = text(request?.amount);
     const numericAmount = Number(amountRaw);
@@ -467,7 +563,8 @@ Deno.serve(async (req: Request) => {
         return json(req, {
           success: false,
           code: "external_account_not_owned",
-          error: "The selected bank account is not active on this treasury account.",
+          error:
+            "The selected bank account is not active on this treasury account.",
         }, 403);
       }
       if (
@@ -632,44 +729,89 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const [profileResult, walletResult, virtualAccountResult, externalAccountResult, transferResult] =
-      await Promise.all([
-        bridgeProvider.getCustomerProfile(customerId)
-          .then((data) => ({ available: true, data }))
-          .catch((error) => {
-            console.warn("bridge_operator_profile_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
-            return { available: false, data: null };
-          }),
-        bridgeProvider.listWallets(customerId)
-          .then((rows) => ({ available: true, rows }))
-          .catch((error) => {
-            console.warn("bridge_operator_wallets_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
-            return { available: false, rows: [] as any[] };
-          }),
-        bridgeProvider.listVirtualAccounts(customerId)
-          .then((rows) => ({ available: true, rows }))
-          .catch((error) => {
-            console.warn("bridge_operator_virtual_accounts_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
-            return { available: false, rows: [] as any[] };
-          }),
-        listExternalAccounts(customerId).then((rows) => ({ available: true, rows }))
-          .catch((error) => {
-            console.warn("bridge_operator_external_accounts_unavailable", {
-              bridge_customer_id: customerId,
-              error: error instanceof Error ? error.message : "unknown",
-            });
-            return { available: false, rows: [] as any[] };
-          }),
-        listTransfers(customerId)
-          .then((rows) => ({ available: true, rows }))
-          .catch((error) => {
-            console.warn("bridge_operator_transfers_unavailable", { bridge_customer_id: customerId, error: error instanceof Error ? error.message : "unknown" });
-            return { available: false, rows: [] as any[] };
-          }),
-      ]);
+    const [
+      profileResult,
+      walletResult,
+      virtualAccountResult,
+      externalAccountResult,
+      transferResult,
+    ] = await Promise.all([
+      bridgeProvider.getCustomerProfile(customerId)
+        .then((data) => ({ available: true, data }))
+        .catch((error) => {
+          console.warn("bridge_operator_profile_unavailable", {
+            bridge_customer_id: customerId,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return { available: false, data: null };
+        }),
+      bridgeProvider.listWallets(customerId)
+        .then((rows) => ({ available: true, rows }))
+        .catch((error) => {
+          console.warn("bridge_operator_wallets_unavailable", {
+            bridge_customer_id: customerId,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return { available: false, rows: [] as any[] };
+        }),
+      bridgeProvider.listVirtualAccounts(customerId)
+        .then((rows) => ({ available: true, rows }))
+        .catch((error) => {
+          console.warn("bridge_operator_virtual_accounts_unavailable", {
+            bridge_customer_id: customerId,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return { available: false, rows: [] as any[] };
+        }),
+      listExternalAccounts(customerId).then((rows) => ({
+        available: true,
+        rows,
+      }))
+        .catch((error) => {
+          console.warn("bridge_operator_external_accounts_unavailable", {
+            bridge_customer_id: customerId,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return { available: false, rows: [] as any[] };
+        }),
+      listTransfers(customerId)
+        .then((rows) => ({ available: true, rows }))
+        .catch((error) => {
+          console.warn("bridge_operator_transfers_unavailable", {
+            bridge_customer_id: customerId,
+            error: error instanceof Error ? error.message : "unknown",
+          });
+          return { available: false, rows: [] as any[] };
+        }),
+    ]);
     const wallets = walletResult.rows;
     const virtualAccounts = virtualAccountResult.rows;
-    const transfers = transferResult.rows;
+    const virtualAccountActivityResults = virtualAccountResult.available
+      ? await Promise.all(virtualAccounts.map(async (account) => {
+        const virtualAccountId = text(account?.virtual_account_id);
+        if (!virtualAccountId) return { available: false, rows: [] as any[] };
+        return listVirtualAccountHistory(customerId, virtualAccountId)
+          .then((rows) => ({ available: true, rows }))
+          .catch((error) => {
+            console.warn(
+              "bridge_operator_virtual_account_history_unavailable",
+              {
+                bridge_customer_id: customerId,
+                virtual_account_id: virtualAccountId,
+                error: error instanceof Error ? error.message : "unknown",
+              },
+            );
+            return { available: false, rows: [] as any[] };
+          });
+      }))
+      : [];
+    const virtualAccountHistoryAvailable = virtualAccountActivityResults.some((
+      result,
+    ) => result.available);
+    const transfers = mergeTreasuryActivity(
+      transferResult.rows,
+      ...virtualAccountActivityResults.map((result) => result.rows),
+    );
     const selectedWallets = TREASURY_ASSETS.flatMap((asset) => {
       const matches = wallets.filter((wallet) =>
         text(wallet.chain).toLowerCase() === asset.chain
@@ -753,6 +895,7 @@ Deno.serve(async (req: Request) => {
         wallets: walletRows.length,
         virtual_accounts: virtualAccounts.length,
         transfers: transfers.length,
+        virtual_account_history_available: virtualAccountHistoryAvailable,
         profile_available: profileResult.available,
         wallets_available: walletResult.available,
         virtual_accounts_available: virtualAccountResult.available,
@@ -771,14 +914,22 @@ Deno.serve(async (req: Request) => {
           status: "active",
         },
         wallets: walletRows,
-        virtual_accounts: virtualAccounts.slice(0, 100).flatMap(virtualAccountRows),
-        virtual_accounts_available: virtualAccountResult.available,
-        external_accounts: externalAccountResult.rows.map(externalAccountRow).filter((account) =>
-          account.id && !["deleted", "deactivated", "inactive", "closed"].includes(account.status)
+        virtual_accounts: virtualAccounts.slice(0, 100).flatMap(
+          virtualAccountRows,
         ),
+        virtual_accounts_available: virtualAccountResult.available,
+        external_accounts: externalAccountResult.rows.map(externalAccountRow)
+          .filter((account) =>
+            account.id &&
+            !["deleted", "deactivated", "inactive", "closed"].includes(
+              account.status,
+            )
+          ),
         external_accounts_available: externalAccountResult.available,
         transactions: transfers,
-        transfers_available: transferResult.available,
+        transfers_available: transferResult.available ||
+          virtualAccountHistoryAvailable,
+        virtual_account_history_available: virtualAccountHistoryAvailable,
         wallets_available: walletResult.available,
         profile_available: profileResult.available,
         refreshed_at: new Date().toISOString(),
