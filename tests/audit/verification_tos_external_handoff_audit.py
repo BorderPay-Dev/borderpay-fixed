@@ -18,11 +18,14 @@ checks = {
     "unaccepted Terms open in the embedded ToS view": "openHostedVerificationUrl(r.data.tos_link_url" in SOURCE,
     "ToS embed cannot be dismissed as verification completion": "returnEnabled: false" in SOURCE,
     "Continue handler exists": handler_start >= 0 and handler_end > handler_start,
-    "blank popup handoff is forbidden": "window.open('about:blank'" not in handler,
+    "blank placeholder handoff is forbidden": "window.open('about:blank'" not in handler,
     "Continue requests a fresh provider state after Terms acceptance": "requestHostedLink(ctx.accountType)" in handler,
     "accepted Terms produce an identity-verification link": "r.data?.link_url" in handler,
-    "KYB link navigates directly at top level": "openTopLevelHostedFallback(r.data.link_url)" in success,
+    "KYB link uses the external handoff": "openTopLevelHostedFallback(r.data.link_url)" in success,
     "identity verification is never loaded in the embedded iframe": "openHostedVerificationUrl(r.data.link_url" not in SOURCE,
+    "external handoff opens a separate browsing context": "window.open(url, '_blank')" in SOURCE,
+    "external handoff severs opener access": "externalWindow.opener = null" in SOURCE,
+    "external handoff does not replace the app WebView": "window.location.href =" not in SOURCE,
 }
 
 failed = [name for name, passed in checks.items() if not passed]
