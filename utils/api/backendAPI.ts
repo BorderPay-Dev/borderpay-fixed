@@ -2311,6 +2311,7 @@ export const bridgeAPI = {
   operator: {
     getSnapshot: async () =>
       apiCall<{
+        source: 'bridge_production_live';
         access_mode: 'read_only';
         account: { name: string; customer_id: string; status: string };
         wallets: unknown[];

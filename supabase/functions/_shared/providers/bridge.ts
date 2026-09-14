@@ -557,7 +557,10 @@ export class BridgeProvider implements PaymentProvider {
   async getWalletBalances(customerId: string, walletId: string): Promise<Array<{ currency: string; chain?: string; balance: string }>> {
     const r = await bridgeFetch({
       method: "GET",
-      path:   `/v0/customers/${encodeURIComponent(customerId)}/wallets/${encodeURIComponent(walletId)}/balances`,
+      // The production API returns the live balances array on the wallet
+      // resource itself. `/balances` is not a documented customer-wallet
+      // endpoint and may return 404 for a valid active wallet.
+      path:   `/v0/customers/${encodeURIComponent(customerId)}/wallets/${encodeURIComponent(walletId)}`,
     });
     if (!r.ok) {
       const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
@@ -589,7 +592,7 @@ export class BridgeProvider implements PaymentProvider {
       ? payload.balances
       : Array.isArray(payload)
       ? payload
-      : [payload];
+      : [];
 
     return (rows || []).map((b: any) => ({
       currency: String(b?.currency || b?.symbol || ""),

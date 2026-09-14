@@ -54,7 +54,7 @@ checks = {
     "wallet screen omits wallet balances": "function WalletsView" in UI and "Deposit address" in UI,
     "receiving rails support US EU and GB": all(token in UI for token in ("'US'", "'EU'", "'GB'", "SEPA bank transfer", "Faster Payments", "ACH / Wire")),
     "receiving account list is provider-driven": ".map((account)" in UI and "ReceiveView" in UI,
-    "customer ledger includes identity and transaction": "customer_name" in UI and "customer_email" in UI and "Customer transactions" in UI,
+    "customer ledger includes identity and transaction": "customer_name" in UI and "customer_email" in UI and "Customer activity" in UI,
     "notification bell has accessible state": 'aria-label="Open treasury notifications"' in UI and "aria-expanded={notificationsOpen}" in UI,
     "mobile treasury scrollbars are hidden without disabling scroll": "bp-treasury-scroll" in UI and "scrollbar-width:none" in UI and "overflow-y-auto" in UI,
     "old information banner is removed": "Secure treasury workspace" not in UI,

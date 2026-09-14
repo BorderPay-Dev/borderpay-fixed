@@ -56,6 +56,7 @@ type TreasuryExternalAccount = {
 };
 
 type OperatorSnapshot = {
+  source: 'bridge_production_live';
   access_mode: 'read_only';
   account: { name: string; customer_id: string; status: string };
   wallets: WalletRow[];
@@ -344,7 +345,11 @@ function ReceiveView({ accounts }: { accounts: OperatorSnapshot['virtual_account
 }
 
 function TransactionsView({ snapshot }: { snapshot: OperatorSnapshot }) {
-  return <section aria-labelledby="transactions-title"><PageHeading eyebrow="Operations ledger" title="Customer transactions" description="Latest activity across BorderPay customers, identified by business or customer name." />{snapshot.platform_activity_available ? <TransactionLedger transactions={snapshot.customer_transactions} /> : <div className="mt-6"><EmptyState text="Customer transaction activity is temporarily unavailable. Treasury balances are unaffected." /></div>}</section>;
+  return <section aria-labelledby="transactions-title"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live master-account transfers from Bridge, followed by customer activity recorded by BorderPay." /><BridgeTransferLedger transactions={snapshot.transactions} /><div className="mt-8"><h2 className="text-lg font-semibold">Customer activity</h2>{snapshot.platform_activity_available ? <TransactionLedger transactions={snapshot.customer_transactions} /> : <div className="mt-4"><EmptyState text="Customer transaction activity is temporarily unavailable. Treasury balances are unaffected." /></div>}</div></section>;
+}
+
+function BridgeTransferLedger({ transactions }: { transactions: OperatorSnapshot['transactions'] }) {
+  return <div className="mt-6 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-3 sm:p-5"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="font-semibold">Master account activity</h2><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300">Live</span></div><div className="space-y-3">{transactions.map((transaction) => <article key={transaction.id} className="grid gap-3 rounded-2xl border border-white/[0.07] bg-black/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"><div className="min-w-0"><p className="font-medium">{title(transaction.source.payment_rail || 'Treasury transfer')} → {title(transaction.destination.payment_rail || 'Destination')}</p><p className="mt-1 truncate font-mono text-xs text-zinc-500">{transaction.id}</p></div><div className="sm:text-right"><p className="font-mono font-semibold tabular-nums">{formatMoney(transaction.source.amount || transaction.destination.amount, transaction.source.currency || transaction.destination.currency || 'USD')}</p><p className="text-xs text-zinc-500">{formatDate(transaction.updated_at || transaction.created_at)}</p></div><StatusPill status={transaction.state} /></article>)}{!transactions.length && <EmptyState text="No live master-account transfers were returned by Bridge." />}</div></div>;
 }
 
 type SendViewProps = {
