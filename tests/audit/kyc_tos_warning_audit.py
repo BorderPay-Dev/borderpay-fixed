@@ -25,6 +25,12 @@ require("openTopLevelHostedFallback(r.data.link_url)" in kyc,
         "KYB identity verification must leave the iframe and open top-level.")
 require("openHostedVerificationUrl(r.data.link_url" not in kyc,
         "KYB identity verification must never be embedded in an iframe.")
+require("window.open(url, '_blank')" in kyc,
+        "KYB identity verification must open in an external browsing context.")
+require("externalWindow.opener = null" in kyc,
+        "External verification must not retain access to the BorderPay opener.")
+require("window.location.href =" not in kyc,
+        "KYB identity verification must not replace the native app WebView.")
 
 if failures:
     print("kyc_tos_warning_audit: FAIL")
