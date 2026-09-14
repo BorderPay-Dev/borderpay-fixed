@@ -10,6 +10,8 @@ import type {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz")
+  .replace(/\/+$/, "");
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -326,6 +328,15 @@ Deno.serve(async (req: Request) => {
   }
   if (req.method !== "POST") {
     return json(req, { success: false, error: "POST only" }, 405);
+  }
+  // This endpoint is exclusively for BorderPay's master production treasury.
+  // Never render or move sandbox data under a production operator identity.
+  if (BRIDGE_BASE_URL !== "https://api.bridge.xyz") {
+    console.error("bridge_operator_nonproduction_base_url", { base_url: BRIDGE_BASE_URL });
+    return json(req, {
+      success: false,
+      error: "Production treasury data is unavailable because the provider environment is misconfigured",
+    }, 503);
   }
 
   const token = (req.headers.get("Authorization") || "").replace(
@@ -818,6 +829,7 @@ Deno.serve(async (req: Request) => {
     return json(req, {
       success: true,
       data: {
+        source: "bridge_production_live",
         access_mode: "read_only",
         account: {
           name: text(operator.label || "BorderPay Africa, Inc."),

@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATION = (ROOT / "supabase/migrations/20260912170000_operator_bridge_readonly_access.sql").read_text()
 WORKER = (ROOT / "supabase/functions/bridge-operator-readonly/index.ts").read_text()
+PROVIDER = (ROOT / "supabase/functions/_shared/providers/bridge.ts").read_text()
 APP = (ROOT / "App.tsx").read_text()
 UI = (ROOT / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
 API = (ROOT / "utils/api/backendAPI.ts").read_text()
@@ -21,6 +22,11 @@ checks = {
     "Bridge API key never reaches UI": "BRIDGE_API_KEY" not in UI and "Api-Key" not in UI and "BRIDGE_API_KEY" not in APP,
     "read paths use provider GET": 'method: "GET"' in WORKER,
     "wallet balances are read": "getWalletBalances" in WORKER,
+    "wallet balances use the documented production wallet resource": (
+        '/wallets/${encodeURIComponent(walletId)}`' in PROVIDER
+        and '/wallets/${encodeURIComponent(walletId)}/balances' not in PROVIDER
+        and 'payload?.balances' in PROVIDER
+    ),
     "treasury exposes only USDC Base, EURC Base, and USDT Tron": all(token in WORKER for token in (
         '{ currency: "USDC", chain: "base" }',
         '{ currency: "EURC", chain: "base" }',
@@ -57,6 +63,12 @@ checks = {
         "destination_external_account_id",
     )),
     "transactions are read": 'path: "/v0/transfers"' in WORKER,
+    "snapshot declares its live production source": 'source: "bridge_production_live"' in WORKER,
+    "operator treasury rejects non-production provider configuration": (
+        'BRIDGE_BASE_URL !== "https://api.bridge.xyz"' in WORKER
+        and "bridge_operator_nonproduction_base_url" in WORKER
+    ),
+    "master-account transfers are visible in treasury": "BridgeTransferLedger" in UI and "snapshot.transactions" in UI,
     "one-year customer transaction ledger is bounded": '.from("transactions")' in WORKER and '.limit(1000)' in WORKER and "customer_transactions" in WORKER,
     "treasury notifications are bounded": '.from("notifications")' in WORKER and '.limit(30)' in WORKER and "platform_activity_available" in WORKER,
     "provider payload is projected": "virtualAccountRow" in WORKER and "raw:" not in WORKER,
