@@ -373,7 +373,10 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
           localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        openHostedVerificationUrl(r.data.link_url, { title: 'Continue verification', returnEnabled: true });
+        // The identity-verification host disallows iframe embedding. Keep the
+        // Terms step in BorderPay, then hand the KYB link to the top-level
+        // browser so native WebViews cannot fail with ERR_BLOCKED_BY_RESPONSE.
+        openTopLevelHostedFallback(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -425,7 +428,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         } catch { /* noop */ }
         setEmbeddedPolling(false);
         setEmbeddedUrl(null);
-        window.location.href = r.data.link_url;
+        openTopLevelHostedFallback(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
