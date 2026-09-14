@@ -1557,6 +1557,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       }
 
       if (result.success) {
+        verifiedScaPinRef.current = '';
         // The provider webhook owns the balance mutation. Drop every derived
         // financial cache now so Dashboard, Wallet, Activity and Notifications
         // cannot keep rendering the pre-payout snapshot after navigation.
@@ -1591,6 +1592,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       } else {
         // Map structured server codes to friendly user-facing messages.
         const code = (result as any)?.code;
+        if (code === 'sca_required' && (method === 'stablecoin' || method === 'us_ach_wire')) {
+          // The transfer boundary is authoritative. Recover from a stale scope
+          // preflight by completing TOTP, never by exposing a terminal error.
+          setErrorMessage('');
+          setTotp('');
+          setStep(verifiedScaPinRef.current ? 'totp' : 'pin');
+          toast.info(verifiedScaPinRef.current
+            ? 'Enter your current authenticator code to authorize this payout.'
+            : 'Enter your transaction PIN and authenticator code to authorize this payout.');
+          return;
+        }
+        verifiedScaPinRef.current = '';
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
@@ -1636,14 +1649,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         await processTransaction();
         return;
       }
+      // Keep the verified PIN only for this payout attempt. If the transfer
+      // boundary corrects a stale scope preflight, the user can proceed
+      // directly to the authenticator step without entering the PIN twice.
+      verifiedScaPinRef.current = value;
       const scaStatus: any = await backendAPI.sca.status();
       if (!scaStatus?.success) {
         toast.error(friendlyError(scaStatus?.error, 'Strong authentication is temporarily unavailable.'));
+        verifiedScaPinRef.current = '';
         setPin('');
         return;
       }
       if (scaStatus.data?.required) {
-        verifiedScaPinRef.current = value;
         setStep('totp');
         return;
       }

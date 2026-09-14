@@ -20,11 +20,19 @@ checks = {
     "client uses separate PIN and TOTP steps": "| 'pin' | 'totp' |" in send and "step === 'totp'" in send,
     "client performs SCA scope preflight": "backendAPI.sca.status()" in send,
     "client requests payment authorization": "backendAPI.sca.authorizePayment" in send,
+    "transfer rejection continues to TOTP without repeating PIN": (
+        "code === 'sca_required'" in send
+        and "verifiedScaPinRef.current ? 'totp' : 'pin'" in send
+    ),
     "released authorization contract remains accepted": '(body.action && body.action !== "authorize")' in authorize,
     "stablecoin payout sends authorization": "sca_authorization_id: scaAuthorizationId" in send,
     "API wrapper preserves authorization": "sca_authorization_id?: string" in api,
     "transfer consumes one-time authorization": "consumeScaAuthorization" in transfer,
     "provider receives compliant attestation": 'outcome: "sca_used"' in transfer,
+    "authorization checks the unmodified client request": (
+        "const scaAuthorizedRequest = structuredClone(body)" in transfer
+        and "request: scaAuthorizedRequest" in transfer
+    ),
 }
 
 failed = [name for name, passed in checks.items() if not passed]
