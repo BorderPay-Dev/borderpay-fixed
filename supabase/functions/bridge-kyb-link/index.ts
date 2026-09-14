@@ -152,24 +152,6 @@ function extractKybStatus(parsed: any): string | null {
   return null;
 }
 
-async function createExternalLaunchUrl(userId: string, targetUrl: string): Promise<string> {
-  let target: URL;
-  try { target = new URL(targetUrl); } catch { throw new Error("Invalid hosted verification URL"); }
-  const host = target.hostname.toLowerCase();
-  if (target.protocol !== "https:" || (host !== "bridge.withpersona.com" && !host.endsWith(".withpersona.com"))) {
-    throw new Error("Untrusted hosted verification URL");
-  }
-  const token = crypto.randomUUID();
-  const { error } = await supa.from("verification_launch_tokens").insert({
-    token,
-    user_id: userId,
-    target_url: target.toString(),
-    expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-  });
-  if (error) throw new Error(`Could not create secure verification launch: ${error.message}`);
-  return `${SUPABASE_URL}/functions/v1/verification-launch?token=${encodeURIComponent(token)}`;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -350,26 +332,13 @@ Deno.serve(async (req: Request) => {
     r.data?.data?.tos_status || r.data?.tos_status || r.data?.existing_kyc_link?.tos_status || "",
   ).trim().toLowerCase();
   const tosRequired = Boolean(link.tos_link_url && tosStatus !== "approved" && tosStatus !== "accepted");
-  let clientLinkUrl = link.link_url;
-  // Existing released native clients may still try to embed the returned URL.
-  // Persona refuses framing, producing an indefinite white screen. A private,
-  // expiring BorderPay handoff gives those clients a visible top-level exit.
-  // Brand-new customers retain the already-working direct provider handoff.
-  if (existingCustomerId && link.link_url) {
-    try {
-      clientLinkUrl = await createExternalLaunchUrl(user.id, link.link_url);
-    } catch (error) {
-      console.error(`bridge-kyb-link: secure launch creation failed user=${user.id}: ${(error as Error).message}`);
-      return json({ success: false, error: "Could not open secure business verification. Please try again." }, 500);
-    }
-  }
   return json({
     success: true,
     data: {
       link_id: link.link_id,
       // Released clients already open this actionable KYB URL externally after
       // the embedded Terms step. Do not wrap it in HTML or another URL.
-      link_url: clientLinkUrl,
+      link_url: link.link_url,
       // Always lead an unverified business through the Terms page when the
       // hosted flow supplies it. The Continue CTA then opens KYB top-level.
       // Omit an already-accepted ToS URL so older native bundles proceed to
