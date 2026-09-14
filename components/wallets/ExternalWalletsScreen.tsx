@@ -2,8 +2,8 @@
  * ExternalWalletsScreen — saved external stablecoin payout addresses.
  *
  * Save your own wallet address once (e.g. your Binance USDC/Base address). The
- * backend registers the matching Bridge crypto-to-crypto route before the wallet
- * can be used for withdrawals.
+ * backend validates and stores it before the crypto-to-crypto transfer flow can
+ * use it as destination.to_address.
  */
 
 import React, { useEffect, useState } from 'react';

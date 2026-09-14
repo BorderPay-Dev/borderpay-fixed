@@ -110,23 +110,6 @@ function normalizeBridgeEndpointType(value: unknown): "virtual_account" | "walle
   return "external_bank";
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function routeDepositAddress(raw: unknown): string {
-  const obj = asRecord(raw);
-  const instructions = asRecord(obj.source_deposit_instructions);
-  const source = asRecord(obj.source);
-  return String(
-    obj.address
-      ?? instructions.to_address
-      ?? instructions.address
-      ?? source.to_address
-      ?? "",
-  ).trim();
-}
-
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -428,9 +411,10 @@ Deno.serve(async (req) => {
 
   // Crypto payout guard (BridgePayoutValidator):
   //   - only USDC/base and USDT/tron are allowed
-  //   - saved external wallet route is required before money moves
-  //   - the route deposit address is used as the transfer destination; Bridge
-  //     then drains that route to the final saved external wallet address
+  //   - a saved external wallet is required before money moves
+  //   - the saved address is sent directly as destination.to_address through
+  //     the provider's crypto-to-crypto Transfers API
+  //   - liquidation addresses are never created, read, or used by this path
   //   - minimum check prevents dust transfers
   // Non-crypto rails keep their existing behavior.
   const isCryptoPayout = isCryptoToCryptoTransfer(body);
@@ -449,10 +433,7 @@ Deno.serve(async (req) => {
         net_minimum: string;
       }
     | null = null;
-  let cryptoRouteDepositAddress = "";
-  let cryptoRouteId = "";
   let cryptoFinalAddress = "";
-  let cryptoRouteFeePercent: number | null = null;
 
   if (isCryptoPayout) {
     const validation = validateBridgePayout(body);
@@ -469,10 +450,9 @@ Deno.serve(async (req) => {
     const destinationChain = String(enforcedCryptoPayout.destination_payment_rail || "").toLowerCase();
     const destinationCurrency = enforcedCryptoPayout.currency;
     const requestedExternalWalletId = String(body?.destination?.external_wallet_id || "").trim();
-    const requestedRouteId = String(body?.destination?.bridge_payment_route_id || "").trim();
     const { data: savedWallet } = await supa
       .from("external_wallets")
-      .select("id, bridge_payment_route_id, bridge_payment_route_status, bridge_payment_route_raw, address")
+      .select("id, address")
       .eq("user_id", user.id)
       .eq("status", "active")
       .eq("asset", destinationCurrency)
@@ -483,20 +463,11 @@ Deno.serve(async (req) => {
       return await failAfterAuth({
         success: false,
         code: "saved_external_wallet_required",
-        error: "Save this withdrawal wallet first so BorderPay can register the payout route before money moves.",
+        error: "Save this withdrawal wallet before sending.",
       }, 409, profile.account_type);
     }
     const savedWalletId = String(savedWallet?.id || "").trim();
-    const savedRouteId = String(savedWallet?.bridge_payment_route_id || "").trim();
-    cryptoRouteId = savedRouteId;
     cryptoFinalAddress = String(savedWallet?.address || destinationAddress).trim();
-    if (!savedRouteId) {
-      return await failAfterAuth({
-        success: false,
-        code: "external_wallet_route_required",
-        error: "This withdrawal wallet needs to be registered again before money can move. Add the wallet again or contact support.",
-      }, 409, profile.account_type);
-    }
     if (requestedExternalWalletId && requestedExternalWalletId !== savedWalletId) {
       return await failAfterAuth({
         success: false,
@@ -504,38 +475,10 @@ Deno.serve(async (req) => {
         error: "Choose the saved wallet again before sending.",
       }, 409, profile.account_type);
     }
-    if (requestedRouteId && requestedRouteId !== savedRouteId) {
-      return await failAfterAuth({
-        success: false,
-        code: "external_wallet_route_mismatch",
-        error: "Choose the saved wallet again before sending.",
-      }, 409, profile.account_type);
-    }
-    const routeStatus = String(savedWallet?.bridge_payment_route_status || "active").toLowerCase();
-    if (["failed", "removed", "disabled", "inactive", "closed", "deactivated"].includes(routeStatus)) {
-      return await failAfterAuth({
-        success: false,
-        code: "external_wallet_route_not_active",
-        error: "This saved withdrawal wallet is not active. Add the wallet again or contact support.",
-      }, 409, profile.account_type);
-    }
-    cryptoRouteDepositAddress = routeDepositAddress(savedWallet?.bridge_payment_route_raw);
-    const routeRaw = asRecord(savedWallet?.bridge_payment_route_raw);
-    cryptoRouteFeePercent = Number(routeRaw.custom_developer_fee_percent ?? routeRaw.global_developer_fee_percent);
-    if (!Number.isFinite(cryptoRouteFeePercent)) cryptoRouteFeePercent = null;
-    if (!cryptoRouteDepositAddress) {
-      return await failAfterAuth({
-        success: false,
-        code: "external_wallet_route_deposit_address_missing",
-        error: "This withdrawal route is missing deposit instructions. Add the wallet again or contact support before sending.",
-      }, 409, profile.account_type);
-    }
     body.destination = {
       ...body.destination,
-      address: cryptoRouteDepositAddress,
-      to_address: cryptoRouteDepositAddress,
-      final_address: cryptoFinalAddress,
-      bridge_payment_route_id: cryptoRouteId,
+      address: cryptoFinalAddress,
+      to_address: cryptoFinalAddress,
     };
   }
 
@@ -698,10 +641,11 @@ Deno.serve(async (req) => {
         destination_type: normalizedDestinationType,
         payout_validator: enforcedCryptoPayout ? "bridge_payout_validator_v1" : null,
         developer_fee: enforcedCryptoPayout ? "0.00" : null,
-        developer_fee_percent: enforcedCryptoPayout ? cryptoRouteFeePercent : null,
+        developer_fee_percent: enforcedCryptoPayout ? 0 : null,
         bridge_developer_fee: null,
-        bridge_payment_route_id: enforcedCryptoPayout ? cryptoRouteId : null,
-        route_deposit_address: enforcedCryptoPayout ? cryptoRouteDepositAddress : null,
+        transfer_method: enforcedCryptoPayout ? "crypto_to_crypto_transfer" : null,
+        bridge_payment_route_id: null,
+        route_deposit_address: null,
         final_destination_address: enforcedCryptoPayout ? cryptoFinalAddress : null,
         is_cross_token: enforcedCryptoPayout?.is_cross_token ?? null,
         net_destination_amount: enforcedCryptoPayout?.net_destination_amount ?? null,

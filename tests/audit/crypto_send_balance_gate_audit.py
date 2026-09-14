@@ -6,7 +6,8 @@ send_flow = ROOT / "components/send/SendMoneyFlow.tsx"
 src = send_flow.read_text()
 
 needle = "if (method === 'stablecoin')"
-idx = src.find(needle)
+amount_gate = src.find("const canProceedAmount")
+idx = src.find(needle, amount_gate)
 assert idx != -1, "stablecoin canProceedAmount branch missing"
 branch = src[idx:src.find("if (isAfricanPayout)", idx)]
 
@@ -20,13 +21,15 @@ if "reason.trim().length > 0" not in branch:
 if "stablecoinMinimumError" not in src:
     failures.append("Stablecoin send must keep minimum/dust validation.")
 if "cryptoRouteDetailsReady" not in src or "Refresh this saved withdrawal wallet before sending" not in src:
-    failures.append("Stablecoin send must fail closed until saved route raw/deposit details are loaded.")
+    failures.append("Stablecoin send must fail closed until the saved destination is loaded.")
 if "borderpay_external_wallets_v2" not in src:
     failures.append("Stablecoin send must use a bumped external-wallet cache key after adding route raw requirements.")
 if "bridge_wallet_id: selectedWallet.bridge_wallet_id" not in src:
     failures.append("Stablecoin send must pass the selected Bridge wallet id to the backend.")
-if "!!cryptoSavedRouteId" not in src or "bridge_payment_route_id: cryptoSavedRouteId" not in src:
-    failures.append("Stablecoin send must require and pass the saved BorderPay route id.")
+if "!!cryptoSavedRouteId" in src[src.find("const canProceedDetails"):src.find("const canProceedAmount")]:
+    failures.append("Stablecoin send must not require a liquidation-route id.")
+if "bridge_payment_route_id: cryptoSavedRouteId" in src[src.find("result = await backendAPI.stablecoin.sendTransfer"):src.find("} else if (method === 'us_ach_wire')")]:
+    failures.append("Stablecoin send must not pass a liquidation-route id.")
 if "!!cryptoSavedWalletId" not in src or "external_wallet_id: cryptoSavedWalletId" not in src:
     failures.append("Stablecoin send must require and pass the saved external wallet id.")
 if "This wallet is not ready for sending yet" not in src:
@@ -35,14 +38,12 @@ if "This wallet is not ready for sending yet" not in src:
 api_src = (ROOT / "utils/api/backendAPI.ts").read_text()
 if "bridge_wallet_id?: string | null" not in api_src:
     failures.append("stablecoinAPI.sendTransfer must accept a Bridge wallet id.")
-if "external_wallet_id?: string | null" not in api_src or "bridge_payment_route_id?: string | null" not in api_src:
-    failures.append("stablecoinAPI.sendTransfer must accept saved wallet and route identifiers.")
+if "external_wallet_id?: string | null" not in api_src:
+    failures.append("stablecoinAPI.sendTransfer must accept a saved wallet identifier.")
 if "...(data.bridge_wallet_id ? { bridge_wallet_id: data.bridge_wallet_id } : {})" not in api_src:
     failures.append("stablecoinAPI.sendTransfer must forward source.bridge_wallet_id.")
 if "...(data.external_wallet_id ? { external_wallet_id: data.external_wallet_id } : {})" not in api_src:
     failures.append("stablecoinAPI.sendTransfer must forward destination.external_wallet_id.")
-if "...(data.bridge_payment_route_id ? { bridge_payment_route_id: data.bridge_payment_route_id } : {})" not in api_src:
-    failures.append("stablecoinAPI.sendTransfer must forward destination.bridge_payment_route_id.")
 if "payment_rail: 'bridge_wallet'" not in api_src:
     failures.append("Crypto payout source must use Bridge source.payment_rail='bridge_wallet'.")
 if "payment_rail: data.chain" not in api_src:
@@ -55,16 +56,13 @@ if "getSendRouteData" in api_src and "financialReadModelAPI.getSnapshot(20)" not
 edge_src = (ROOT / "supabase/functions/bridge-transfer/index.ts").read_text()
 if 'code: "source_wallet_required"' not in edge_src:
     failures.append("bridge-transfer must reject crypto payouts without source.bridge_wallet_id before calling Bridge.")
-if 'code: "external_wallet_route_required"' not in edge_src:
-    failures.append("bridge-transfer must reject crypto payouts when the saved wallet has no BorderPay route id.")
-if 'code: "external_wallet_route_mismatch"' not in edge_src:
-    failures.append("bridge-transfer must reject crypto payouts when the client route id does not match the saved wallet.")
-if "routeDepositAddress(savedWallet?.bridge_payment_route_raw)" not in edge_src:
-    failures.append("bridge-transfer must extract the Bridge payment-route deposit address from the saved external wallet route.")
-if "obj.address" not in edge_src:
-    failures.append("bridge-transfer route deposit extraction must support liquidation-address raw.address.")
-if "address: cryptoRouteDepositAddress" not in edge_src or "final_address: cryptoFinalAddress" not in edge_src:
-    failures.append("bridge-transfer must rewrite crypto payout destination to the route deposit address while preserving final external address metadata.")
+if '.select("id, address")' not in edge_src:
+    failures.append("bridge-transfer must resolve the saved external-wallet address server-side.")
+if "address: cryptoFinalAddress" not in edge_src or "to_address: cryptoFinalAddress" not in edge_src:
+    failures.append("bridge-transfer must send directly to the saved external-wallet address.")
+for forbidden in ["routeDepositAddress", "cryptoRouteDepositAddress", 'code: "external_wallet_route_required"', 'code: "external_wallet_route_mismatch"']:
+    if forbidden in edge_src:
+        failures.append(f"bridge-transfer retained retired liquidation-route dependency: {forbidden}")
 success_response_start = edge_src.find("return json({", edge_src.find("success: true"))
 success_response = edge_src[success_response_start:edge_src.find("});", success_response_start)]
 if "route_deposit_address" in success_response or "cryptoRouteDepositAddress" in success_response:
@@ -118,19 +116,19 @@ for relative in [
     "supabase/functions/business-bulk-pay/index.ts",
     "supabase/functions/bridge-bulk-payout/index.ts",
 ]:
-    body = (ROOT / relative).read_text()
+    path = ROOT / relative
+    if not path.exists():
+        continue
+    body = path.read_text()
     if 'payment_rail: "stablecoin"' in body or '|| "stablecoin"' in body:
         failures.append(f"{relative} must not use payment_rail=stablecoin in Bridge transfers.")
 
 external_wallet_src = (ROOT / "supabase/functions/external-wallet/index.ts").read_text()
-add_start = external_wallet_src.find('if (action === "add")')
-add_slice = external_wallet_src[add_start:external_wallet_src.find('return json({ success: false, error: "Unknown action" }', add_start)]
-existing_idx = add_slice.find("existingWallet?.bridge_payment_route_id")
-create_idx = add_slice.find("createCryptoRoute")
-if existing_idx == -1 or create_idx == -1 or existing_idx > create_idx:
-    failures.append("external-wallet add must reuse an existing saved route before creating a new Bridge route.")
-if "reused_route: true" not in add_slice:
-    failures.append("external-wallet add must return reused_route when it avoids duplicate Bridge route creation.")
+for forbidden in ["createLiquidationAddress", "createCryptoRoute", "getLiquidationAddress", "updateLiquidationAddressDeveloperFee"]:
+    if forbidden in external_wallet_src:
+        failures.append(f"external-wallet must not call liquidation APIs: {forbidden}")
+if 'route_type: "crypto_to_crypto_transfer"' not in external_wallet_src:
+    failures.append("external-wallet must preserve compatibility for older native clients without creating a provider route.")
 
 if failures:
     print("crypto_send_balance_gate_audit: FAIL")

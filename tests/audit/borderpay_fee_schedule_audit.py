@@ -109,34 +109,22 @@ if xfer:
         failures.append("F4 bridge-transfer does not pass Bridge fixed developer_fee for fiat external-account off-ramp")
     if re.search(r"isCryptoPayout[\s\S]*percentage\s*:", xfer):
         failures.append("F4 bridge-transfer must not pass Bridge developer_fee_percent for same-token crypto payout")
-    if "developer_fee_percent: enforcedCryptoPayout ? cryptoRouteFeePercent : null" not in xfer:
-        failures.append("F4 bridge-transfer must persist the saved route developer fee percent for disclosure/reconciliation")
-    if "routeDepositAddress(savedWallet?.bridge_payment_route_raw)" not in xfer:
-        failures.append("F4 bridge-transfer must send crypto payouts to the saved route deposit address, not directly to the final external wallet")
-    if "route_deposit_address: enforcedCryptoPayout ? cryptoRouteDepositAddress : null" not in xfer:
-        failures.append("F4 bridge-transfer must persist route deposit address metadata")
+    if "developer_fee_percent: enforcedCryptoPayout ? 0 : null" not in xfer:
+        failures.append("F4 bridge-transfer must persist zero developer fee for direct same-token crypto transfer")
+    if "address: cryptoFinalAddress" not in xfer or "to_address: cryptoFinalAddress" not in xfer:
+        failures.append("F4 bridge-transfer must send crypto payouts directly to the saved external wallet")
+    if "routeDepositAddress" in xfer or "cryptoRouteDepositAddress" in xfer:
+        failures.append("F4 bridge-transfer must not use liquidation address deposit instructions")
     if "final_destination_address: enforcedCryptoPayout ? cryptoFinalAddress : null" not in xfer:
         failures.append("F4 bridge-transfer must persist final external destination metadata")
 
 external_wallet = read(ROOT / "supabase/functions/external-wallet/index.ts")
 if external_wallet:
-    if "BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route" not in external_wallet:
-        failures.append("F4 external-wallet does not use crypto_to_crypto_route for saved route developer_fee_percent")
-    if "bridgeProvider.createLiquidationAddress" not in external_wallet:
-        failures.append("F4 external-wallet must create Bridge liquidation addresses for saved external crypto routes")
-    if "developer_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT" not in external_wallet and "developer_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT > 0" not in external_wallet:
-        failures.append("F4 external-wallet does not pass developer_fee_percent for Bridge liquidation route")
-    if "return_address: sourceWallet.address" not in external_wallet:
-        failures.append("F4 external-wallet must set return_address from the user's current Bridge wallet")
-    route_fn = external_wallet[external_wallet.find("async function createCryptoRoute"):external_wallet.find("async function repairMissingRoutes")]
-    if "destination_payment_rail: params.chain as BridgePaymentRail" not in route_fn:
-        failures.append("F4 external-wallet saved crypto route must use the crypto rail as liquidation destination")
-    if "bridge_wallet_id:" in route_fn:
-        failures.append("F4 external-wallet saved crypto route must not source from bridge_wallet; wallet payout sends to the route deposit address later")
-    if re.search(r"source:\s*\{[\s\S]*?chain:", route_fn):
-        failures.append("F4 external-wallet saved crypto route must not send source.chain; Bridge uses source.payment_rail for the blockchain")
-    if re.search(r"destination:\s*\{[\s\S]*?chain:", route_fn):
-        failures.append("F4 external-wallet saved crypto route must not send destination.chain; Bridge uses destination.payment_rail for the blockchain")
+    for forbidden in ["bridgeProvider.createLiquidationAddress", "createCryptoRoute", "getLiquidationAddress", "updateLiquidationAddressDeveloperFee"]:
+        if forbidden in external_wallet:
+            failures.append(f"F4 external-wallet must not call retired liquidation route API: {forbidden}")
+    if 'route_type: "crypto_to_crypto_transfer"' not in external_wallet:
+        failures.append("F4 external-wallet must advertise direct crypto transfer compatibility to native clients")
 
 # F5 — client value no longer trusted -------------------------------------
 if xfer:
@@ -160,7 +148,7 @@ if failures:
     sys.exit(1)
 
 print(f"FEE SCHEDULE AUDIT: PASS ({total}/{total})")
-print("  ✓ F1 edge Bridge dev fee 2.5% individual VA / 2.0% business VA / 1.0% external-account off-ramp / 1.0% crypto saved route / 0.0% same-token crypto payout; 0.999 USDT fixed rate is separate")
+print("  ✓ F1 edge Bridge dev fee 2.5% individual VA / 2.0% business VA / 1.0% external-account off-ramp / 0.0% direct same-token crypto transfer; 0.999 USDT fixed rate is separate")
 print("  ✓ F2 edge African payout markup tiers (1.0/0.75 starter, 0.5 premium/growth/ent)")
 print("  ✓ F3 frontend mirror numbers identical to edge")
 print("  ✓ F4 bridge-transfer and external-wallet enforce correct Bridge fee parameters")
