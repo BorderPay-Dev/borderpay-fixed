@@ -861,6 +861,13 @@ export class BridgeProvider implements PaymentProvider {
         developer_fee: input.developer_fee.flat_amount,
       } : {}),
       ...(input.features ? { features: input.features } : {}),
+      ...(input.sca_attestation ? {
+        initiation: {
+          channel: input.sca_attestation.channel,
+          subchannel: input.sca_attestation.subchannel,
+          attestations: { sca: { outcome: input.sca_attestation.outcome } },
+        },
+      } : {}),
     };
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
