@@ -13,12 +13,11 @@ def main() -> None:
             "individual signup must not enter the retired in-app identity/document flow"
         )
 
-    marker = "Individual KYC is completed through the same hosted"
-    section = SIGNUP[SIGNUP.find(marker):] if marker in SIGNUP else ""
-    if "onSignUpSuccess(data.user);" not in section[:1000]:
-        failures.append(
-            "verified individual signup must hand off to the authenticated dashboard"
-        )
+    if "accountType: 'business'" not in SIGNUP:
+        failures.append("direct signup must default to a business account")
+
+    if "Direct signup is Business-only" not in SIGNUP:
+        failures.append("direct signup must retain its business-only boundary")
 
     business_marker = "if (formData.accountType === 'business')"
     business_section = SIGNUP[SIGNUP.find(business_marker):] if business_marker in SIGNUP else ""
@@ -30,7 +29,7 @@ def main() -> None:
     if failures:
         raise SystemExit("\n".join(f"FAIL: {failure}" for failure in failures))
 
-    print("PASS: verified signup uses the hosted dashboard verification handoff")
+    print("PASS: business-only signup uses the hosted dashboard verification handoff")
 
 
 if __name__ == "__main__":
