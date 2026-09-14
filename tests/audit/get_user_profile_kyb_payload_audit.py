@@ -60,6 +60,15 @@ def main() -> int:
                    p3,
                    "must fetch business_profiles.bridge_kyb_status for business accounts and return it"))
 
+    checks.append(("P3b released clients receive actionable UBO compatibility state",
+                   'const clientBusinessKybStatus = ownershipDetailsRequired ? "incomplete" : bridgeKybStatus' in src
+                   and "bridge_kyb_status:   clientBusinessKybStatus" in src,
+                   "needs_ubos must project to incomplete for released clients so Continue Verification stays enabled"))
+
+    checks.append(("P3c raw business KYB status remains available",
+                   "bridge_provider_kyb_status: bridgeKybStatus" in src,
+                   "the authoritative business KYB status must not be discarded"))
+
     checks.append(("P4 payload still returns bridge_kyc_status (regression)",
                    "bridge_kyc_status:   profile?.bridge_kyc_status || null" in src,
                    "existing bridge_kyc_status field must be preserved"))

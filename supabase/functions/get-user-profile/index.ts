@@ -86,6 +86,16 @@ Deno.serve(async (req) => {
     const providerAccountStatus = String(profile?.bridge_account_status || "").trim().toLowerCase();
     const blockedStatuses = new Set(["frozen", "paused", "suspended", "offboarded", "deactivated", "closed"]);
     const accountAccessRestricted = blockedStatuses.has(localAccountStatus) || blockedStatuses.has(providerAccountStatus);
+    const normalizedBusinessKybStatus = String(bridgeKybStatus || "").trim().toLowerCase();
+    const ownershipDetailsRequired = accountType === "business" && (
+      ["awaiting_ubo", "needs_ubos"].includes(providerAccountStatus)
+      || ["awaiting_ubo", "needs_ubos"].includes(normalizedBusinessKybStatus)
+    );
+    // Released clients predate the needs_ubos enum. Give those clients the
+    // actionable state they already understand instead of letting a stale
+    // under_review value lock the Continue Verification action. New clients
+    // derive the exact label from bridge_account_status/provider status.
+    const clientBusinessKybStatus = ownershipDetailsRequired ? "incomplete" : bridgeKybStatus;
 
     return new Response(JSON.stringify({
       success: true,
@@ -114,7 +124,8 @@ Deno.serve(async (req) => {
           account_frozen_at: profile?.account_frozen_at || null,
           account_frozen_reason: profile?.account_frozen_reason || null,
           account_access_restricted: accountAccessRestricted,
-          bridge_kyb_status:   bridgeKybStatus,
+          bridge_kyb_status:   clientBusinessKybStatus,
+          bridge_provider_kyb_status: bridgeKybStatus,
           address:             profile?.address || null,
           city:                profile?.city || null,
           state:               profile?.state || null,
@@ -136,7 +147,8 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    const message = err instanceof Error ? err.message : "Unexpected profile error";
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
