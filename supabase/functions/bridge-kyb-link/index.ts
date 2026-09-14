@@ -219,14 +219,11 @@ Deno.serve(async (req: Request) => {
   let r: BridgeFetchResult;
   let link: ReturnType<typeof extractLink> = null;
 
-  if (biz.bridge_kyb_link_id) {
-    r = await bridgeGet(`/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}`);
-    link = extractLink(r.data);
-  } else {
-    r = { ok: false, status: 404, data: null, raw_text: "", error: "No stored KYB link" };
-  }
-
-  if ((!r.ok || !link?.link_url) && existingCustomerId) {
+  // Existing businesses must always ask Bridge for the customer's current
+  // resumable hosted URL. A stored link ID can still return HTTP 200 after its
+  // Persona inquiry token has become stale, which strands released clients on
+  // a white page.
+  if (existingCustomerId) {
     const params = new URLSearchParams();
     params.set("redirect_uri", body.redirect_url || `${APP_URL}/onboarding/kyc-complete`);
     r = await bridgeGet(
@@ -234,6 +231,15 @@ Deno.serve(async (req: Request) => {
     );
     link = extractLink(r.data);
     if (link) link.customer_id ||= existingCustomerId;
+  } else {
+    r = { ok: false, status: 404, data: null, raw_text: "", error: "No existing Bridge customer" };
+  }
+
+  // Compatibility fallback only when the authoritative customer-resume route
+  // is unavailable. Never prefer this cached-link lookup.
+  if ((!r.ok || !link?.link_url) && biz.bridge_kyb_link_id) {
+    r = await bridgeGet(`/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}`);
+    link = extractLink(r.data);
   }
 
   if (!existingCustomerId && (!r.ok || (!link?.link_url && !link?.tos_link_url))) {
