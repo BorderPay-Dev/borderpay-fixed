@@ -296,20 +296,6 @@ function displayMoneyCurrency(currency: string) {
   return c === 'USDC' || c === 'USDT' ? 'USD' : c;
 }
 
-function routeDeveloperFeePercent(wallet: ExternalWallet | null | undefined): number {
-  const raw = wallet?.bridge_payment_route_raw;
-  const candidates = [
-    raw?.developer_fee_percent,
-    raw?.payment_route?.developer_fee_percent,
-    raw?.features?.developer_fee_percent,
-  ];
-  for (const value of candidates) {
-    const num = Number(value);
-    if (Number.isFinite(num) && num >= 0) return num;
-  }
-  return 0;
-}
-
 function formatDisplayMoney(amount: number, currency: string, options?: Intl.NumberFormatOptions) {
   return formatMoney(amount, displayMoneyCurrency(currency), options);
 }
@@ -660,12 +646,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const cryptoRouteDetailsReady = method !== 'stablecoin'
     || Boolean(
       cryptoSavedWalletId
-      && cryptoSavedRouteId
       && selectedCryptoExternalWallet
-      && selectedCryptoExternalWallet.bridge_payment_route_raw
+      && selectedCryptoExternalWallet.address
     );
-  const cryptoRouteDetailsError = method === 'stablecoin' && cryptoSavedWalletId && cryptoSavedRouteId && !cryptoRouteDetailsReady
-    ? (externalWalletsLoading ? 'Loading withdrawal route details...' : 'Refresh this saved withdrawal wallet before sending.')
+  const cryptoRouteDetailsError = method === 'stablecoin' && cryptoSavedWalletId && !cryptoRouteDetailsReady
+    ? (externalWalletsLoading ? 'Loading saved withdrawal wallet...' : 'Choose the saved withdrawal wallet again before sending.')
     : '';
 
   const loadExternalWallets = useCallback(async () => {
@@ -872,8 +857,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (!num || num <= 0) return null;
     if (isAfricanPayout) return null;
     if (method === 'stablecoin') {
-      const feePercent = routeDeveloperFeePercent(selectedCryptoExternalWallet);
-      const totalFee = feePercent > 0 ? (num * feePercent) / 100 : 0;
+      const feePercent = 0;
+      const totalFee = 0;
       const free = computePayoutFee({ corridor: 'stablecoin', accountType, amount: num, passThroughCost: 0 });
       return {
         ...free,
@@ -890,7 +875,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ? 'international'                                    // ACH/SEPA external bank
           : (classifyCorridor(country) === 'african' ? 'stablecoin' : 'international');
     return computePayoutFee({ corridor, accountType, amount: num, passThroughCost: 0 });
-  }, [amount, selectedCurrency, accountType, method, isAfricanPayout, selectedCryptoExternalWallet]);
+  }, [amount, selectedCurrency, accountType, method, isAfricanPayout]);
   useEffect(() => {
     const num = parseFloat(amount);
     if (!isAfricanPayout || !selectedAfricanCountryCode || !selectedAfricanRail || !activeFundingCurrency || !Number.isFinite(num) || num <= 0) {
@@ -1339,7 +1324,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const canProceedDetails = () => {
     if (method === 'us_ach_wire') return !!selectedExternalAccount;
-    if (method === 'stablecoin') return !!cryptoSavedRouteId && !!cryptoSavedWalletId && cryptoRouteDetailsReady && isValidCryptoAddress(crypto.network, crypto.address);
+    if (method === 'stablecoin') return !!cryptoSavedWalletId && cryptoRouteDetailsReady && isValidCryptoAddress(crypto.network, crypto.address);
     if (method === 'bank' || method === 'mobile_money') {
       const formattedRecipientAccount = method === 'mobile_money'
         ? formatInternationalPhone(accountNumber, selectedAfricanCountryCode)
@@ -1367,7 +1352,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     }
     if (method === 'stablecoin') {
       return num > 0
-        && !!cryptoSavedRouteId
         && !!cryptoSavedWalletId
         && cryptoRouteDetailsReady
         && isValidCryptoAddress(crypto.network, crypto.address)
@@ -1429,11 +1413,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (!selectedWallet?.bridge_wallet_id) {
           throw new Error('This wallet is not ready for sending yet. Please refresh and try again.');
         }
-        if (!cryptoSavedRouteId || !cryptoSavedWalletId) {
-          throw new Error('Choose a saved withdrawal wallet with an active BorderPay route before sending. Add the wallet again if this destination is missing its route.');
+        if (!cryptoSavedWalletId) {
+          throw new Error('Choose a saved withdrawal wallet before sending.');
         }
         if (!cryptoRouteDetailsReady) {
-          throw new Error('Refresh this saved withdrawal wallet before sending so the route fee and deposit instructions are current.');
+          throw new Error('Refresh this saved withdrawal wallet before sending.');
         }
         result = await backendAPI.stablecoin.sendTransfer({
           amount: parseFloat(amount),
@@ -1443,7 +1427,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
           bridge_wallet_id: selectedWallet.bridge_wallet_id,
           external_wallet_id: cryptoSavedWalletId,
-          bridge_payment_route_id: cryptoSavedRouteId,
           transaction_pin: verifiedPin,
           // Required by bridge-transfer v2. Reusing the per-mount key
           // means a network retry of the same Confirm tap returns the

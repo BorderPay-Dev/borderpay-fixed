@@ -6,15 +6,13 @@
 //   list   : {}                                → active wallets (also readable via RLS)
 //
 // No money moves here — withdrawals go through bridge-transfer (gated +
-// passcode/biometric). This stores/validates destinations and registers the
-// reusable Bridge liquidation route for the saved destination.
+// passcode/biometric). This endpoint only stores and validates destinations.
+// New payouts use the crypto-to-crypto Transfers API directly; they must never
+// create or route through a liquidation address.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
-import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
-import type { BridgePaymentRail, StablecoinSymbol } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 
 const CORS = {
@@ -32,8 +30,6 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 const EVM = new Set(["base"]);
 const SUPPORTED_CHAINS = new Set([...EVM, "tron"]);
 const SUPPORTED_ASSETS = new Set(["USDC", "USDT"]);
-const ROUTE_DEVELOPER_FEE_PERCENT = BRIDGE_DEVELOPER_FEE_PERCENT.crypto_to_crypto_route;
-const ROUTE_DEVELOPER_FEE_PERCENT_STRING = ROUTE_DEVELOPER_FEE_PERCENT.toFixed(1);
 
 function validAddress(chain: string, address: string): boolean {
   const a = (address || "").trim();
@@ -41,39 +37,6 @@ function validAddress(chain: string, address: string): boolean {
   if (chain === "tron")    return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(a);
   if (chain === "solana")  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
   return false;
-}
-
-function routeStatusUsable(status: unknown): boolean {
-  const normalized = String(status || "active").trim().toLowerCase();
-  return !["failed", "removed", "disabled", "inactive", "closed", "deactivated", "canceled", "cancelled"].includes(normalized);
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function routeRawWithFeeMetadata(routeRaw: unknown): Record<string, unknown> {
-  const raw = asRecord(routeRaw);
-  const providerFee = String(raw.custom_developer_fee_percent ?? raw.global_developer_fee_percent ?? "").trim();
-  return {
-    ...raw,
-    ...(providerFee ? { custom_developer_fee_percent: providerFee } : {}),
-    borderpay_route_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT_STRING,
-    borderpay_route_fee_source: "server_fee_schedule",
-  };
-}
-
-function jwtRole(token: string): string {
-  try {
-    const parts = String(token || "").split(".");
-    if (parts.length < 2) return "";
-    const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = payload + "=".repeat((4 - payload.length % 4) % 4);
-    const parsed = JSON.parse(atob(padded));
-    return String(parsed?.role || parsed?.app_metadata?.role || "").trim();
-  } catch {
-    return "";
-  }
 }
 
 async function findCurrentBridgeWallet(userId: string, asset: string, chain: string): Promise<{ id: string; address: string } | null> {
@@ -111,188 +74,22 @@ async function findCurrentBridgeWallet(userId: string, asset: string, chain: str
   return null;
 }
 
-async function createCryptoRoute(params: {
-  userId: string;
-  bridgeCustomerId: string;
-  asset: string;
-  chain: string;
-  address: string;
-}): Promise<{ routeId: string; routeStatus: string; routeRaw: unknown }> {
-  const sourceWallet = await findCurrentBridgeWallet(params.userId, params.asset, params.chain);
-  if (!sourceWallet?.address) {
-    throw new Error("source_wallet_required");
-  }
-  const route = await bridgeProvider.createLiquidationAddress({
-    customer_id: params.bridgeCustomerId,
-    currency: params.asset as StablecoinSymbol,
-    chain: params.chain as BridgePaymentRail,
-    destination_payment_rail: params.chain as BridgePaymentRail,
-    destination_currency: params.asset as StablecoinSymbol,
-    destination_address: params.address,
-    return_address: sourceWallet.address,
-    developer_fee_percent: ROUTE_DEVELOPER_FEE_PERCENT > 0 ? String(ROUTE_DEVELOPER_FEE_PERCENT) : undefined,
-    idempotency_key: `borderpay:external-wallet-liquidation:v1:${params.userId}:${params.asset}:${params.chain}:${params.address}`,
-  });
-  const raw = route.raw && typeof route.raw === "object" ? route.raw as Record<string, unknown> : {};
+type SavedWallet = Record<string, unknown> & { id?: string; address?: string };
+
+// Older native builds require the legacy route fields to decide whether a
+// saved wallet is selectable. Return an in-memory compatibility marker only;
+// it is not a provider resource and is never persisted or sent to Bridge.
+function withDirectTransferCompatibility(wallet: SavedWallet): SavedWallet {
   return {
-    routeId: String(raw.id || route.liquidation_address_id || ""),
-    routeStatus: String(raw.state || raw.status || route.state || "active"),
-    routeRaw: routeRawWithFeeMetadata(route.raw),
+    ...wallet,
+    bridge_payment_route_id: "direct_crypto_transfer",
+    bridge_payment_route_status: "active",
+    bridge_payment_route_raw: {
+      route_type: "crypto_to_crypto_transfer",
+      to_address: String(wallet.address || ""),
+      custom_developer_fee_percent: "0.0",
+    },
   };
-}
-
-async function repairMissingRoutes(limit: number) {
-  const { data: wallets, error } = await supa
-    .from("external_wallets")
-    .select("id,user_id,chain,asset,address")
-    .eq("status", "active")
-    .or("bridge_payment_route_id.is.null,bridge_payment_route_id.eq.")
-    .order("created_at", { ascending: true })
-    .limit(Math.max(1, Math.min(limit || 50, 100)));
-  if (error) throw new Error(error.message);
-
-  const results: Array<Record<string, unknown>> = [];
-  for (const wallet of wallets || []) {
-    const walletId = String((wallet as any).id || "");
-    const userId = String((wallet as any).user_id || "");
-    const chain = String((wallet as any).chain || "").toLowerCase();
-    const asset = String((wallet as any).asset || "").toUpperCase();
-    const address = String((wallet as any).address || "").trim();
-    try {
-      if (!SUPPORTED_CHAINS.has(chain) || !SUPPORTED_ASSETS.has(asset) || !validAddress(chain, address)) {
-        results.push({ wallet_id: walletId, status: "skipped", reason: "unsupported_or_invalid_wallet" });
-        continue;
-      }
-      const identity = await loadAndAssertBridgeIdentityInvariant(supa, userId);
-      if (!identity.ok || !identity.context.bridge_customer_id) {
-        results.push({ wallet_id: walletId, user_id: userId, status: "skipped", reason: identity.ok ? "missing_bridge_customer" : identity.failure.reason });
-        continue;
-      }
-      const sourceBridgeWallet = await findCurrentBridgeWallet(userId, asset, chain);
-      if (!sourceBridgeWallet) {
-        results.push({ wallet_id: walletId, user_id: userId, status: "skipped", reason: "source_wallet_required" });
-        continue;
-      }
-      const route = await createCryptoRoute({
-        userId,
-        bridgeCustomerId: identity.context.bridge_customer_id,
-        asset,
-        chain,
-        address,
-      });
-      if (!route.routeId) {
-        results.push({ wallet_id: walletId, user_id: userId, status: "error", reason: "route_id_missing" });
-        continue;
-      }
-      const { error: updateError } = await supa
-        .from("external_wallets")
-        .update({
-          bridge_payment_route_id: route.routeId,
-          bridge_payment_route_status: route.routeStatus,
-          bridge_payment_route_raw: routeRawWithFeeMetadata(route.routeRaw),
-          bridge_payment_route_created_at: new Date().toISOString(),
-          bridge_payment_route_error: null,
-        })
-        .eq("id", walletId);
-      if (updateError) throw updateError;
-      results.push({ wallet_id: walletId, user_id: userId, status: "repaired", bridge_payment_route_id: route.routeId });
-    } catch (e) {
-      const err = e as any;
-      results.push({
-        wallet_id: walletId,
-        user_id: userId,
-        status: "error",
-        reason: String(err?.message || "route_repair_failed"),
-        bridge_status: err?.status ?? null,
-        bridge_code: err?.bridge_code ?? null,
-        bridge_error: err?.bridge_error ?? null,
-        bridge_request_id: err?.request_id ?? null,
-        bridge_raw: err?.raw_text ?? null,
-      });
-    }
-  }
-  return results;
-}
-
-async function auditOrRepairLiquidationRouteFees(limit: number, repair: boolean) {
-  const { data: wallets, error } = await supa
-    .from("external_wallets")
-    .select("id,user_id,chain,asset,bridge_payment_route_id")
-    .eq("status", "active")
-    .not("bridge_payment_route_id", "is", null)
-    .order("created_at", { ascending: true })
-    .limit(Math.max(1, Math.min(limit || 100, 100)));
-  if (error) throw new Error(error.message);
-
-  const results: Array<Record<string, unknown>> = [];
-  for (const wallet of wallets || []) {
-    const walletId = String((wallet as any).id || "");
-    const userId = String((wallet as any).user_id || "");
-    const routeId = String((wallet as any).bridge_payment_route_id || "");
-    const routeSuffix = routeId.slice(-8);
-    try {
-      const identity = await loadAndAssertBridgeIdentityInvariant(supa, userId);
-      if (!identity.ok || !identity.context.bridge_customer_id) {
-        results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "skipped", reason: identity.ok ? "missing_bridge_customer" : identity.failure.reason });
-        continue;
-      }
-      const customerId = identity.context.bridge_customer_id;
-      const before = await bridgeProvider.getLiquidationAddress(customerId, routeId);
-      const customFee = before.custom_developer_fee_percent == null ? null : Number(before.custom_developer_fee_percent);
-      const globalFee = before.global_developer_fee_percent == null ? null : Number(before.global_developer_fee_percent);
-      const beforeFee = customFee != null && Number.isFinite(customFee) ? customFee : globalFee;
-      const routeContext = {
-        custom_fee_percent: customFee != null && Number.isFinite(customFee) ? customFee : null,
-        global_fee_percent: globalFee != null && Number.isFinite(globalFee) ? globalFee : null,
-        source_currency: String(before.currency || "").toLowerCase() || null,
-        source_chain: String(before.chain || "").toLowerCase() || null,
-        destination_currency: String(before.destination_currency || "").toLowerCase() || null,
-        destination_payment_rail: String(before.destination_payment_rail || "").toLowerCase() || null,
-      };
-      if (beforeFee != null && Number.isFinite(beforeFee) && beforeFee === ROUTE_DEVELOPER_FEE_PERCENT) {
-        results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "already_correct", fee_percent: beforeFee, ...routeContext });
-        continue;
-      }
-      if (!repair) {
-        results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "missing_or_wrong", fee_percent: beforeFee != null && Number.isFinite(beforeFee) ? beforeFee : null, ...routeContext });
-        continue;
-      }
-
-      const updated = await bridgeProvider.updateLiquidationAddressDeveloperFee(
-        customerId,
-        routeId,
-        ROUTE_DEVELOPER_FEE_PERCENT_STRING,
-      );
-      const updatedFee = Number(updated.custom_developer_fee_percent);
-      if (!Number.isFinite(updatedFee) || updatedFee !== ROUTE_DEVELOPER_FEE_PERCENT) {
-        throw new Error("bridge_fee_verification_failed");
-      }
-      const { error: updateError } = await supa
-        .from("external_wallets")
-        .update({
-          bridge_payment_route_raw: routeRawWithFeeMetadata(updated),
-          bridge_payment_route_status: String(updated.state || updated.status || "active"),
-          bridge_payment_route_error: null,
-        })
-        .eq("id", walletId)
-        .eq("bridge_payment_route_id", routeId);
-      if (updateError) throw updateError;
-      results.push({ wallet_id: walletId, route_suffix: routeSuffix, status: "repaired", fee_percent: updatedFee });
-    } catch (e) {
-      const err = e as any;
-      results.push({
-        wallet_id: walletId,
-        route_suffix: routeSuffix,
-        status: "error",
-        reason: String(err?.message || "liquidation_fee_audit_failed"),
-        bridge_status: err?.status ?? null,
-        bridge_request_id: err?.request_id ?? null,
-        bridge_error: err?.bridge_error ?? null,
-        bridge_raw: err?.raw_text ?? null,
-      });
-    }
-  }
-  return results;
 }
 
 Deno.serve(async (req) => {
@@ -305,15 +102,11 @@ Deno.serve(async (req) => {
   const action = String(body.action || "list");
 
   if (["repair_missing_routes", "audit_liquidation_route_fees", "repair_liquidation_route_fees"].includes(action)) {
-    const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-    const role = jwtRole(token);
-    if ((!serviceRole || token !== serviceRole) && role !== "service_role") {
-      return json({ success: false, error: "service role required" }, 401);
-    }
-    const results = action === "repair_missing_routes"
-      ? await repairMissingRoutes(Number(body.limit || 50))
-      : await auditOrRepairLiquidationRouteFees(Number(body.limit || 100), action === "repair_liquidation_route_fees");
-    return json({ success: true, data: { results } });
+    return json({
+      success: false,
+      code: "liquidation_routes_retired",
+      error: "Liquidation-route maintenance is retired. External-wallet payouts use crypto-to-crypto transfers.",
+    }, 410);
   }
 
   if (!token) return json({ success: false, error: "Authorization required" }, 401);
@@ -330,7 +123,7 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .eq("status", "active")
       .order("created_at", { ascending: false });
-    return json({ success: true, data: { wallets: data ?? [] } });
+    return json({ success: true, data: { wallets: (data ?? []).map((wallet) => withDirectTransferCompatibility(wallet)) } });
   }
 
   if (action === "remove") {
@@ -379,61 +172,9 @@ Deno.serve(async (req) => {
       }, 409);
     }
 
-    const { data: existingWallet } = await supa
-      .from("external_wallets")
-      .select("id, label, chain, asset, address, status, bridge_payment_route_id, bridge_payment_route_status, bridge_payment_route_raw, created_at")
-      .eq("user_id", user.id)
-      .eq("chain", chain)
-      .eq("address", address)
-      .maybeSingle();
-
-    if (existingWallet?.bridge_payment_route_id && routeStatusUsable(existingWallet.bridge_payment_route_status)) {
-      const { data, error } = await supa
-        .from("external_wallets")
-        .update({
-          label,
-          asset,
-          status: "active",
-          bridge_payment_route_raw: routeRawWithFeeMetadata(existingWallet.bridge_payment_route_raw),
-          bridge_payment_route_error: null,
-        })
-        .eq("id", existingWallet.id)
-        .select("id, label, chain, asset, address, bridge_payment_route_id, bridge_payment_route_status, bridge_payment_route_raw, created_at")
-        .maybeSingle();
-      if (error) return json({ success: false, error: "Could not save that wallet. Please try again." }, 500);
-      return json({ success: true, data: { wallet: data, reused_route: true } });
-    }
-
-    let routeId = "";
-    let routeStatus = "";
-    let routeRaw: unknown = null;
-    if (!existingWallet?.bridge_payment_route_id || !routeStatusUsable(existingWallet.bridge_payment_route_status)) {
-      try {
-        const route = await createCryptoRoute({
-          userId: user.id,
-          bridgeCustomerId: profile.bridge_customer_id,
-          asset,
-          chain,
-          address,
-        });
-        routeId = route.routeId;
-        routeStatus = route.routeStatus;
-        routeRaw = route.routeRaw;
-      } catch (e) {
-        console.error("external-wallet route creation failed", {
-          user_id: user.id,
-          asset,
-          chain,
-          error: (e as Error).message,
-        });
-        return json({
-          success: false,
-          code: "bridge_route_create_failed",
-          error: "Could not register this withdrawal wallet with Bridge. Please try again or contact support.",
-        }, 502);
-      }
-    }
-
+    // Persist only the customer's destination. Existing liquidation metadata
+    // is deliberately left untouched for historical reconciliation, but it is
+    // no longer read or used for new transfers.
     const { data, error } = await supa.from("external_wallets")
       .upsert({
         user_id: user.id,
@@ -442,17 +183,13 @@ Deno.serve(async (req) => {
         asset,
         address,
         status: "active",
-        bridge_payment_route_id: routeId,
-        bridge_payment_route_status: routeStatus,
-        bridge_payment_route_raw: routeRaw,
-        bridge_payment_route_created_at: new Date().toISOString(),
         bridge_payment_route_error: null,
       },
               { onConflict: "user_id,chain,address" })
       .select("id, label, chain, asset, address, bridge_payment_route_id, bridge_payment_route_status, bridge_payment_route_raw, created_at")
       .maybeSingle();
     if (error) return json({ success: false, error: "Could not save that wallet. Please try again." }, 500);
-    return json({ success: true, data: { wallet: data } });
+    return json({ success: true, data: { wallet: data ? withDirectTransferCompatibility(data) : data } });
   }
 
   return json({ success: false, error: "Unknown action" }, 400);
