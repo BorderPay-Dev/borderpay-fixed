@@ -216,7 +216,8 @@ function normalizeDashboardVaRows(raw: unknown, country: string | null | undefin
   return Array.from(byCurrency.values());
 }
 
-function isSpendableDashboardWallet(row: { balance?: number; bridge_wallet_id?: string | null; status?: string | null }): boolean {
+function isSpendableDashboardWallet(row: { currency?: string; balance?: number; bridge_wallet_id?: string | null; status?: string | null }): boolean {
+  if (!['USDC', 'EURC'].includes(String(row?.currency || '').toUpperCase())) return false;
   const balance = Number(row?.balance || 0);
   const status = String(row?.status || 'active').toLowerCase();
   if (['closed', 'suspended', 'deactivated', 'inactive'].includes(status)) return false;

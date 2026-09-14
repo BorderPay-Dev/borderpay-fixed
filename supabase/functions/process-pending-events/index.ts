@@ -552,10 +552,7 @@ interface PendingEvent {
   max_attempts: number;
 }
 
-const DEFAULT_STABLECOIN_WALLETS: ReadonlyArray<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }> = [
-  { symbol: "USDC", chain: "BASE" },
-  { symbol: "USDT", chain: "TRON" },
-];
+const DEFAULT_STABLECOIN_WALLET = { symbol: "USDC", chain: "BASE" } as const;
 
 const PROVISIONING_LOCK_STALE_SECONDS = 180;
 
@@ -2879,22 +2876,25 @@ async function ensureStablecoinWalletsProvisioned(input: {
   const statusValue = (profile as Record<string, unknown> | null)?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
 
-  for (const { symbol, chain } of DEFAULT_STABLECOIN_WALLETS) {
+  const { symbol, chain } = DEFAULT_STABLECOIN_WALLET;
+  {
     const chainLc = chain.toLowerCase();
     const lock = await tryAcquireProvisioningLock(input.bridgeCustomerId, symbol, chainLc);
-    if (lock.state === "already_completed" || lock.state === "busy") continue;
+    if (lock.state === "already_completed" || lock.state === "busy") return;
 
     try {
       const { data: existing } = await supabase
         .from("bridge_wallets")
         .select("bridge_wallet_id,address")
         .eq("bridge_customer_id", input.bridgeCustomerId)
-        .ilike("currency", symbol)
         .ilike("chain", chainLc)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1)
         .maybeSingle();
       if (existing?.bridge_wallet_id) {
         await completeProvisioningLock(lock.lockEventId, "already_exists");
-        continue;
+        return;
       }
 
       const created = await bridgeProvider.createWallet({

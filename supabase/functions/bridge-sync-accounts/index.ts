@@ -169,8 +169,12 @@ Deno.serve(async (req) => {
         vq.eq("user_id", user.id),
       ]);
 
+  const customerWallets = (wallets ?? []).filter((wallet) =>
+    String(wallet.chain || "").toLowerCase() === "base" &&
+    ["USDC", "EURC"].includes(String(wallet.currency || "").toUpperCase())
+  );
   return json({
     success: true,
-    data: { wallets: wallets ?? [], virtual_accounts: virtualAccounts ?? [], warnings },
+    data: { wallets: customerWallets, virtual_accounts: virtualAccounts ?? [], warnings },
   });
 });

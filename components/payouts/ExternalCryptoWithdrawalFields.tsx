@@ -34,7 +34,6 @@ interface NetworkDef {
 }
 
 export const NETWORKS: NetworkDef[] = [
-  { id: 'tron',     label: 'TRON (TRC-20)',     family: 'tron',   tokens: ['USDT'] },
   { id: 'base',     label: 'Base',              family: 'evm',    tokens: ['USDC'] },
 ];
 

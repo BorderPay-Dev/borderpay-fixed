@@ -47,24 +47,24 @@ export function selectVaLinkedStablecoinWallets(
     linkedAssetsByWallet.set(walletId, assets);
   }
 
-  // Only collapse when one unambiguous VA destination wallet carries EURC.
-  // EURC is the EEA signal; this prevents the rule from changing non-EEA
-  // USDC/Base + USDT/Tron wallet presentation.
-  if (linkedAssetsByWallet.size !== 1) return wallets;
-  const [[authoritativeWalletId, linkedAssets]] = Array.from(linkedAssetsByWallet.entries());
-  if (!linkedAssets.has('EURC')) return wallets;
-
-  const authoritative = wallets.find((row: any) =>
-    String(row?.bridge_wallet_id ?? row?.wallet_id ?? '').trim() === authoritativeWalletId &&
+  const linkedWalletId = linkedAssetsByWallet.size === 1
+    ? Array.from(linkedAssetsByWallet.keys())[0]
+    : '';
+  const activeBaseWallets = wallets.filter((row: any) =>
     normalized(row?.chain ?? row?.payment_rail) === 'base' &&
     ACTIVE_STATUSES.has(normalized(row?.status)),
   );
-  if (!authoritative) return wallets;
+  const authoritative = activeBaseWallets.find((row: any) =>
+    String(row?.bridge_wallet_id ?? row?.wallet_id ?? '').trim() === linkedWalletId,
+  ) ?? activeBaseWallets[0];
+  if (!authoritative) return [];
+  const authoritativeWalletId = String(
+    authoritative?.bridge_wallet_id ?? authoritative?.wallet_id ?? authoritative?.id ?? 'base',
+  ).trim();
 
-  const nonBaseRows = wallets.filter((row: any) => normalized(row?.chain ?? row?.payment_rail) !== 'base');
-  // A single EEA Base wallet supports both assets even when the customer has
-  // not opened every fiat VA yet. Present both asset views against the same
-  // provider wallet ID and deposit address.
+  // Customer wallet surfaces are deliberately bounded to these two Base
+  // assets. Historical/provider Tron rows remain stored for audit but are
+  // never returned to the product presentation layer.
   const displayAssets = ['USDC', 'EURC'];
   const canonicalRows = displayAssets.map((asset) => ({
     ...authoritative,
@@ -72,5 +72,5 @@ export function selectVaLinkedStablecoinWallets(
     presentation_id: `${authoritativeWalletId}:${asset}`,
   }));
 
-  return [...canonicalRows, ...nonBaseRows];
+  return canonicalRows;
 }

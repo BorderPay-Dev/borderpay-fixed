@@ -3,7 +3,7 @@
 Regression guard for payout destination screens.
 
 Live policy:
-- Withdrawal wallets exposed in the customer UI are only USDC/Base and USDT/Tron.
+- Withdrawal wallets exposed in the customer UI are only USDC/Base.
 - Fiat payout destination list/add screens must first-paint immediately from
   cache/default options and refresh in the background. No blocking skeleton gate.
 """
@@ -31,7 +31,7 @@ def main() -> int:
     add_account = read("components/payouts/AddExternalAccountScreen.tsx")
 
     require("WITHDRAWAL_ROUTES" in wallets, "Withdrawal wallet routes must be explicit")
-    require("'USDC:base'" in wallets and "'USDT:tron'" in wallets, "Only USDC/Base and USDT/Tron routes may be exposed")
+    require("'USDC:base'" in wallets and "'USDT:tron'" not in wallets, "Only USDC/Base may be exposed")
     for forbidden in ["ethereum", "polygon", "arbitrum", "optimism", "solana"]:
         require(forbidden not in wallets.lower(), f"Unsupported withdrawal route leaked: {forbidden}")
     require("filterSupportedWallets" in wallets, "External wallet rows must be filtered before rendering/cache")

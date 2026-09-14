@@ -473,7 +473,7 @@ export const walletAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, USDT: 6,
+      USDC: 6, EURC: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -489,8 +489,10 @@ export const walletAPI = {
     ] = await Promise.all([
       supabase
         .from('bridge_wallets')
-        .select('bridge_wallet_id,currency,status,updated_at')
-        .or(ownerOrFilter(user.id)),
+        .select('bridge_wallet_id,currency,chain,status,updated_at')
+        .or(ownerOrFilter(user.id))
+        .ilike('chain', 'base')
+        .in('currency', ['USDC', 'EURC']),
       supabase
         .from('bridge_virtual_accounts')
         .select('bridge_virtual_account_id,currency,status,updated_at')
@@ -499,7 +501,8 @@ export const walletAPI = {
         .from('bridge_balance_ledger')
         .select('currency,amount_minor,direction,entity_type,created_at')
         .or(ownerOrFilter(user.id))
-        .eq('entity_type', 'wallet'),
+        .eq('entity_type', 'wallet')
+        .in('currency', ['USDC', 'EURC']),
     ]);
 
     const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
@@ -973,6 +976,8 @@ export const financialReadModelAPI = (() => {
         .from('bridge_wallets')
         .select('*')
         .or(ownerOrFilter(userId))
+        .ilike('chain', 'base')
+        .in('currency', ['USDC', 'EURC'])
         .order('created_at', { ascending: false }),
       supabase
         .from('bridge_virtual_accounts')
@@ -1256,6 +1261,8 @@ export const financialReadModelAPI = (() => {
           .from('bridge_wallets')
           .select('*')
           .or(ownerOrFilter(userId))
+          .ilike('chain', 'base')
+          .in('currency', ['USDC', 'EURC'])
           .order('created_at', { ascending: false }),
         supabase
           .from('bridge_virtual_accounts')
