@@ -128,7 +128,7 @@ async function emailVerificationLink(userId: string, accountType: "individual" |
           endorsements: ["base"], redirect_uri: `${APP_URL}/onboarding/kyc-complete`,
         };
         if (biz.bridge_customer_id) reqBody.customer_id = biz.bridge_customer_id;
-        const link = extractKycLink(await bridgeKycPost(reqBody, `borderpay:kyb:business:${biz.bridge_customer_id || userId}`));
+        const link = extractKycLink(await bridgeKycPost(reqBody, `borderpay:kyb:business:full-name-v2:${biz.bridge_customer_id || userId}`));
         if (!link) return;
         link_url = link.link_url;
         await supa.from("business_profiles").update({

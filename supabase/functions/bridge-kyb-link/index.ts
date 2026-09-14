@@ -20,6 +20,7 @@ import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
 const APP_URL         = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
+const KYB_LINK_CONTRACT_VERSION = "full-name-v2";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -171,7 +172,7 @@ Deno.serve(async (req: Request) => {
   let r = await bridgePost(
     "/v0/kyc_links",
     reqBody,
-    `borderpay:kyb:business:${idemSource}`,
+    `borderpay:kyb:business:${KYB_LINK_CONTRACT_VERSION}:${idemSource}`,
   );
 
   let link = extractLink(r.data);
@@ -184,7 +185,7 @@ Deno.serve(async (req: Request) => {
     r = await bridgePost(
       "/v0/kyc_links",
       fallbackBody,
-      `borderpay:kyb:business:fallback:${user.id}`,
+      `borderpay:kyb:business:${KYB_LINK_CONTRACT_VERSION}:fallback:${user.id}`,
     );
     link = extractLink(r.data);
   }

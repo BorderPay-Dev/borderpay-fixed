@@ -49,6 +49,7 @@ const KYC_REDIRECT_URL =
   Deno.env.get("BORDERPAY_APP_URL")
     ? `${Deno.env.get("BORDERPAY_APP_URL")}/onboarding/kyc-complete`
     : "https://app.borderpayafrica.com/onboarding/kyc-complete";
+const KYC_LINK_CONTRACT_VERSION = "full-name-v2";
 
 export class BridgeProvider implements PaymentProvider {
   readonly name = "bridge" as const;
@@ -181,7 +182,7 @@ export class BridgeProvider implements PaymentProvider {
       input.customer_id ?? input.email ?? input.full_name ?? crypto.randomUUID();
     const r = await bridgeFetch({
       method: "POST", path: "/v0/kyc_links", body,
-      idempotencyKey: `borderpay:kyc:${input.account_type}:${idemSource}`,
+      idempotencyKey: `borderpay:kyc:${KYC_LINK_CONTRACT_VERSION}:${input.account_type}:${idemSource}`,
     });
     if (!r.ok) {
       const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
