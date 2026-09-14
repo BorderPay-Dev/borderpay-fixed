@@ -780,15 +780,15 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Custodial stablecoin wallet ───────────────────────────────────────────
   async createWallet(input: WalletCreateInput): Promise<WalletResult> {
-    const body = {
-      currency: input.symbol.toLowerCase(),
-      chain:    input.chain.toLowerCase(),
-    };
+    // Bridge wallets are chain-level containers. A Base wallet can hold both
+    // USDC and EURC; sending a currency here creates an invalid/duplicate
+    // provisioning model and can leave one customer with multiple Base wallets.
+    const body = { chain: input.chain.toLowerCase() };
     const r = await bridgeFetch({
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(input.customer_id)}/wallets`,
       body,
-      idempotencyKey: `borderpay:wallet:${input.customer_id}:${input.symbol}:${input.chain}`,
+      idempotencyKey: `borderpay:wallet:${input.customer_id}:${input.chain}`,
     });
     if (!r.ok) {
       const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};

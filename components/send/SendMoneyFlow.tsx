@@ -415,7 +415,7 @@ function walletRouteKey(asset: string, chain: string) {
 
 function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>) {
   const key = walletRouteKey(wallet.asset, wallet.chain);
-  return key === 'USDC:base' || key === 'USDT:tron';
+  return key === 'USDC:base';
 }
 
 function chainDisplayName(chain: string) {
@@ -2136,7 +2136,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className="mb-4 grid grid-cols-2 gap-2">
               {[
                 { token: 'USDC', network: 'base', label: 'USDC', sub: 'Base' },
-                { token: 'USDT', network: 'tron', label: 'USDT', sub: 'TRON' },
               ].map((route) => {
                 const active = crypto.token === route.token && crypto.network === route.network;
                 return (

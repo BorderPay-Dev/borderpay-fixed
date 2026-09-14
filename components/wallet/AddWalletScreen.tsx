@@ -37,17 +37,17 @@ const CARDS: WalletCard[] = [
   { code: 'EUR', type: 'virtual_account', title: 'Euro', subtitle: 'Global receive account' },
   { code: 'GBP', type: 'virtual_account', title: 'British Pound', subtitle: 'Global receive account' },
   { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Digital dollar wallet' },
-  { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Digital dollar wallet' },
+  { code: 'EURC', type: 'stablecoin', title: 'Euro Coin', subtitle: 'Digital euro wallet' },
 ];
 
 const STABLE_CHAIN: Record<string, string> = {
   USDC: 'BASE',
-  USDT: 'TRON',
+  EURC: 'BASE',
 };
 
 const STABLE_ICON_URL: Record<string, string> = {
   USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
-  USDT: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdt.png',
+  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
 };
 const ACTIVE_ROW_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 

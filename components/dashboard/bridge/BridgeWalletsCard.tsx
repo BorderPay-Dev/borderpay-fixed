@@ -48,7 +48,13 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
     [userId, isBusiness],
   );
   const cachedRows = React.useMemo<WalletRow[]>(() => {
-    try { const raw = localStorage.getItem(walletCacheKey); return raw ? JSON.parse(raw) : []; }
+    try {
+      const raw = localStorage.getItem(walletCacheKey);
+      const rows = raw ? JSON.parse(raw) : [];
+      return Array.isArray(rows)
+        ? rows.filter((row) => String(row?.chain || '').toLowerCase() === 'base' && ['USDC', 'EURC'].includes(String(row?.currency || '').toUpperCase()))
+        : [];
+    }
     catch { return []; }
   }, [walletCacheKey]);
   const [rows, setRows]       = useState<WalletRow[]>(cachedRows);
@@ -63,7 +69,12 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
 
   const refresh = async () => {
     const loadLocal = async () => {
-      const q = supabase.from('bridge_wallets').select('*').order('created_at', { ascending: false });
+      const q = supabase
+        .from('bridge_wallets')
+        .select('*')
+        .ilike('chain', 'base')
+        .in('currency', ['USDC', 'EURC'])
+        .order('created_at', { ascending: false });
       const { data } = isBusiness
         ? await q.eq('business_user_id', userId)
         : await q.eq('user_id', userId);
@@ -147,7 +158,7 @@ export function BridgeWalletsCard({ userId, kycApproved, isBusiness = false }: P
           </h3>
           <p className={`text-xs ${tc.textMuted}`}>
             {walletsSupported
-              ? tt('dash.wallet.subtitle', 'USDC and USDT digital dollar wallets.')
+              ? tt('dash.wallet.subtitle', 'USDC and EURC on Base.')
               : tt('dash.wallet.subtitle.unavailable', 'Digital dollar wallets are not available for your country.')}
           </p>
         </div>

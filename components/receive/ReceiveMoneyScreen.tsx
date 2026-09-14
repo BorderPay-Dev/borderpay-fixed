@@ -595,14 +595,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       if (!Number.isInteger(amount)) throw new Error('Local top-up amounts must be whole currency units.');
       const settlementWallet = stables.find((wallet) =>
         String(wallet.currency).toUpperCase() === 'USDC' && String(wallet.chain).toLowerCase() === 'base'
-      ) || stables.find((wallet) =>
-        String(wallet.currency).toUpperCase() === 'USDT' && String(wallet.chain).toLowerCase() === 'tron'
       );
       // Yellow Card sandbox simulator funds are isolated from Bridge wallets.
       // Existing wallets only choose the settlement asset; demo accounts can
       // safely default to the documented USDC/Base sandbox route.
       const settlementCurrency = String(settlementWallet?.currency || 'USDC').toUpperCase();
-      const settlementNetwork = settlementCurrency === 'USDC' ? 'BASE' : 'TRC20';
+      const settlementNetwork = 'BASE';
       const baseRequest = {
         currency: selectedAfricanRail.currency,
         country: selectedAfricanCountry.countryCode,
@@ -775,12 +773,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     const byCurrency = new Map<string, StableRow>();
     stables.forEach((row) => {
       const rawSym = String(row.currency || '').toUpperCase();
-      const sym = rawSym || (String(row.chain).toLowerCase() === 'tron' ? 'USDT' : 'USDC');
-      if ((sym === 'USDC' || sym === 'USDT') && !byCurrency.has(sym)) {
+      const sym = rawSym || 'USDC';
+      if ((sym === 'USDC' || sym === 'EURC') && String(row.chain).toLowerCase() === 'base' && !byCurrency.has(sym)) {
         byCurrency.set(sym, { ...row, currency: sym });
       }
     });
-    return ['USDC', 'USDT'].map((symbol) => byCurrency.get(symbol)).filter(Boolean) as StableRow[];
+    return ['USDC', 'EURC'].map((symbol) => byCurrency.get(symbol)).filter(Boolean) as StableRow[];
   }, [stables]);
 
   const collectionAmountNumber = useMemo(() => {

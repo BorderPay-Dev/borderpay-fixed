@@ -121,7 +121,8 @@ const STABLE_ICON_URL: Record<string, string> = {
   USDT: 'https://cryptologos.cc/logos/tether-usdt-logo.png?v=040',
 };
 
-function isSpendableBusinessWallet(row: { balance?: number }): boolean {
+function isSpendableBusinessWallet(row: { currency?: string; balance?: number }): boolean {
+  if (!['USDC', 'EURC'].includes(String(row?.currency || '').toUpperCase())) return false;
   const balance = Number(row?.balance || 0);
   return Number.isFinite(balance) && balance > 0;
 }
@@ -247,7 +248,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   }, [wallets]);
 
   const usdLikeTotal = useMemo(
-    () => wallets.filter(w => ['USD', 'USDT', 'USDC'].includes(w.currency))
+    () => wallets.filter(w => ['USDC', 'EURC'].includes(w.currency))
                  .reduce((s, w) => s + (w.balance || 0), 0),
     [wallets],
   );

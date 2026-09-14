@@ -188,6 +188,8 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         "tests/audit/bridge_transfer_runtime_regression_audit.py",
         "tests/audit/crypto_to_crypto_route_fee_audit.py",
         "tests/audit/verification_tos_external_handoff_audit.py",
+        "tests/audit/future_wallet_base_assets_audit.py",
+        "tests/audit/customer_wallet_asset_boundary_audit.py",
         "tests/audit/bridge_kyb_existing_customer_resume_audit.py",
         "tests/audit/eea_payout_sca_challenge_audit.py",
     ]
@@ -437,6 +439,8 @@ def stage_recent_release_regressions() -> StageResult:
         "tests/audit/bridge_transfer_runtime_regression_audit.py",
         "tests/audit/crypto_to_crypto_route_fee_audit.py",
         "tests/audit/verification_tos_external_handoff_audit.py",
+        "tests/audit/future_wallet_base_assets_audit.py",
+        "tests/audit/customer_wallet_asset_boundary_audit.py",
         "tests/audit/bridge_kyb_existing_customer_resume_audit.py",
         "tests/audit/eea_payout_sca_challenge_audit.py",
     ]

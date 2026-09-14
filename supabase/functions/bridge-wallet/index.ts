@@ -1,8 +1,7 @@
-// bridge-wallet — create a custodial stablecoin wallet (USDC, USDT, PYUSD,
-//                  USDB, EURC, …) on a supported chain.
+// bridge-wallet — ensure the customer's single Base wallet exists. The one
+// provider wallet carries the two customer-facing assets: USDC and EURC.
 //
-// POST body: { symbol: 'USDC'|'USDT'|'PYUSD'|'USDB'|'EURC',
-//              chain:  'ETH'|'SOL'|'BSC'|'POLYGON'|'TRON'|'BASE'|'OPTIMISM'|'ARBITRUM' }
+// POST body: { symbol: 'USDC'|'EURC', chain: 'BASE' }
 //
 // Response: { success, data: { wallet_id, deposit_address, symbol, chain } }
 
@@ -31,8 +30,8 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const SYMS:   readonly StablecoinSymbol[] = ["USDC", "USDT", "PYUSD", "USDB", "EURC"];
-const CHAINS: readonly StablecoinChain[]  = ["ETH", "SOL", "BSC", "POLYGON", "TRON", "BASE", "OPTIMISM", "ARBITRUM"];
+const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC"];
+const CHAINS: readonly StablecoinChain[]  = ["BASE"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -48,7 +47,7 @@ Deno.serve(async (req) => {
   let body: { symbol?: string; chain?: string };
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const symbol = String(body.symbol || "USDC").toUpperCase() as StablecoinSymbol;
-  const chain  = String(body.chain  || "ETH").toUpperCase()  as StablecoinChain;
+  const chain  = String(body.chain  || "BASE").toUpperCase()  as StablecoinChain;
   if (!SYMS.includes(symbol))   return json({ success: false, error: `Unsupported symbol: ${symbol}` }, 400);
   if (!CHAINS.includes(chain))  return json({ success: false, error: `Unsupported chain: ${chain}` }, 400);
 
@@ -93,17 +92,19 @@ Deno.serve(async (req) => {
     return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
 
-  // Idempotent on (user, symbol, chain)
+  // Provider wallets are chain-level. Do not create a second Base wallet when
+  // the caller switches between the USDC and EURC presentation chips.
   const { data: existing } = await supa
-    .from("wallets")
-    .select("id, bridge_wallet_id")
-    .eq("user_id", user.id)
-    .eq("currency", symbol)
-    .eq("stablecoin_chain", chain)
-    .eq("provider", "bridge")
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,address")
+    .eq("bridge_customer_id", profile.bridge_customer_id)
+    .ilike("chain", "base")
+    .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
   if (existing?.bridge_wallet_id) {
-    return json({ success: true, data: { wallet_id: existing.bridge_wallet_id, symbol, chain, already_exists: true } });
+    return json({ success: true, data: { wallet_id: existing.bridge_wallet_id, deposit_address: existing.address, symbol, chain, already_exists: true } });
   }
 
   try {
@@ -120,18 +121,18 @@ Deno.serve(async (req) => {
       ...(isBusiness ? { business_user_id: user.id } : {}),
       bridge_customer_id: profile.bridge_customer_id,
       bridge_wallet_id:   result.wallet_id,
-      currency:           symbol,
-      chain,
+      currency:           "USDC",
+      chain:              "base",
       address:            result.deposit_address,
       status:             "active",
     });
     // Legacy mirror for balance/ledger compatibility.
     const { error: wErr } = await supa.from("wallets").upsert({
       user_id:           user.id,
-      currency:          symbol,
+      currency:          "USDC",
       provider:          "bridge",
       asset_type:        "stablecoin",
-      stablecoin_chain:  chain,
+      stablecoin_chain:  "base",
       bridge_wallet_id:  result.wallet_id,
       virtual_account_number: result.deposit_address,  // deposit address goes here for stablecoins
       balance:           0,

@@ -18,17 +18,10 @@ checks = {
     "unaccepted Terms open in the embedded ToS view": "openHostedVerificationUrl(r.data.tos_link_url" in SOURCE,
     "ToS embed cannot be dismissed as verification completion": "returnEnabled: false" in SOURCE,
     "Continue handler exists": handler_start >= 0 and handler_end > handler_start,
-    "external window is reserved synchronously before the first await": (
-        handler.find("reserveExternalVerificationWindow()") >= 0
-        and handler.find("reserveExternalVerificationWindow()") < handler.find("await ")
-    ),
+    "blank popup handoff is forbidden": "window.open('about:blank'" not in handler,
     "Continue requests a fresh provider state after Terms acceptance": "requestHostedLink(ctx.accountType)" in handler,
     "accepted Terms produce an identity-verification link": "r.data?.link_url" in handler,
-    "KYB link is handed directly to the reserved external window": "openExternalVerificationUrl(r.data.link_url, externalWindow)" in success,
-    "embedded ToS is not cleared before external navigation": (
-        success.find("openExternalVerificationUrl(r.data.link_url, externalWindow)")
-        < success.find("setEmbeddedUrl(null)")
-    ),
+    "KYB link navigates directly at top level": "openTopLevelHostedFallback(r.data.link_url)" in success,
     "identity verification is never loaded in the embedded iframe": "openHostedVerificationUrl(r.data.link_url" not in SOURCE,
 }
 

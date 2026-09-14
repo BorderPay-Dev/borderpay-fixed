@@ -1,8 +1,8 @@
 // bridge-provision-stablecoins — ensure an activated, KYC-approved customer has
-// their base stablecoin wallets (USDC on Base, USDT on Tron) so they can receive
+// their Base stablecoin assets (USDC and EURC) so they can receive
 // stablecoin AND so a virtual account has a settlement destination ready.
 //
-// Idempotent: creates a wallet only if that (currency, chain) is missing; if it
+// Idempotent: creates a wallet only if the Base chain wallet is missing; if it
 // already exists (incl. created on the Bridge dashboard once synced), it's a
 // no-op. Safe to call on every dashboard load — ineligible users get a silent
 // no-op for users who are not yet eligible.
@@ -29,12 +29,10 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// The base set every activated user gets. USDC-Base also settles USD/EUR/GBP
-// virtual accounts; USDT-Tron is the popular receive rail.
-const DEFAULTS: ReadonlyArray<{ symbol: string; chain: string }> = [
-  { symbol: "USDC", chain: "BASE" },
-  { symbol: "USDT", chain: "TRON" },
-];
+// The default set every newly activated user gets. Both assets use Base:
+// USD/GBP virtual accounts settle to USDC; EUR settles to EURC.
+const DEFAULT_WALLET = { symbol: "USDC", chain: "BASE" } as const;
+const CUSTOMER_ASSETS = ["USDC", "EURC"] as const;
 
 
 Deno.serve(async (req) => {
@@ -77,20 +75,22 @@ Deno.serve(async (req) => {
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
 
-  for (const { symbol, chain } of DEFAULTS) {
-    // Idempotent: skip if this (currency, chain) already exists for the user.
-    const { data: existing } = await supa
-      .from("bridge_wallets")
-      .select("address")
-      .eq("user_id", user.id)
-      .ilike("currency", symbol)
-      .ilike("chain", chain)
-      .maybeSingle();
-    if (existing) { out.push({ symbol, chain: chain.toLowerCase(), address: existing.address, already: true }); continue; }
-
+  const { symbol, chain } = DEFAULT_WALLET;
+  const { data: existing } = await supa
+    .from("bridge_wallets")
+    .select("bridge_wallet_id,address")
+    .eq("user_id", user.id)
+    .ilike("chain", chain)
+    .eq("status", "active")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (existing?.bridge_wallet_id) {
+    for (const asset of CUSTOMER_ASSETS) out.push({ symbol: asset, chain: "base", address: existing.address, already: true });
+  } else {
     try {
-      const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: symbol as any, chain: chain as any });
-      await supa.from("bridge_wallets").insert({
+      const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol, chain });
+      await supa.from("bridge_wallets").upsert({
         ...ownerCols,
         bridge_customer_id: profile.bridge_customer_id,
         bridge_wallet_id:   created.wallet_id,
@@ -98,11 +98,10 @@ Deno.serve(async (req) => {
         chain:              chain.toLowerCase(),
         address:            created.deposit_address,
         status:             "active",
-      });
-      out.push({ symbol, chain: chain.toLowerCase(), address: created.deposit_address, already: false });
+      }, { onConflict: "bridge_wallet_id" });
+      for (const asset of CUSTOMER_ASSETS) out.push({ symbol: asset, chain: "base", address: created.deposit_address, already: false });
     } catch (e) {
-      // One failure shouldn't block the other; report best-effort.
-      console.warn(`provision ${symbol}/${chain}: ${(e as Error).message}`);
+      console.warn(`provision base wallet: ${(e as Error).message}`);
     }
   }
 
@@ -142,20 +141,20 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
   if (isBusiness) ownerCols.business_user_id = profile.id;
   const out: Array<Record<string, unknown>> = [];
 
-  for (const { symbol, chain } of DEFAULTS) {
+  const { symbol, chain } = DEFAULT_WALLET;
+  {
     const { data: existing } = await supa
       .from("bridge_wallets")
       .select("bridge_wallet_id,address,currency,chain,status")
       .eq("bridge_customer_id", profile.bridge_customer_id)
-      .ilike("currency", symbol)
       .ilike("chain", chain)
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
     if (existing?.bridge_wallet_id) {
-      out.push({ ...existing, symbol, display_chain: chain.toLowerCase(), already: true });
-      continue;
-    }
-
-    try {
+      for (const asset of CUSTOMER_ASSETS) out.push({ ...existing, symbol: asset, display_chain: "base", already: true });
+    } else try {
       const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: symbol as any, chain: chain as any });
       const bridgeWalletRow = {
         ...ownerCols,
@@ -180,12 +179,12 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
         status: "active",
       });
       if (bwErr || wErr) {
-        out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: false, bridge_wallet_id: created.wallet_id, error: (bwErr || wErr)?.message });
+        out.push({ symbol, chain: "base", created_at_bridge: true, persisted: false, bridge_wallet_id: created.wallet_id, error: (bwErr || wErr)?.message });
       } else {
-        out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
+        for (const asset of CUSTOMER_ASSETS) out.push({ symbol: asset, chain: "base", created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
       }
     } catch (e) {
-      out.push({ symbol, chain: chain.toLowerCase(), created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
+      out.push({ symbol, chain: "base", created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
 

@@ -50,10 +50,10 @@ interface Product {
 }
 
 const AFRICAN_CURRENCIES = ['NGN', 'KES', 'GHS', 'UGX', 'TZS', 'XAF', 'XOF'] as const;
-const STABLECOINS        = ['USDT', 'USDC'] as const;
+const STABLECOINS        = ['USDC', 'EURC'] as const;
 const STABLECOIN_NETWORKS: Record<string, string[]> = {
-  USDT:  ['TRON'],
   USDC:  ['BASE'],
+  EURC:  ['BASE'],
 };
 
 function normalizedCountry(value: unknown): string | null {
@@ -149,7 +149,7 @@ export function RequestProvisioningModal({ open, onClose, onProvisioned }: Reque
 
   const products: Product[] = [
     { key: 'usd-va',     label: 'Global Account', blurb: availableVaCurrencies.length > 0 ? `${availableVaCurrencies.join(' / ')} account rails available for your country` : setupPendingVaCurrencies.length > 0 ? 'Global account details are being enabled' : 'Not available for your country', Icon: Banknote, accent: '#10B981' },
-    { key: 'stablecoin', label: 'Digital Dollar Wallet',        blurb: stablecoinSupported ? 'USDC · USDT' : 'Not available for your country',                Icon: Coins,    accent: '#F59E0B' },
+    { key: 'stablecoin', label: 'Digital Currency Wallet',      blurb: stablecoinSupported ? 'USDC · EURC on Base' : 'Not available for your country',        Icon: Coins,    accent: '#F59E0B' },
     { key: 'card',       label: 'Virtual Card',                 blurb: 'Coming soon — card issuance is paused',     Icon: CreditCard, accent: '#C7FF00' },
   ];
 

@@ -21,12 +21,11 @@ wallet = WALLET.read_text()
 receive = RECEIVE.read_text()
 
 for marker in [
-    "linkedAssetsByWallet.size !== 1",
-    "if (!linkedAssets.has('EURC')) return wallets",
-    "normalized(row?.chain ?? row?.payment_rail) !== 'base'",
+    "const activeBaseWallets = wallets.filter",
+    "if (!authoritative) return []",
     "const displayAssets = ['USDC', 'EURC']",
     "presentation_id: `${authoritativeWalletId}:${asset}`",
-    "return [...canonicalRows, ...nonBaseRows]",
+    "return canonicalRows",
 ]:
     require(helper, marker, "VA-linked wallet selector")
 
@@ -35,11 +34,11 @@ if "delete" in helper.lower() or ".update(" in helper:
 
 require(api, "selectVaLinkedStablecoinWallets(rawStablecoinWallets, virtualAccounts)", "financial snapshot")
 require(api, "selectVaLinkedStablecoinWallets(stableRes?.data, virtualAccounts)", "wallet route fallback")
-require(wallet, "new Set(['USDC', 'EURC', 'USDT'])", "wallet supported assets")
+require(wallet, "new Set(['USDC', 'EURC'])", "wallet supported assets")
 require(wallet, "presentation_id", "stablecoin row key")
 require(wallet, "selectVaLinkedStablecoinWallets(scoped, cachedVas)", "wallet cache")
 require(receive, "selectVaLinkedStablecoinWallets(scoped, cachedVas)", "receive cache")
 
-print("PASS: one unambiguous EURC-capable VA-linked Base wallet is presented")
+print("PASS: one authoritative Base wallet is presented")
 print("PASS: unlinked Base duplicates are hidden without provider/database mutation")
-print("PASS: USDC and EURC share the authoritative wallet ID; Tron remains unaffected")
+print("PASS: USDC and EURC share the authoritative wallet ID; Tron is not exposed")
