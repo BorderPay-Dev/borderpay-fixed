@@ -20,7 +20,6 @@ import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
 const APP_URL         = Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com";
-const SUPABASE_URL    = (Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "");
 const KYB_LINK_CONTRACT_VERSION = "full-name-v2";
 
 const CORS = {
@@ -152,24 +151,6 @@ function extractKybStatus(parsed: any): string | null {
   return null;
 }
 
-async function createExternalLaunchUrl(userId: string, targetUrl: string): Promise<string> {
-  let target: URL;
-  try { target = new URL(targetUrl); } catch { throw new Error("Invalid hosted verification URL"); }
-  const host = target.hostname.toLowerCase();
-  if (target.protocol !== "https:" || (host !== "bridge.withpersona.com" && !host.endsWith(".withpersona.com"))) {
-    throw new Error("Untrusted hosted verification URL");
-  }
-  const token = crypto.randomUUID();
-  const { error } = await supa.from("verification_launch_tokens").insert({
-    token,
-    user_id: userId,
-    target_url: target.toString(),
-    expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-  });
-  if (error) throw new Error(`Could not create secure verification launch: ${error.message}`);
-  return `${SUPABASE_URL}/functions/v1/verification-launch?token=${encodeURIComponent(token)}`;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -238,14 +219,11 @@ Deno.serve(async (req: Request) => {
   let r: BridgeFetchResult;
   let link: ReturnType<typeof extractLink> = null;
 
-  if (biz.bridge_kyb_link_id) {
-    r = await bridgeGet(`/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}`);
-    link = extractLink(r.data);
-  } else {
-    r = { ok: false, status: 404, data: null, raw_text: "", error: "No stored KYB link" };
-  }
-
-  if ((!r.ok || !link?.link_url) && existingCustomerId) {
+  // Existing businesses must always ask Bridge for the customer's current
+  // resumable hosted URL. A stored link ID can still return HTTP 200 after its
+  // Persona inquiry token has become stale, which strands released clients on
+  // a white page.
+  if (existingCustomerId) {
     const params = new URLSearchParams();
     params.set("redirect_uri", body.redirect_url || `${APP_URL}/onboarding/kyc-complete`);
     r = await bridgeGet(
@@ -253,6 +231,15 @@ Deno.serve(async (req: Request) => {
     );
     link = extractLink(r.data);
     if (link) link.customer_id ||= existingCustomerId;
+  } else {
+    r = { ok: false, status: 404, data: null, raw_text: "", error: "No existing Bridge customer" };
+  }
+
+  // Compatibility fallback only when the authoritative customer-resume route
+  // is unavailable. Never prefer this cached-link lookup.
+  if ((!r.ok || !link?.link_url) && biz.bridge_kyb_link_id) {
+    r = await bridgeGet(`/v0/kyc_links/${encodeURIComponent(biz.bridge_kyb_link_id)}`);
+    link = extractLink(r.data);
   }
 
   if (!existingCustomerId && (!r.ok || (!link?.link_url && !link?.tos_link_url))) {
@@ -329,23 +316,13 @@ Deno.serve(async (req: Request) => {
     r.data?.data?.tos_status || r.data?.tos_status || r.data?.existing_kyc_link?.tos_status || "",
   ).trim().toLowerCase();
   const tosRequired = Boolean(link.tos_link_url && tosStatus !== "approved" && tosStatus !== "accepted");
-  let externalLaunchUrl: string | null = null;
-  if (link.link_url) {
-    try {
-      externalLaunchUrl = await createExternalLaunchUrl(user.id, link.link_url);
-    } catch (error) {
-      console.error(`bridge-kyb-link: secure launch creation failed user=${user.id}: ${(error as Error).message}`);
-      return json({ success: false, error: "Could not open secure business verification. Please try again." }, 500);
-    }
-  }
   return json({
     success: true,
     data: {
       link_id: link.link_id,
-      // Never hand an iframe-hostile provider URL directly to released apps.
-      // The short-lived BorderPay launcher converts the existing embedded flow
-      // into an explicit top-level navigation that works on web/iOS/Android.
-      link_url: externalLaunchUrl,
+      // Released clients already open this actionable KYB URL externally after
+      // the embedded Terms step. Do not wrap it in HTML or another URL.
+      link_url: link.link_url,
       // Always lead an unverified business through the Terms page when the
       // hosted flow supplies it. The Continue CTA then opens KYB top-level.
       // Omit an already-accepted ToS URL so older native bundles proceed to
