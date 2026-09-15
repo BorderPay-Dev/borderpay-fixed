@@ -10,7 +10,7 @@ status_api = (ROOT / "supabase/functions/kyc-status/index.ts").read_text()
 backfill = (ROOT / "supabase/migrations/20260914151000_sync_actionable_business_verification_status.sql").read_text()
 
 checks = {
-    "existing customer ToS truth comes from Bridge customer": "/v0/customers/${encodedCustomerId}`" in kyb and "has_accepted_terms_of_service" in kyb,
+    "existing customer context comes from Bridge customer": "/v0/customers/${encodedCustomerId}`" in kyb and "customerResult" in kyb,
     "unaccepted existing customer receives documented ToS URL": "/v0/customers/${encodedCustomerId}/tos_acceptance_link" in kyb,
     "stored KYC fallback cannot overwrite a valid ToS URL": "(!link?.link_url && !link?.tos_link_url)" in kyb,
     "accepted existing customer resumes through documented KYC GET": "/v0/customers/${encodedCustomerId}/kyc_link" in kyb,
@@ -18,7 +18,7 @@ checks = {
     "new-link payload never includes customer_id": "reqBody.customer_id" not in kyb,
     "new customer still uses POST kyc_links": '"/v0/kyc_links"' in kyb and "bridgePost(" in kyb,
     "normal accepted ToS URL is omitted": "tos_link_url: tosRequired ? link.tos_link_url : null" in kyb,
-    "retryable business returns both ToS and KYB URLs": "restartableBusinessVerification" in kyb and "link.tos_link_url = tosUrl || link.tos_link_url" in kyb,
+    "retryable business uses explicit ToS and KYB phases": "restartableBusinessVerification" in kyb and 'phase === "terms"' in kyb and 'phase === "kyb"' in kyb,
     "worker maps provider UBO state to canonical status": 'status === "awaiting_ubo" ? "needs_ubos"' in worker,
     "worker maps questionnaire state to canonical RFI": 'status === "awaiting_questionnaire" ? "awaiting_rfi"' in worker,
     "verification screen exposes UBO action": "Ownership details required" in screen and "status === 'needs_ubos'" in screen,

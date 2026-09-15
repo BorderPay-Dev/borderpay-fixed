@@ -19,8 +19,8 @@ screens = "\n".join((ROOT / path).read_text() for path in [
 
 checks = {
     "native runtime is explicit": "isNativeRuntime()" in kyc_ui,
-    "native KYB opens outside WebView": "window.open(url, '_blank', 'noopener,noreferrer')" in kyc_ui,
-    "native handoff severs opener": "externalWindow.opener = null" in kyc_ui,
+    "native KYB opens outside WebView": "Browser.open({ url, presentationStyle: 'popover' })" in kyc_ui,
+    "native handoff uses official Browser plugin": "import { Browser } from '@capacitor/browser'" in kyc_ui,
     "native handoff never uses a blank placeholder": "window.open('about:blank'" not in kyc_ui,
     "web/PWA retains browser navigation": "window.location.assign(url)" in kyc_ui,
     "Persona is never sent to the ToS iframe": "openHostedVerificationUrl(r.data.link_url" not in kyc_ui,

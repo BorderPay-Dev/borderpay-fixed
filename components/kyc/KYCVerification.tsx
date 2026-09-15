@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { Browser } from '@capacitor/browser';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { isNativeRuntime } from '../../utils/native/mobileRuntime';
@@ -222,8 +223,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     // separate browsing context; replacing the Capacitor WebView produces
     // ERR_BLOCKED_BY_RESPONSE on both Android and iOS.
     if (isNativeRuntime()) {
-      const externalWindow = window.open(url, '_blank', 'noopener,noreferrer');
-      if (externalWindow) externalWindow.opener = null;
+      void Browser.open({ url, presentationStyle: 'popover' }).catch(() => {
+        // If the native browser service itself is unavailable, keep the user
+        // on a top-level page rather than falling back to an embedded popup.
+        window.location.assign(url);
+      });
       return;
     }
     // Web/PWA navigation stays in the browser and preserves the proven flow.
@@ -256,12 +260,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     return { accountType: currentAccountType, emailConfirmed };
   }, [accountType]);
 
-  const requestHostedLink = useCallback(async (currentAccountType: AccountType) => {
+  const requestHostedLink = useCallback(async (currentAccountType: AccountType, phase: 'terms' | 'kyb' = 'terms') => {
     // Never send capacitor://localhost (the native WebView origin) to the
     // hosted verifier. Its callback must be a public HTTPS application URL.
     const redirect_url = 'https://app.borderpayafrica.com/?screen=kyc';
     return currentAccountType === 'business'
-      ? await backendAPI.bridge.kyb.startBusiness({ redirect_url })
+      ? await backendAPI.bridge.kyb.startBusiness({ redirect_url, phase })
       : await backendAPI.bridge.kyc.startIndividual({ redirect_url });
   }, []);
 
@@ -273,34 +277,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         setTosLinkUrl(null);
         return;
       }
-      const r: any = await requestHostedLink(ctx.accountType);
-      if (r?.success && r.data?.tos_link_url) {
-        persistTosAccepted(false);
-        setTosLinkUrl(r.data.tos_link_url);
-        return;
-      }
-      if (r?.success && r.data?.link_url) {
-        persistTosAccepted(true);
-        setTosLinkUrl(null);
-        setLastHostedUrl(r.data.link_url);
-        const now = Date.now();
-        setLastHostedUrlTs(now);
-        setTosLinkUrlTs(0);
-        try {
-          localStorage.setItem(`borderpay_last_verify_url:${userId}`, r.data.link_url);
-          localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
-          localStorage.removeItem(`borderpay_last_tos_url:${userId}`);
-          localStorage.removeItem(`borderpay_last_tos_url_ts:${userId}`);
-        } catch { /* noop */ }
-        return;
-      }
-      if (r?.success && r.data?.already_approved) {
-        await refresh();
-      }
+      await refresh();
     } catch {
       // silent probe: never block verification screen
     }
-  }, [persistTosAccepted, requestHostedLink, resolveVerificationContext, refresh, userId]);
+  }, [persistTosAccepted, resolveVerificationContext, refresh]);
 
   useEffect(() => {
     if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
@@ -367,7 +348,13 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verify your email first, then retry verification.');
         return;
       }
-      const r: any = await requestHostedLink(ctx.accountType);
+      const r: any = await requestHostedLink(ctx.accountType, tosAccepted ? 'kyb' : 'terms');
+      if (r?.success && r.data?.tos_accepted) {
+        persistTosAccepted(true);
+        setTosLinkUrl(null);
+        toast.success('Terms accepted. Tap Continue verification to proceed.');
+        return;
+      }
       if (r?.success && r.data?.tos_link_url) {
         setTosLinkUrl(r.data.tos_link_url);
         const now = Date.now();
@@ -420,7 +407,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         toast.error('Verify your email first, then retry verification.');
         return;
       }
-      const r: any = await requestHostedLink(ctx.accountType);
+      const r: any = await requestHostedLink(ctx.accountType, 'kyb');
       if (r?.success && r.data?.link_url) {
         persistTosAccepted(true);
         setTosLinkUrl(null);
