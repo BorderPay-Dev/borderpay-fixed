@@ -16,6 +16,11 @@ const EEA_ISO3_TO_ISO2: Readonly<Record<string, string>> = {
   PRT: "PT", ROU: "RO", SVK: "SK", SVN: "SI", ESP: "ES", SWE: "SE",
 };
 
+const NON_EEA_ISO3_TO_ISO2: Readonly<Record<string, string>> = {
+  GBR: "GB", UKR: "UA", CHE: "CH", USA: "US", CAN: "CA", AUS: "AU",
+  NZL: "NZ", KEN: "KE", ZAF: "ZA", NGA: "NG", GHA: "GH",
+};
+
 type SupaLike = { from: (table: string) => any };
 
 export type BridgeScaScope = {
@@ -38,7 +43,9 @@ export type BridgeScaScope = {
 export function normalizeBridgeScaCountry(value: unknown): string | null {
   const code = String(value ?? "").trim().toUpperCase();
   if (/^[A-Z]{2}$/.test(code)) return code;
-  return EEA_ISO3_TO_ISO2[code] ?? (/^[A-Z]{3}$/.test(code) ? code : null);
+  return EEA_ISO3_TO_ISO2[code]
+    ?? NON_EEA_ISO3_TO_ISO2[code]
+    ?? (/^[A-Z]{3}$/.test(code) ? code : null);
 }
 
 export function isBridgeEeaScaCountry(value: unknown): boolean {
@@ -108,21 +115,36 @@ export async function resolveBridgeScaScope(supabase: SupaLike, userId: string):
   try {
     const customer = await bridgeProvider.getCustomerProfile(customerId);
     const country = bridgeCustomerScaCountry(customer, identity.context.account_type);
-    if (!country) {
-      if (identity.context.account_type === "business") {
-        return { required: false, status: "not_required", reason: "business_incorporation_country_unavailable", country: null, verified, has_custodial_wallet: null };
-      }
-      return { required: false, status: "unknown", reason: "bridge_scope_unavailable", country: null, verified, has_custodial_wallet: null };
+    // Bridge customer responses have used more than one envelope/field shape.
+    // The local business country is collected as the incorporation country at
+    // signup, so it is the only permitted fallback for a business. Never use
+    // an operating address to decide SCA scope.
+    const resolvedCountry = country ?? (
+      identity.context.account_type === "business"
+        ? normalizeBridgeScaCountry(identity.context.country)
+        : null
+    );
+    if (!resolvedCountry) {
+      return {
+        required: false,
+        status: "unknown",
+        reason: identity.context.account_type === "business"
+          ? "business_incorporation_country_unavailable"
+          : "bridge_scope_unavailable",
+        country: null,
+        verified,
+        has_custodial_wallet: null,
+      };
     }
-    if (!BRIDGE_EEA_SCA_COUNTRIES.has(country)) {
-      return { required: false, status: "not_required", reason: "non_eea", country, verified, has_custodial_wallet: null };
+    if (!BRIDGE_EEA_SCA_COUNTRIES.has(resolvedCountry)) {
+      return { required: false, status: "not_required", reason: "non_eea", country: resolvedCountry, verified, has_custodial_wallet: null };
     }
     const wallets = await bridgeProvider.listWallets(customerId);
     const hasCustodialWallet = wallets.some(isActiveBridgeCustodialWallet);
     if (!hasCustodialWallet) {
-      return { required: false, status: "not_required", reason: "no_custodial_wallet", country, verified, has_custodial_wallet: false };
+      return { required: false, status: "not_required", reason: "no_custodial_wallet", country: resolvedCountry, verified, has_custodial_wallet: false };
     }
-    return { required: true, status: "required", reason: "verified_eea_custodial_wallet", country, verified, has_custodial_wallet: true };
+    return { required: true, status: "required", reason: "verified_eea_custodial_wallet", country: resolvedCountry, verified, has_custodial_wallet: true };
   } catch (error) {
     console.error("bridge_sca_scope_resolution_failed", { user_id: userId, error: error instanceof Error ? error.message : "unknown" });
     return { required: false, status: "unknown", reason: "bridge_scope_unavailable", country: null, verified, has_custodial_wallet: null };

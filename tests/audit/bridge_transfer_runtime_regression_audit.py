@@ -51,6 +51,15 @@ checks = {
         and "country_of_incorporation" in SCOPE
         and "registeredAddress.country" in SCOPE
     ),
+    "business scope falls back only to stored incorporation country": (
+        "normalizeBridgeScaCountry(identity.context.country)" in SCOPE
+        and "operating_address" not in SCOPE
+    ),
+    "missing business incorporation country fails closed": (
+        'status: "unknown"' in SCOPE
+        and 'reason: identity.context.account_type === "business"' in SCOPE
+        and '"business_incorporation_country_unavailable"' in SCOPE
+    ),
     "UK and Switzerland excluded from EEA scope": (
         '"GB"' not in SCOPE.split("const EEA_ISO3_TO_ISO2", 1)[0]
         and '"CH"' not in SCOPE.split("const EEA_ISO3_TO_ISO2", 1)[0]
@@ -64,6 +73,11 @@ checks = {
     "SCA requires active custodial wallet": (
         "isActiveBridgeCustodialWallet" in SCOPE
         and 'reason: "no_custodial_wallet"' in SCOPE
+    ),
+    "transfer stores queryable SCA evidence": (
+        "sca_required: sca.required" in SOURCE
+        and 'sca_attestation_outcome: sca.required ? "sca_used" : null' in SOURCE
+        and "sca_authorization_id:" in SOURCE
     ),
 }
 
