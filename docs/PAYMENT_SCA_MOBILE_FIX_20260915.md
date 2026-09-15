@@ -7,9 +7,9 @@ This document records local validation, not a production compliance certificatio
 
 - Business jurisdiction uses only `business_profiles.country`, never the contact's residence. Invalid/missing codes fail closed. Signup is unchanged.
 - EEA payment scope no longer depends on wallet inventory. Disabling the SCA service blocks protected payments instead of exempting them.
-- PIN then TOTP authorizes the exact request. Payment TOTP counters and authorization IDs are consumed once. A verifier without the counter-consumption contract fails closed during rollout.
+- PIN then TOTP authorizes the exact request. Payment TOTP counters and authorization IDs are consumed once. Production already consumed TOTP counters across all flows; that stronger behavior is preserved. A verifier without the counter-consumption contract fails closed during rollout.
 - An authorization is returned only after its success audit event is stored. The migration supplies the authorization/audit/RPC contract previously absent from tracked migrations and preserves SCA metadata across transaction webhook updates.
-- Bulk, operator treasury and public API transfers cannot bypass SCA: those entrypoints lack a two-factor payment flow and reject EEA/unresolved funds owners. The public API requires a source wallet mapped to a verified non-EEA owner; unmapped API-only customers are blocked pending their own SCA integration.
+- Bulk, operator treasury and public API transfers cannot bypass SCA: those entrypoints lack a two-factor payment flow and reject EEA/unresolved funds owners. The public API uses its existing tenant-authorized source owner and blocks EEA/unresolved owners pending its own SCA flow. Its v258 production dependency graph is preserved under `_shared/public-api-v258` because it contains protections missing from main.
 - EURC on Base already exists in main for both regions. Runtime tests cover its provider payload, and release gates now include the EURC withdrawal regression checks.
 - Native Terms and identity verification use the Capacitor Browser in fullscreen. A failed browser launch leaves the app intact and shows a retry error. Browser closure/return refreshes verification state; web navigation is preserved.
 
@@ -19,11 +19,11 @@ This document records local validation, not a production compliance certificatio
 - Frontend type check and affected Edge Function type checks.
 - Production web build and 26 mobile source regression gates.
 - Unified predeploy gate in CI mode. This mode skips live runtime/schema checks without linked production credentials; its PASS is not proof of live behavior.
-- PostgreSQL migration has not been applied or executed locally. Docker access is unavailable in this sandbox.
+- The migration passed an isolated PostgreSQL 16 CI job, including reapplication, replay/expiry, role restrictions, atomic audit failure and webhook evidence retention. The live schema was inspected and the migration applied atomically.
 
 ## Required release and verification
 
-1. Inspect the live schema/RPC definitions and current Edge versions. The read-only lookup was rejected by the automatic approval service with an infrastructure 404, so no live version claims are made here.
+1. Inspect the live schema/RPC definitions and current Edge versions. The initial approval-service 404 was resolved by direct command execution. The new checkout also needed the confirmed existing IPv4 pooler configuration. Baseline versions: verify-2fa 394, sca-scope 78, sca-authorize 32, bridge-transfer 443, bulk 312, public API 258, operator 14.
 2. Validate/apply `20260915170000_payment_sca_evidence_contract.sql` against the confirmed project. Check existing function differences first. It preserves existing rows and does not backfill historical SCA claims.
 3. Deploy `verify-2fa` before `sca-authorize`. Deploy `sca-scope`, `bridge-transfer`, `bridge-bulk-payout`, `bridge-operator-readonly` and `public-api-gateway` from this revision. Verify `BRIDGE_EEA_SCA_ENFORCEMENT_ENABLED=true`; false/missing blocks EEA payouts.
 4. Publish the tested frontend and build new iOS/Android binaries from this revision. A web deployment does not update assets bundled in already-installed store apps.
@@ -33,3 +33,7 @@ This document records local validation, not a production compliance certificatio
 
 Read-only historical evidence query: `scripts/diagnostics/payment_sca_evidence.sql`.
 Historical payouts without records cannot be represented as SCA-authorized retroactively.
+
+## Production comparison
+
+The deployed TOTP verifier already enforced all-flow replay protection, and bulk payouts used the subscription restriction RPC. Both were newer than main and are preserved. The deployed public API included tenant ownership, transfer caps and balance authorization missing from main; its source and dependency graph are retained in isolation. The 30-day local-evidence query returned 18 EEA payout rows without a linked authorization record; this does not prove whether authentication occurred elsewhere or whether prior webhook writes erased metadata. No historical SCA evidence was fabricated.

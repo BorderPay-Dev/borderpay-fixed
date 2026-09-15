@@ -12,23 +12,60 @@ import {
   parseBearerToken,
   resolveGatewayContext,
   sha256Hex,
-} from "../_shared/api-gateway.ts";
+} from "../_shared/public-api-v258/api-gateway.ts";
 import {
   bridgeProvider,
   BridgeProviderError,
-} from "../_shared/providers/bridge.ts";
+} from "../_shared/public-api-v258/providers/bridge.ts";
 import {
   validateCustomerCreate,
+  validateOnboardingAuthorization,
   validateIdempotencyHeader,
   validateTransferOrPayout,
   validateVirtualAccountCreate,
   validateWalletCreate,
   validateWebhookCreate,
-} from "../_shared/api-gateway-validators.ts";
+} from "../_shared/public-api-v258/api-gateway-validators.ts";
+import {
+  allowedAccountTypes,
+  resolveTenantOnboardingPolicy,
+  sha256Hex as onboardingTokenHash,
+  signOnboardingToken,
+} from "../_shared/public-api-v258/onboarding-policy.ts";
+import {
+  evaluateApiRuntimeReleaseGate,
+  readApiReleaseGateEnvironment,
+} from "../_shared/public-api-v258/api-release-gates.ts";
+import {
+  assertTenantResource,
+  providerReferencesForTransfer,
+  registerTenantResource,
+  resolveCustomerForTenantEndUser,
+  resolveTenantEndUser,
+  resolveTenantEndUserById,
+  TenantOwnershipError,
+  type OwnedResource,
+  type ProviderReference,
+} from "../_shared/public-api-v258/api-tenant-ownership.ts";
+import {
+  ApiFinancialAuthorizationError,
+  assertSpendableWalletBalance,
+  authorizeSingleTransferAmount,
+  fixedFeeForPercent,
+} from "../_shared/public-api-v258/api-financial-authorization.ts";
+import {
+  encryptApiWebhookSecret,
+  newApiWebhookSecret,
+} from "../_shared/public-api-v258/api-webhook-security.ts";
+import {
+  enqueueApiResourceEvent,
+} from "../_shared/public-api-v258/api-partner-events.ts";
+import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/public-api-v258/fees/schedule.ts";
 
 const ROUTE_SCOPE_MAP: Record<string, string | null> = {
   "GET /v1/health": null,
   "POST /v1/customers": "customers:write",
+  "POST /v1/onboarding-authorizations": "onboarding:write",
   "POST /v1/wallets": "wallets:write",
   "POST /v1/virtual-accounts": "virtual_accounts:write",
   "POST /v1/transfers": "transfers:write",
@@ -41,18 +78,9 @@ type GatewayHandlerResult = {
   body: Record<string, unknown>;
 };
 
-async function recordTenantResource(
-  supa: ReturnType<typeof createAdminClient>,
-  row: Record<string, unknown>,
-) {
-  const { error } = await supa.from("api_tenant_resources").upsert(row, {
-    onConflict: "tenant_id,resource_type,provider_resource_id",
-  });
-  if (error) console.error("api_tenant_resources upsert failed", error.message);
-}
-
 const IDEMPOTENT_ROUTES = new Set([
   "POST /v1/customers",
+  "POST /v1/onboarding-authorizations",
   "POST /v1/wallets",
   "POST /v1/virtual-accounts",
   "POST /v1/transfers",
@@ -104,16 +132,6 @@ function isClosedBetaEnabled(): boolean {
   return !(flag === "0" || flag === "false" || flag === "off");
 }
 
-function parseGrossAmountUsd(body: unknown): number | null {
-  if (!body || typeof body !== "object") return null;
-  const candidate = (body as any)?.transfer?.amount ??
-    (body as any)?.payout?.amount ??
-    (body as any)?.amount;
-  const n = Number(candidate);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
-}
-
 async function findReplay(
   supa: ReturnType<typeof createAdminClient>,
   tenantId: string,
@@ -162,6 +180,18 @@ async function storeReplay(
 }
 
 function mapBridgeError(e: unknown): GatewayHandlerResult {
+  if (e instanceof ApiFinancialAuthorizationError) {
+    return { status: e.status, body: { success: false, error: { code: e.code, message: e.message } } };
+  }
+  if (e instanceof TenantOwnershipError) {
+    return {
+      status: e.status,
+      body: {
+        success: false,
+        error: { code: e.code, message: e.message },
+      },
+    };
+  }
   if (e instanceof BridgeProviderError) {
     const code = String(e.bridge_code || "").trim().toLowerCase();
     const normalizedCode = code.includes("rate")
@@ -214,8 +244,99 @@ async function handleRoute(
   body: any,
   ctx: {
     tenantId: string;
+    apiKeyId: string;
+    tenantMetadata: Record<string, unknown>;
+    maxSingleTransferUsd: string | null;
+    idempotencyKey: string;
   },
 ): Promise<GatewayHandlerResult> {
+  if (routeKey === "POST /v1/onboarding-authorizations") {
+    const parsed = validateOnboardingAuthorization(body);
+    if (!parsed.ok) return { status: 400, body: { success: false, error: parsed.error } };
+
+    const policy = resolveTenantOnboardingPolicy(ctx.tenantMetadata);
+    const tenantAllowed = allowedAccountTypes(policy, parsed.value.onboarding_channel);
+    const allowed = parsed.value.requested_account_types
+      ? parsed.value.requested_account_types.filter((type) => tenantAllowed.includes(type))
+      : tenantAllowed;
+    if (allowed.length === 0 || (parsed.value.requested_account_types && allowed.length !== parsed.value.requested_account_types.length)) {
+      return {
+        status: 403,
+        body: {
+          success: false,
+          error: { code: "forbidden", message: "Requested account type is not enabled for this tenant" },
+        },
+      };
+    }
+
+    const secret = Deno.env.get("ONBOARDING_TOKEN_SIGNING_SECRET") ?? "";
+    if (secret.length < 32) {
+      return { status: 500, body: { success: false, error: { code: "internal_error", message: "Partner onboarding authorization is not configured" } } };
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const authorizationId = crypto.randomUUID();
+    const expiresAt = now + parsed.value.expires_in_seconds;
+    const token = await signOnboardingToken({
+      iss: "borderpay",
+      aud: "partner_onboarding",
+      jti: authorizationId,
+      tenant_id: ctx.tenantId,
+      api_key_id: ctx.apiKeyId,
+      external_user_id: parsed.value.external_user_id,
+      allowed_account_types: allowed,
+      onboarding_channel: parsed.value.onboarding_channel,
+      iat: now,
+      exp: expiresAt,
+    }, secret);
+    const tokenHash = await onboardingTokenHash(token);
+    const { error: insertError } = await supa.from("api_onboarding_authorizations").insert({
+      id: authorizationId,
+      tenant_id: ctx.tenantId,
+      api_key_id: ctx.apiKeyId,
+      token_hash: tokenHash,
+      external_user_id: parsed.value.external_user_id,
+      allowed_account_types: allowed,
+      onboarding_channel: parsed.value.onboarding_channel,
+      expires_at: new Date(expiresAt * 1000).toISOString(),
+    });
+    if (insertError) throw new Error(`Failed to persist onboarding authorization: ${insertError.message}`);
+    const { error: auditError } = await supa.from("api_onboarding_audit").insert({
+      tenant_id: ctx.tenantId,
+      api_key_id: ctx.apiKeyId,
+      authorization_id: authorizationId,
+      external_user_id: parsed.value.external_user_id,
+      event_type: "authorization_issued",
+      onboarding_channel: parsed.value.onboarding_channel,
+      metadata: { allowed_account_types: allowed, expires_in_seconds: parsed.value.expires_in_seconds },
+    });
+    if (auditError) {
+      const { error: rollbackError } = await supa
+        .from("api_onboarding_authorizations")
+        .delete()
+        .eq("id", authorizationId)
+        .eq("tenant_id", ctx.tenantId);
+      if (rollbackError) {
+        console.error("onboarding authorization rollback failed", rollbackError.message);
+      }
+      throw new Error(`Failed to persist onboarding audit: ${auditError.message}`);
+    }
+    const appUrl = (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/$/, "");
+    return {
+      status: 201,
+      body: {
+        success: true,
+        data: {
+          onboarding_token: token,
+          expires_at: new Date(expiresAt * 1000).toISOString(),
+          allowed_account_types: allowed,
+          // Fragments are not sent in HTTP requests or access logs. The app
+          // captures and immediately scrubs this short-lived bearer value.
+          signup_url: `${appUrl}/signup#onboarding_token=${encodeURIComponent(token)}`,
+        },
+      },
+    };
+  }
+
   if (routeKey === "POST /v1/customers") {
     const parsed = validateCustomerCreate(body);
     if (!parsed.ok) {
@@ -225,18 +346,32 @@ async function handleRoute(
       };
     }
 
-    const result = await bridgeProvider.createCustomer(parsed.value);
-    await recordTenantResource(supa, {
-      tenant_id: ctx.tenantId,
-      resource_type: "customer",
-      provider_resource_id: result.provider_id,
-      state: "created",
-      display_name: parsed.value.company_name ?? parsed.value.full_name ?? null,
-      external_reference: parsed.value.borderpay_user_id,
-      safe_metadata: {
-        account_type: parsed.value.account_type,
-        email: parsed.value.email,
-        country_code: parsed.value.country_code,
+    const tenantEndUser = await resolveTenantEndUser(
+      supa,
+      ctx.tenantId,
+      parsed.value.borderpay_user_id,
+      parsed.value.account_type,
+    );
+    const result = await bridgeProvider.createCustomer({
+      ...parsed.value,
+      borderpay_user_id: tenantEndUser.userId,
+    });
+    const resourceId = await registerTenantResource(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: tenantEndUser.id,
+      apiKeyId: ctx.apiKeyId,
+      resourceType: "customer",
+      providerResourceId: result.provider_id,
+    });
+    await enqueueApiResourceEvent(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: tenantEndUser.id,
+      resourceId,
+      eventType: "customer.created",
+      idempotencyKey: `api:customer.created:${result.provider_id}`,
+      payload: {
+        resource: { id: result.provider_id, type: "customer" },
+        account_type: tenantEndUser.accountType,
       },
     });
     return {
@@ -259,15 +394,33 @@ async function handleRoute(
         body: { success: false, error: parsed.error },
       };
     }
+    const customer = await assertTenantResource(
+      supa,
+      ctx.tenantId,
+      "customer",
+      parsed.value.customer_id,
+    );
     const result = await bridgeProvider.createWallet(parsed.value as any);
-    await recordTenantResource(supa, {
-      tenant_id: ctx.tenantId,
-      resource_type: "wallet",
-      provider_resource_id: result.wallet_id,
-      customer_provider_id: parsed.value.customer_id,
-      state: "active",
-      source_currency: result.symbol,
-      safe_metadata: { chain: result.chain },
+    const resourceId = await registerTenantResource(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: customer.tenantEndUserId,
+      apiKeyId: ctx.apiKeyId,
+      resourceType: "wallet",
+      providerResourceId: result.wallet_id,
+      parentResourceId: customer.resourceId,
+      metadata: { symbol: result.symbol, chain: result.chain },
+    });
+    await enqueueApiResourceEvent(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: customer.tenantEndUserId,
+      resourceId,
+      eventType: "wallet.created",
+      idempotencyKey: `api:wallet.created:${result.wallet_id}`,
+      payload: {
+        resource: { id: result.wallet_id, type: "wallet" },
+        symbol: result.symbol,
+        chain: result.chain,
+      },
     });
     return {
       status: 201,
@@ -291,19 +444,51 @@ async function handleRoute(
         body: { success: false, error: parsed.error },
       };
     }
-    const result = await bridgeProvider.createVirtualAccount(parsed.value);
-    await recordTenantResource(supa, {
-      tenant_id: ctx.tenantId,
-      resource_type: "virtual_account",
-      provider_resource_id: result.virtual_account_id,
-      customer_provider_id: parsed.value.customer_id,
-      state: "active",
-      source_currency: result.currency,
-      safe_metadata: {
-        destination_rail: parsed.value.destination.rail,
-        bank_name: result.bank_name ?? null,
-        account_last4: result.account_number?.slice(-4) ?? null,
-        iban_last4: result.iban?.slice(-4) ?? null,
+    const customer = await assertTenantResource(
+      supa,
+      ctx.tenantId,
+      "customer",
+      parsed.value.customer_id,
+    );
+    const destinationWallet = await assertTenantResource(
+      supa,
+      ctx.tenantId,
+      "wallet",
+      parsed.value.destination.bridge_wallet_id,
+    );
+    if (destinationWallet.tenantEndUserId !== customer.tenantEndUserId) {
+      throw new TenantOwnershipError("tenant_resource_forbidden", "Virtual-account settlement wallet must belong to the customer", 403);
+    }
+    const tenantEndUser = await resolveTenantEndUserById(supa, ctx.tenantId, customer.tenantEndUserId);
+    const result = await bridgeProvider.createVirtualAccount({
+      ...parsed.value,
+      developer_fee_percent: String(
+        tenantEndUser.accountType === "business"
+          ? BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_business
+          : BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_individual,
+      ),
+      allow_zero_developer_fee: false,
+    });
+    const resourceId = await registerTenantResource(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: customer.tenantEndUserId,
+      apiKeyId: ctx.apiKeyId,
+      resourceType: "virtual_account",
+      providerResourceId: result.virtual_account_id,
+      parentResourceId: customer.resourceId,
+      providerStatus: result.status,
+      metadata: { currency: result.currency },
+    });
+    await enqueueApiResourceEvent(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: customer.tenantEndUserId,
+      resourceId,
+      eventType: "virtual_account.created",
+      idempotencyKey: `api:virtual_account.created:${result.virtual_account_id}`,
+      payload: {
+        resource: { id: result.virtual_account_id, type: "virtual_account" },
+        status: result.status,
+        currency: result.currency,
       },
     });
     return {
@@ -324,34 +509,109 @@ async function handleRoute(
   }
 
   if (routeKey === "POST /v1/transfers" || routeKey === "POST /v1/payouts") {
-    const parsed = validateTransferOrPayout(body);
+    const routeKind = routeKey === "POST /v1/payouts" ? "payout" : "transfer";
+    const parsed = validateTransferOrPayout(body, routeKind);
     if (!parsed.ok) {
       return {
         status: 400,
         body: { success: false, error: parsed.error },
       };
     }
-    // Determine jurisdiction from the source wallet owner, never caller-supplied
-    // attestation or the API tenant's country. This API has no SCA challenge.
+    const references = providerReferencesForTransfer(parsed.value);
+    const sourceReferences = references.filter((reference) =>
+      reference.side === "source"
+    );
+    if (sourceReferences.length === 0) {
+      throw new TenantOwnershipError(
+        "tenant_resource_forbidden",
+        "A tenant-owned source customer, wallet, or external account is required",
+        403,
+      );
+    }
+
+    const ownedReferences: Array<ProviderReference & OwnedResource> = [];
+    for (const reference of references) {
+      const owned = await assertTenantResource(
+        supa,
+        ctx.tenantId,
+        reference.resourceType,
+        reference.providerResourceId,
+      );
+      ownedReferences.push({ ...reference, ...owned });
+    }
+    const sourceOwner = ownedReferences.find((reference) =>
+      reference.side === "source"
+    )!;
+    if (
+      ownedReferences.some((reference) =>
+        reference.side === "source" &&
+        reference.tenantEndUserId !== sourceOwner.tenantEndUserId
+      )
+    ) {
+      throw new TenantOwnershipError(
+        "tenant_resource_forbidden",
+        "Source provider resources do not belong to the same tenant end user",
+        403,
+      );
+    }
+
+    if (routeKind === "payout" && ownedReferences.some((reference) =>
+      reference.tenantEndUserId !== sourceOwner.tenantEndUserId
+    )) {
+      throw new TenantOwnershipError("tenant_resource_forbidden", "Payout source and external account must belong to the same tenant end user", 403);
+    }
+    if (parsed.value.idempotency_key !== ctx.idempotencyKey) {
+      throw new ApiFinancialAuthorizationError("invalid_request", "Body idempotency_key must match the Idempotency-Key header", 400);
+    }
+    authorizeSingleTransferAmount(parsed.value.source.amount, ctx.maxSingleTransferUsd);
+    const tenantEndUser = await resolveTenantEndUserById(supa, ctx.tenantId, sourceOwner.tenantEndUserId);
+    await assertSpendableWalletBalance(
+      supa,
+      tenantEndUser.userId,
+      parsed.value.source.currency,
+      parsed.value.source.amount,
+    );
+    const providerCustomerId = await resolveCustomerForTenantEndUser(supa, ctx.tenantId, sourceOwner.tenantEndUserId);
+    const canonicalIdempotencyKey = `borderpay:api:${ctx.tenantId}:${ctx.idempotencyKey}`;
+
     const scaGuard = await guardUnattestedTransfer(supa, {
-      walletId: String(parsed.value.source.bridge_wallet_id || ""),
+      userId: tenantEndUser.userId, customerId: providerCustomerId,
     });
     if (!scaGuard.ok) return { status: scaGuard.status, body: scaGuard.body };
-    const result = await bridgeProvider.createTransfer(parsed.value as any);
-    const source = parsed.value.source as Record<string, unknown>;
-    const destination = parsed.value.destination as Record<string, unknown>;
-    await recordTenantResource(supa, {
-      tenant_id: ctx.tenantId,
-      resource_type: routeKey === "POST /v1/payouts" ? "payout" : "transfer",
-      provider_resource_id: result.transfer_id,
-      state: result.state,
-      amount: Number(source.amount),
-      source_currency: String(source.currency ?? "").toUpperCase(),
-      destination_currency: String(destination.currency ?? "").toUpperCase(),
-      external_reference: parsed.value.idempotency_key,
-      safe_metadata: {
-        source_rail: source.payment_rail ?? null,
-        destination_rail: destination.payment_rail ?? null,
+    const result = await bridgeProvider.createTransfer({
+      ...parsed.value,
+      on_behalf_of: providerCustomerId,
+      idempotency_key: canonicalIdempotencyKey,
+      developer_fee: routeKind === "payout"
+        ? {
+          flat_amount: fixedFeeForPercent(
+            parsed.value.source.amount,
+            Math.round(BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp * 100),
+          ),
+        }
+        : undefined,
+    } as any);
+    const resourceId = await registerTenantResource(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: sourceOwner.tenantEndUserId,
+      apiKeyId: ctx.apiKeyId,
+      resourceType: "transfer",
+      providerResourceId: result.transfer_id,
+      parentResourceId: sourceOwner.resourceId,
+      providerStatus: result.state,
+      metadata: { route: routeKey },
+    });
+    await enqueueApiResourceEvent(supa, {
+      tenantId: ctx.tenantId,
+      tenantEndUserId: sourceOwner.tenantEndUserId,
+      resourceId,
+      eventType: routeKind === "payout" ? "payout.created" : "transfer.created",
+      idempotencyKey: `api:${routeKind}.created:${result.transfer_id}`,
+      payload: {
+        resource: { id: result.transfer_id, type: routeKind },
+        status: result.state,
+        amount: parsed.value.source.amount,
+        currency: parsed.value.source.currency,
       },
     });
 
@@ -376,15 +636,27 @@ async function handleRoute(
         body: { success: false, error: parsed.error },
       };
     }
-    const plainSecret = `bwhsec_${crypto.randomUUID().replaceAll("-", "")}`;
+    const endpointId = crypto.randomUUID();
+    const secretVersion = 1;
+    const plainSecret = newApiWebhookSecret();
     const signingSecretHash = await sha256Hex(plainSecret);
+    const encrypted = await encryptApiWebhookSecret(
+      plainSecret,
+      endpointId,
+      secretVersion,
+    );
 
     const { data, error } = await supa
       .from("api_webhook_endpoints")
       .insert({
+        id: endpointId,
         tenant_id: ctx.tenantId,
         endpoint_url: parsed.value.endpoint_url,
         signing_secret_hash: signingSecretHash,
+        signing_secret_ciphertext: encrypted.ciphertext,
+        signing_secret_nonce: encrypted.nonce,
+        signing_secret_version: secretVersion,
+        delivery_enabled: true,
       })
       .select("id, endpoint_url, created_at")
       .single();
@@ -663,6 +935,32 @@ Deno.serve(async (req) => {
       );
     }
 
+    const releaseGate = evaluateApiRuntimeReleaseGate(
+      ctx.defaultMode,
+      routeKey,
+      readApiReleaseGateEnvironment(),
+    );
+    if (!releaseGate.allowed) {
+      await logGatewayRequest(supa, {
+        tenantId,
+        apiKeyId,
+        requestId,
+        method,
+        route,
+        statusCode: 403,
+        errorCode: "forbidden",
+        clientIp,
+        latencyMs: Date.now() - startedAt,
+        metadata: { reason: releaseGate.reason, route_key: routeKey },
+      });
+      return gatewayError(
+        "forbidden",
+        "This API operation is not enabled for the tenant environment",
+        403,
+        { reason: releaseGate.reason || "release_gate_denied" },
+      );
+    }
+
     if (routeKey === "GET /v1/health") {
       const status = {
         success: true,
@@ -694,54 +992,6 @@ Deno.serve(async (req) => {
       return gatewayJson(status, 200);
     }
     const isIdempotentRoute = IDEMPOTENT_ROUTES.has(routeKey);
-    if (
-      (routeKey === "POST /v1/transfers" || routeKey === "POST /v1/payouts") &&
-      ctx.maxSingleTransferUsd != null
-    ) {
-      const grossAmount = parseGrossAmountUsd(body);
-      if (grossAmount == null) {
-        await logGatewayRequest(supa, {
-          tenantId,
-          apiKeyId,
-          requestId,
-          method,
-          route,
-          statusCode: 400,
-          errorCode: "invalid_request",
-          clientIp,
-          latencyMs: Date.now() - startedAt,
-          metadata: { reason: "amount_missing_or_invalid" },
-        });
-        return gatewayError(
-          "invalid_request",
-          "Transfer amount is required",
-          400,
-        );
-      }
-      if (grossAmount > ctx.maxSingleTransferUsd) {
-        await logGatewayRequest(supa, {
-          tenantId,
-          apiKeyId,
-          requestId,
-          method,
-          route,
-          statusCode: 403,
-          errorCode: "forbidden",
-          clientIp,
-          latencyMs: Date.now() - startedAt,
-          metadata: {
-            reason: "single_transfer_cap_exceeded",
-            max_single_transfer_usd: ctx.maxSingleTransferUsd,
-            requested_amount: grossAmount,
-          },
-        });
-        return gatewayError(
-          "forbidden",
-          `Transfer amount exceeds tenant cap of ${ctx.maxSingleTransferUsd.toFixed(2)} USD`,
-          403,
-        );
-      }
-    }
 
     let idempotencyKey = "";
     let requestHash = "";
@@ -858,6 +1108,10 @@ Deno.serve(async (req) => {
         bodyWithFallbackIdempotency,
         {
           tenantId,
+          apiKeyId,
+          tenantMetadata: ctx.tenantMetadata,
+          maxSingleTransferUsd: ctx.maxSingleTransferUsd,
+          idempotencyKey,
         },
       );
     } catch (e) {

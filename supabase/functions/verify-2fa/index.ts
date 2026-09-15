@@ -3,7 +3,7 @@
 //
 // SOURCE OF TRUTH for deployed version 86/87. Reads the encrypted secret
 // from user_security via the `get_totp_secret_encrypted_b64` RPC
-// (added in migration 20260520_totp_secret_b64_rpcs.sql), which
+// (added in migration 20260520000000_totp_secret_b64_rpcs.sql), which
 // returns the bytea column as a base64 string so we never have to
 // parse PostgREST's `\x...` bytea text representation. Decrypts under
 // TOTP_ENCRYPTION_KEY (server-only env), then runs RFC-6238
@@ -139,7 +139,7 @@ Deno.serve(async (req: Request) => {
     // with `new Uint8Array(string)` (always produced zero-length
     // garbage). The RPC returns a base64 string instead — clean text
     // round-trip, decoded here with the standard base64 → Uint8Array
-    // path. See migration 20260520_totp_secret_b64_rpcs.sql.
+    // path. See migration 20260520000000_totp_secret_b64_rpcs.sql.
     const { data: b64, error: fetchErr } = await supabase.rpc(
       'get_totp_secret_encrypted_b64',
       { p_user_id: user.id },
@@ -156,18 +156,20 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, error: 'Secret unavailable', code: 'decrypt_failed' }, 500);
     }
 
-    const matchedCounter = await verifyTOTP(secret, totpToken);
-    if (matchedCounter === null) {
+    const verifiedCounter = await verifyTOTP(secret, totpToken);
+    if (verifiedCounter === null) {
       return json({ success: false, error: 'Invalid verification code' }, 401);
     }
 
-    if (purpose === 'sca_payment') {
-      const { data: consumed, error: consumeError } = await supabase.rpc('consume_totp_counter', {
-        p_user_id: user.id, p_counter: matchedCounter,
-      });
-      if (consumeError) return json({ success: false, error: 'Strong authentication is temporarily unavailable.' }, 503);
-      if (consumed !== true) return json({ success: false, error: 'This authenticator code was already used. Wait for a new code.' }, 401);
-    }
+    // A TOTP is a one-time factor, not a 30-second reusable password. Consume
+    // the matched counter atomically so concurrent or repeated submissions of
+    // the same code fail closed across login and SCA flows.
+    const { data: counterConsumed, error: counterError } = await supabase.rpc(
+      'consume_totp_counter',
+      { p_user_id: user.id, p_counter: verifiedCounter },
+    );
+    if (counterError) return json({ success: false, code: 'totp_replay_guard_unavailable', error: 'Verification is temporarily unavailable.' }, 503);
+    if (counterConsumed !== true) return json({ success: false, code: 'totp_replayed', error: 'This authenticator code was already used. Wait for the next code.' }, 401);
 
     const { error: updateError } = await supabase
       .from('user_security')
