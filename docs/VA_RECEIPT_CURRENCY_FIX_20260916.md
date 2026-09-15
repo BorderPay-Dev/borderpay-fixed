@@ -1,0 +1,11 @@
+# Virtual-account settlement receipt correction
+
+A processed EUR-to-USDC deposit was emailed as 9,888.05 EUR gross less a 264.51 EUR fee, producing a false 9,623.54 EUR net. Bridge reported 8,876.00 EUR incoming, 264.51 EUR developer fee and 9,888.05 USDC outgoing. The source amount after the stated fee is 8,611.49 EUR; the outgoing amount must be taken directly from Bridge, not recalculated from a rounded rate.
+
+Bridge documents `activity.amount` on `payment_submitted`/`payment_processed` as the destination amount after fees. `receipt.initial_amount`, `receipt.developer_fee`, `receipt.exchange_fee` and `receipt.subtotal_amount` describe the source fiat leg; `receipt.final_amount` describes the destination leg. See https://apidocs.bridge.xyz/api-reference/virtual-accounts/virtual-account-activity and https://apidocs.bridge.xyz/platform/orchestration/virtual_accounts/virtual-account-events.
+
+The worker now preserves these units in receipt metadata, emails and notifications. It recognizes the actual destination asset from the virtual account even where an event uses a pegged fiat currency code. Missing source receipt data cannot be reconstructed from the destination amount; incomplete receipts are identified in queue completion metadata and no misleading approved email is sent. Completed receipts retain the approved status instead of claiming submission with a future arrival estimate.
+
+The settlement handler remains status-only. The regression test invokes the actual handler and asserts no credit/debit/balance write, correct email props and notification amounts. This does not prove that any historical customer ledger is correct. Production record inspection was blocked by an automatic approval-review service 404; historical reconciliation and the separately reported withdrawal-readiness warning remain pending. No historical balances were adjusted and no correction email was sent.
+
+The deployed worker v476 entrypoint matches the base source. Its bundled scope/identity helpers predate the already merged incorporation-country fixes; redeployment from main includes those current helpers. Deployed email v429 and all 51 template dependencies match the base source. The release changes the worker and the two transaction-status templates only; no native build or Vercel release is needed.
