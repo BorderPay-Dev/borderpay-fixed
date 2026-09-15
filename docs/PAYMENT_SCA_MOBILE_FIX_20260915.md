@@ -54,3 +54,5 @@ The SCA schema migration is applied and recorded. The metadata retention trigger
 - Vercel production deployment targets only the linked borderpay-recovery project. Earlier deployment/promote attempts were blocked by the daily deployment quota. No protected preview has been substituted for the public production app. Installed native apps bundle their JavaScript and need replacement store binaries for frontend changes.
 
 The shared Send address validator previously derived allowed addresses from a Base-only form selector, which rejected every Tron destination. It now validates Base/Tron syntax independently of regional eligibility; the backend retains the EEA USDT prohibition. Added valid, wrong-network and malformed address tests. KYC v335 is confirmed ACTIVE.
+
+Withdrawal funding is separate from regional wallet presentation: Send explicitly requests all owned supported assets, retaining the EURC Base wallet ID and asset-specific balance for non-EEA customers. Ordinary Wallet/Receive views continue to hide EURC for non-EEA accounts. A display snapshot cannot hide or strand a withdrawable balance.
