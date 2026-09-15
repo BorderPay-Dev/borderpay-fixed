@@ -73,18 +73,20 @@ function normalizeCryptoRoute(network?: string, token?: string): CryptoWithdrawa
   const n = String(network || '').toLowerCase();
   const t = String(token || '').toUpperCase();
   if (n === 'tron') return { network: 'tron', token: 'USDT', address: '' };
+  if (n === 'base' && t === 'EURC') return { network: 'base', token: 'EURC', address: '' };
   if (n === 'base') return { network: 'base', token: 'USDC', address: '' };
+  if (t === 'EURC') return { network: 'base', token: 'EURC', address: '' };
   if (t === 'USDT') return { network: 'tron', token: 'USDT', address: '' };
   return { network: 'base', token: 'USDC', address: '' };
 }
 
 function cryptoRouteLabel(values: CryptoWithdrawalValues): string {
   if (values.network === 'tron') return 'USDT on TRON';
-  return 'USDC on Base';
+  return `${values.token} on Base`;
 }
 
 function cryptoMinimumMessage(values: CryptoWithdrawalValues): string {
-  return `Minimum gross payout in app is $${UI_CRYPTO_MIN_GROSS_USD.toFixed(2)} (${cryptoRouteLabel(values)}).`;
+  return `Minimum payout is ${UI_CRYPTO_MIN_GROSS_USD.toFixed(2)} ${values.token} on ${chainDisplayName(values.network)}.`;
 }
 
 function mapCryptoTransferError(code: string | undefined, fallback: string | undefined, crypto: CryptoWithdrawalValues): string {
@@ -95,13 +97,13 @@ function mapCryptoTransferError(code: string | undefined, fallback: string | und
     return 'We could not verify your wallet balance right now. Please retry shortly.';
   }
   if (code === 'unsupported_crypto_route') {
-    return 'Only USDC on Base and USDT on TRON are supported right now.';
+    return 'Supported withdrawal routes are USDC on Base, EURC on Base, and USDT on TRON.';
   }
   if (code === 'gross_below_minimum' || code === 'dust_minimum_not_met') {
     return cryptoMinimumMessage(crypto);
   }
   if (code === 'chain_mismatch' || code === 'currency_mismatch') {
-    return 'Source and destination must use the same allowed route (USDC/Base or USDT/TRON).';
+    return 'Source and destination must use the same asset and network.';
   }
   return fallback || 'Transfer failed. Please review your payout route and amount.';
 }
@@ -169,7 +171,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   XAF: 'FCFA', XOF: 'FCFA', TZS: 'TSh', USD: '$',
   SLE: 'Le', MZN: 'MT', MWK: 'MK', BWP: 'P', CDF: 'FC',
   RWF: 'FRw', ZAR: 'R', ZMW: 'K',
-  USDT: '$', USDC: '$', PYUSD: '$',
+  USDT: '$', USDC: '$', EURC: '€', PYUSD: '$',
 };
 
 function getCurrencySymbol(code: string) {
@@ -415,7 +417,7 @@ function walletRouteKey(asset: string, chain: string) {
 
 function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>) {
   const key = walletRouteKey(wallet.asset, wallet.chain);
-  return key === 'USDC:base';
+  return key === 'USDC:base' || key === 'EURC:base';
 }
 
 function chainDisplayName(chain: string) {
@@ -636,8 +638,15 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const filteredExternalWallets = useMemo(
     () => externalWallets
       .filter(isSupportedExternalWallet)
-      .filter((wallet) => walletRouteKey(wallet.asset, wallet.chain) === selectedCryptoRouteKey),
-    [externalWallets, selectedCryptoRouteKey],
+      .filter((wallet) => {
+        const walletChain = String(wallet.chain || '').toLowerCase();
+        const walletAsset = String(wallet.asset || '').toUpperCase();
+        if (crypto.network === 'base' && (crypto.token === 'USDC' || crypto.token === 'EURC')) {
+          return walletChain === 'base' && (walletAsset === 'USDC' || walletAsset === 'EURC');
+        }
+        return walletRouteKey(wallet.asset, wallet.chain) === selectedCryptoRouteKey;
+      }),
+    [externalWallets, selectedCryptoRouteKey, crypto.network, crypto.token],
   );
   const selectedCryptoExternalWallet = useMemo(
     () => externalWallets.find((wallet) => String(wallet.id || '') === cryptoSavedWalletId) || null,
@@ -672,14 +681,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   }, [externalWallets.length, externalWalletsCacheKey]);
 
   const selectExternalWallet = useCallback((wallet: ExternalWallet) => {
-    const normalized = normalizeCryptoRoute(wallet.chain, wallet.asset);
+    // A Base address can receive either supported Base asset. Preserve the
+    // route the customer selected instead of letting legacy wallet metadata
+    // silently switch EURC back to USDC.
+    const normalized = normalizeCryptoRoute(wallet.chain, crypto.token);
     setMethod('stablecoin');
     setSelectedCurrency(normalized.token);
     setCrypto({ ...normalized, address: String(wallet.address || '') });
     setCryptoSavedRouteId(String(wallet.bridge_payment_route_id || ''));
     setCryptoSavedWalletId(String(wallet.id || ''));
     setStep('amount');
-  }, []);
+  }, [crypto.token]);
 
   useEffect(() => {
     if (step === 'crypto-wallet') {
@@ -1470,7 +1482,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           reason: reason || 'Digital dollar transfer',
           address: crypto.address.trim(),
           chain: crypto.network,                                  // tron|base
-          coin: crypto.token.toLowerCase() as 'usdc' | 'usdt',
+          coin: crypto.token.toLowerCase() as 'usdc' | 'usdt' | 'eurc',
           bridge_wallet_id: selectedWallet.bridge_wallet_id,
           external_wallet_id: cryptoSavedWalletId,
           ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}),
@@ -2153,6 +2165,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className="mb-4 grid grid-cols-2 gap-2">
               {[
                 { token: 'USDC', network: 'base', label: 'USDC', sub: 'Base' },
+                { token: 'EURC', network: 'base', label: 'EURC', sub: 'Base' },
               ].map((route) => {
                 const active = crypto.token === route.token && crypto.network === route.network;
                 return (
@@ -2498,7 +2511,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         {cryptoSavedWalletId ? cryptoRouteLabel(crypto) : 'Choose a saved wallet'}
                       </p>
                       <p className={`mt-1 truncate text-xs ${tc.textMuted}`}>
-                        {cryptoSavedWalletId ? shortAddress(crypto.address) : 'USDC/Base or USDT/TRON'}
+                        {cryptoSavedWalletId ? shortAddress(crypto.address) : 'USDC/Base or EURC/Base'}
                       </p>
                     </div>
                     <ArrowRight size={18} className={tc.textMuted} />

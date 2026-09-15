@@ -5,7 +5,8 @@
  *
  * Active production crypto payout pathways:
  *   1) USDC on BASE
- *   2) USDT on TRON
+ *   2) EURC on BASE
+ *   3) USDT on TRON
  *
  * Developer fee:
  *   - Same-token wallet payouts cannot carry Bridge developer_fee_percent.
@@ -24,7 +25,7 @@ export const BRIDGE_PAYOUT_DEVELOPER_FEE_PERCENT = 0.0;
 
 type SupportedRoute = {
   chain: "BASE" | "TRON";
-  currency: "USDC" | "USDT";
+  currency: "USDC" | "EURC" | "USDT";
   // Absolute gross lower bound we enforce at request boundary.
   gross_min_usd: number;
   // Bridge-safe post-fee minimum (net destination amount).
@@ -33,6 +34,7 @@ type SupportedRoute = {
 
 const ROUTES: Record<string, SupportedRoute> = {
   "BASE:USDC": { chain: "BASE", currency: "USDC", gross_min_usd: 2.0, net_min_usd: 1.0 },
+  "BASE:EURC": { chain: "BASE", currency: "EURC", gross_min_usd: 2.0, net_min_usd: 1.0 },
   "TRON:USDT": { chain: "TRON", currency: "USDT", gross_min_usd: 4.0, net_min_usd: 3.0 },
 };
 
@@ -42,7 +44,7 @@ export type BridgePayoutValidationOk = {
     source_payment_rail: "bridge_wallet";
     destination_payment_rail: "base" | "tron";
     chain: "BASE" | "TRON";
-    currency: "USDC" | "USDT";
+    currency: "USDC" | "EURC" | "USDT";
     gross_amount: string; // 2dp
     developer_fee: string; // fixed decimal, 2dp
     bridge_developer_fee: string | null; // always null for crypto payouts
@@ -139,14 +141,26 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
       },
     };
   }
-  if (sourceCurrency !== "USDC" && sourceCurrency !== "USDT") {
+  if (sourceCurrency !== "USDC" && sourceCurrency !== "EURC" && sourceCurrency !== "USDT") {
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
         code: "unsupported_crypto_source",
-        error: "Supported source currencies are USDC and USDT only.",
+        error: "Supported source currencies are USDC, EURC, and USDT only.",
+      },
+    };
+  }
+
+  if (sourceCurrency !== destinationCurrency) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        code: "currency_mismatch",
+        error: "Crypto withdrawals must use the same source and destination asset.",
       },
     };
   }
@@ -159,7 +173,7 @@ export function validateBridgePayout(body: any): BridgePayoutValidationResult {
       body: {
         success: false,
         code: "unsupported_crypto_route",
-        error: "Supported crypto payout routes are USDC on BASE and USDT on TRON only.",
+        error: "Supported crypto payout routes are USDC on BASE, EURC on BASE, and USDT on TRON only.",
       },
     };
   }

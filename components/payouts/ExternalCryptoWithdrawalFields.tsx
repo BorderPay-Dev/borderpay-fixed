@@ -17,7 +17,7 @@ import { Wallet, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 export type CryptoNetwork = 'tron' | 'base';
-export type CryptoToken   = 'USDT' | 'USDC';
+export type CryptoToken   = 'USDT' | 'USDC' | 'EURC';
 
 export interface CryptoWithdrawalValues {
   network: CryptoNetwork;
@@ -34,7 +34,7 @@ interface NetworkDef {
 }
 
 export const NETWORKS: NetworkDef[] = [
-  { id: 'base',     label: 'Base',              family: 'evm',    tokens: ['USDC'] },
+  { id: 'base',     label: 'Base',              family: 'evm',    tokens: ['USDC', 'EURC'] },
 ];
 
 const ADDRESS_RULES: Record<NetworkDef['family'], { re: RegExp; hint: string }> = {

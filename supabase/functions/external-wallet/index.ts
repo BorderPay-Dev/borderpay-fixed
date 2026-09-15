@@ -29,7 +29,7 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 
 const EVM = new Set(["base"]);
 const SUPPORTED_CHAINS = new Set([...EVM, "tron"]);
-const SUPPORTED_ASSETS = new Set(["USDC", "USDT"]);
+const SUPPORTED_ASSETS = new Set(["USDC", "EURC", "USDT"]);
 
 function validAddress(chain: string, address: string): boolean {
   const a = (address || "").trim();
@@ -143,10 +143,10 @@ Deno.serve(async (req) => {
     const address = String(body.address || "").trim();
 
     if (!label)                          return json({ success: false, error: "Add a name for this wallet." }, 400);
-    if (!SUPPORTED_CHAINS.has(chain))    return json({ success: false, error: "Supported withdrawal networks are Base for USDC and Tron for USDT." }, 400);
+    if (!SUPPORTED_CHAINS.has(chain))    return json({ success: false, error: "Supported withdrawal networks are Base for USDC and EURC, and Tron for USDT." }, 400);
     if (!SUPPORTED_ASSETS.has(asset))    return json({ success: false, error: "Unsupported asset." }, 400);
-    if ((asset === "USDC" && chain !== "base") || (asset === "USDT" && chain !== "tron")) {
-      return json({ success: false, error: "Use USDC on Base or USDT on Tron." }, 400);
+    if (((asset === "USDC" || asset === "EURC") && chain !== "base") || (asset === "USDT" && chain !== "tron")) {
+      return json({ success: false, error: "Use USDC or EURC on Base, or USDT on Tron." }, 400);
     }
     if (!validAddress(chain, address))   return json({ success: false, error: "That address isn't valid for the selected network." }, 422);
 

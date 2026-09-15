@@ -37,7 +37,7 @@ for token in [
 for token in [
     'source_payment_rail: "bridge_wallet"',
     'destination_payment_rail: "base" | "tron"',
-    '.select("id, address")',
+    '.select("id, address, asset, chain")',
     "address: cryptoFinalAddress",
     "to_address: cryptoFinalAddress",
     'transfer_method: enforcedCryptoPayout ? "crypto_to_crypto_transfer" : null',
