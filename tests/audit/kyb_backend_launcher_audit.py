@@ -16,6 +16,8 @@ checks = {
     "launcher route is absent": "VerificationContinuePage" not in app and "'/verification/continue'" not in app,
     "native callback cannot use an internal WebView origin": "verificationRedirectUrl(body.redirect_url)" in kyb and "capacitor://localhost" in kyb,
     "external callback is pinned to BorderPay HTTPS": 'parsed.protocol === "https:"' in kyb and "parsed.hostname === app.hostname" in kyb,
+    "cached provider links have their native callback replaced": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(undefined))' in kyb,
+    "legacy callback spelling is removed": 'target.searchParams.delete("redirect_uri")' in kyb,
     "Vercel does not proxy HTML from Supabase": '"source": "/verification/continue"' not in vercel,
     "KYB backend cannot emit launcher HTML": "<!doctype html>" not in kyb and "text/html" not in kyb,
     "ToS remains separately represented": "tos_link_url: tosRequired ? link.tos_link_url : null" in kyb,

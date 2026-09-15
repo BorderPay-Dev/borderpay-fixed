@@ -37,6 +37,7 @@ def main() -> int:
         "subscription fallback key uses contract version": "business:full-name-v2" in UPGRADE,
         "redirect URI remains application callback": "redirect_uri: redirectUrl" in body and "verificationRedirectUrl(body.redirect_url)" in SOURCE,
         "native internal origin is rejected": "capacitor://localhost" in SOURCE and 'parsed.protocol === "https:"' in SOURCE,
+        "returned Persona callback is normalized": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(undefined))' in SOURCE,
         "existing customer resumes through customer KYB endpoint": (
             "const encodedCustomerId = encodeURIComponent(existingCustomerId)" in SOURCE
             and "/v0/customers/${encodedCustomerId}/kyc_link" in SOURCE
