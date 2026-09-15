@@ -25,6 +25,8 @@ va_config = read("supabase/functions/_shared/providers/virtual-account-config.ts
 checks = {
     "wallet reads include the three supported assets": backend.count(".in('currency', ['USDC', 'EURC', 'USDT'])") >= 3,
     "presentation keeps USDT separate from VA-linked Base": "USDT is a separate Tron wallet" in presentation and "allowUsdtTron" in presentation,
+    "wallet cache restores Tron after regional scope resolves": "walletScopeResolved" in wallet and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron })" in wallet,
+    "receive cache restores Tron after regional scope resolves": "walletScopeResolved" in receive and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron })" in receive,
     "wallet screen supports three bounded assets": "new Set(['USDC', 'EURC', 'USDT'])" in wallet,
     "add-wallet hides USDT unless non-EEA": "{ code: 'USDT'" in add_wallet and "card.code !== 'USDT' || allowUsdtTron" in add_wallet,
     "receive binds USDT to Tron": "sym === 'USDT' && chain === 'tron'" in receive,

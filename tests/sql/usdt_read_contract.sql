@@ -27,11 +27,11 @@ begin
     raise exception 'Wrong regional decision for fixture %', n;
   end if;
   select count(*) into count_rows from public.bridge_wallets where currency='USDT';
-  if count_rows <> case when n in (31,32) then 1 else 0 end then raise exception 'Wrong wallet visibility %: %',n,count_rows; end if;
+  if count_rows <> (case when n in (31,32) then 1 else 0 end) then raise exception 'Wrong wallet visibility %: %',n,count_rows; end if;
   select count(*) into count_rows from public.bridge_balance_ledger where currency='USDT';
-  if count_rows <> case when n in (31,32) then 1 else 0 end then raise exception 'Wrong ledger visibility %',n; end if;
+  if count_rows <> (case when n in (31,32) then 1 else 0 end) then raise exception 'Wrong ledger visibility %',n; end if;
   select count(*) into count_rows from public.wallets where currency='USDT';
-  if count_rows <> case when n in (31,32) then 1 else 0 end then raise exception 'Wrong legacy visibility %',n; end if;
+  if count_rows <> (case when n in (31,32) then 1 else 0 end) then raise exception 'Wrong legacy visibility %',n; end if;
   select count(*) into count_rows from public.bridge_wallets where currency='USDC';
   if count_rows <> 1 then raise exception 'Base wallet regression %',n; end if;
  end loop;

@@ -1293,6 +1293,7 @@ export const financialReadModelAPI = (() => {
               total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
               stablecoin_wallets_partial: Boolean(snapshot.data.stablecoin_wallets_partial),
               virtual_accounts_partial: false,
+              wallet_asset_scope: snapshot.data.wallet_asset_scope || EEA_SAFE_WALLET_SCOPE,
               snapshot_source: 'financial_snapshot',
             },
           };
@@ -1376,6 +1377,7 @@ export const financialReadModelAPI = (() => {
         data: {
           stablecoin_wallets: (r as any).data?.stablecoin_wallets || [],
           virtual_accounts: (r as any).data?.virtual_accounts || [],
+          wallet_asset_scope: (r as any).data?.wallet_asset_scope || EEA_SAFE_WALLET_SCOPE,
         },
       };
     },
