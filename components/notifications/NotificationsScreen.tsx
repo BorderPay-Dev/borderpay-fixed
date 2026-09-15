@@ -21,6 +21,7 @@ import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBra
 import { SkeletonRows } from '../common/Skeleton';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { normalizeTransactionReceipt } from '../../utils/transactions/receipt';
+import { ReceiptProviderDetails } from '../transactions/ReceiptProviderDetails';
 import { txDirection } from '../../utils/transactions/direction';
 
 interface NotificationRow {
@@ -595,7 +596,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                           {message}
                         </p>
                       )}
-                      {(receipt?.hasFees || receipt?.hasBridgeReceipt) && (
+                      {(receipt?.hasFees || receipt?.hasBridgeReceipt || receipt?.hasProviderDetails) && (
                         <div className={`mt-2 grid grid-cols-2 gap-y-1 text-[11px] ${tc.textMuted}`}>
                           {receipt.hasBridgeReceipt ? (
                             <>
@@ -638,6 +639,7 @@ export function NotificationsScreen({ onBack, onUnreadCountChange }: Notificatio
                               <span className={`text-right font-mono font-semibold ${tc.text}`}>{formatReceiptMoney(receipt.finalAmount, currency)}</span>
                             </>
                           )}
+                          <ReceiptProviderDetails receipt={receipt} />
                         </div>
                       )}
                       <p className={`text-[10px] ${tc.textMuted} mt-1`}>{relativeTime(n.created_at)}</p>

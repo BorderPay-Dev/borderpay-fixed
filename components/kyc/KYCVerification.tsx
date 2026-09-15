@@ -19,6 +19,7 @@ import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRi
 import { toast } from 'sonner';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { isNativeRuntime } from '../../utils/native/mobileRuntime';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface KYCVerificationProps {
@@ -217,11 +218,15 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const openTopLevelHostedFallback = useCallback((url: string | null) => {
     if (!url) return;
-    // Do not create a popup/blank tab after the asynchronous link request.
-    // Mobile WebViews and popup blockers can return a Window object while
-    // refusing its navigation, leaving the customer on an empty white page.
-    // A top-level provider navigation is not an embed and works for web and
-    // Capacitor's external-navigation handling.
+    // Persona refuses embedded WebViews. Native shells must hand the URL to a
+    // separate browsing context; replacing the Capacitor WebView produces
+    // ERR_BLOCKED_BY_RESPONSE on both Android and iOS.
+    if (isNativeRuntime()) {
+      const externalWindow = window.open(url, '_blank', 'noopener,noreferrer');
+      if (externalWindow) externalWindow.opener = null;
+      return;
+    }
+    // Web/PWA navigation stays in the browser and preserves the proven flow.
     window.location.assign(url);
   }, []);
 

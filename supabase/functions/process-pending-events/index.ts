@@ -1422,6 +1422,7 @@ function bridgeVaReceiptDetails(params: {
   );
   const breakdown = params.breakdown;
   return {
+    transaction_id: firstNonEmptyText(p.id, p.transfer_id),
     deposit_id: bridgeReceiptId(p, params.vaId),
     source_currency: sourceCurrency,
     source_amount: breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : firstFiniteNumber(receipt.initial_amount, p.initial_amount, p.amount),
@@ -1431,7 +1432,25 @@ function bridgeVaReceiptDetails(params: {
     destination_amount: destinationAmount,
     exchange_rate: exchangeRate,
     destination_address: maskAddress(destinationAddress),
+    destination_rail: firstNonEmptyText(p.destination_payment_rail, destination.payment_rail, destination.rail),
     source_rail: firstNonEmptyText(receipt.source_rail, p.source_rail, sourceInstructions.payment_rail, sourceInstructions.rail),
+    source_payment_scheme: firstNonEmptyText(objectValue(p.source)?.payment_scheme),
+    source_bank_name: firstNonEmptyText(objectValue(p.source)?.bank_name),
+    source_bank_account: firstNonEmptyText(objectValue(p.source)?.account_number, objectValue(p.source)?.iban, objectValue(p.source)?.last_4),
+    source_bank_routing_number: firstNonEmptyText(objectValue(p.source)?.bank_routing_number, objectValue(p.source)?.sender_bank_routing_number, objectValue(p.source)?.sort_code),
+    source_bank_address: firstNonEmptyText(objectValue(p.source)?.bank_beneficiary_address, objectValue(p.source)?.originator_address),
+    sender_name: firstNonEmptyText(objectValue(p.source)?.sender_name, objectValue(p.source)?.originator_name, objectValue(p.source)?.bank_beneficiary_name),
+    payment_reference_text: firstNonEmptyText(objectValue(p.source)?.reference, objectValue(p.source)?.description, p.client_reference_id),
+    source_bic: firstNonEmptyText(objectValue(p.source)?.bic),
+    source_iban: firstNonEmptyText(objectValue(p.source)?.iban, objectValue(p.source)?.iban_last_4),
+    source_address: firstNonEmptyText(objectValue(p.source)?.from_address),
+    source_tx_hash: firstNonEmptyText(receipt.source_tx_hash),
+    destination_tx_hash: firstNonEmptyText(receipt.destination_tx_hash, p.destination_tx_hash),
+    tracking_number: firstNonEmptyText(objectValue(p.source)?.tracking_number, destination.tracking_number),
+    trace_id: firstNonEmptyText(objectValue(p.source)?.trace_number),
+    imad: firstNonEmptyText(objectValue(p.source)?.imad),
+    uetr: firstNonEmptyText(objectValue(p.source)?.uetr, destination.uetr),
+    gas_fee: firstFiniteNumber(receipt.gas_fee, p.gas_fee),
   };
 }
 
@@ -1980,6 +1999,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       receipt: statusReceipt,
       refund_details: refundDetails,
       reversal,
+      raw: d,
     };
     const { resolved, account_type } = owner;
     const statusReference = receiptDepositId
@@ -2095,6 +2115,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         converted_currency: eventCurrency,
         balance_impact: "none",
         receipt: statusReceipt,
+        raw: d,
       };
       const { resolved, account_type } = owner;
       await insertTransactionStatusNotification({
@@ -2212,6 +2233,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       delivery: "external_wallet",
       balance_impact: "none",
       receipt: approvedReceipt,
+      raw: d,
     };
     await upsertVirtualAccountStatusTransaction({
       userId: resolved,
@@ -2329,6 +2351,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       net_amount: approvedBreakdown ? minorToDecimal(approvedBreakdown.netMinor, currency) : null,
       currency,
       receipt: approvedReceipt,
+      raw: d,
     };
     await insertTransactionStatusNotification({
       userId: resolved,
@@ -2803,6 +2826,8 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
         exchange_fee_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.exchangeFeeMinor, currency) : null,
         net_amount: receiptBreakdown ? minorToDecimal(receiptBreakdown.netMinor, currency) : null,
         currency,
+        receipt: d?.receipt ?? null,
+        raw: d,
       };
       await insertTransactionStatusNotification({
         userId: owner.resolved,

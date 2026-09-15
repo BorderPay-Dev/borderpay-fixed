@@ -177,14 +177,17 @@ export function AssetBadge({ symbol, size = 40 }: { symbol: string; size?: numbe
   const sym = String(symbol || '').toUpperCase();
   const [iconFailed, setIconFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[sym];
-  if (FIAT_FLAG.has(sym)) {
+  // EURC is the digital-euro balance. Keep its visual identity aligned with
+  // the EUR account everywhere instead of depending on a remote coin asset.
+  const flagSymbol = sym === 'EURC' ? 'EUR' : sym;
+  if (FIAT_FLAG.has(flagSymbol)) {
     return (
       <div
         style={{ width: size, height: size }}
         className="rounded-full flex items-center justify-center flex-shrink-0 bg-white/10 overflow-hidden ring-1 ring-white/10"
         aria-label={`${sym} account`}
       >
-        <FiatFlag symbol={sym} />
+        <FiatFlag symbol={flagSymbol} />
       </div>
     );
   }

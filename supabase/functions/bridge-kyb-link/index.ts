@@ -427,11 +427,28 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
+  let clientLinkUrl = link.link_url;
+  if (link.link_url) {
+    try {
+      clientLinkUrl = verifiedHostedLink(APP_URL, link.link_url);
+    } catch (error) {
+      console.error(
+        `bridge-kyb-link: hosted URL rejected user=${user.id}: ${
+          (error as Error).message
+        }`,
+      );
+      return json({
+        success: false,
+        error: "Could not open secure business verification. Please try again.",
+      }, 500);
+    }
+  }
+
   const customerId = link.customer_id || existingCustomerId || null;
   const bridgeKybStatus = extractKybStatus(r.data);
   const { error: updateErr } = await supa.from("business_profiles").update({
     ...(link.link_id ? { bridge_kyb_link_id: link.link_id } : {}),
-    ...(link.link_url ? { bridge_kyb_link_url: link.link_url } : {}),
+    ...(clientLinkUrl ? { bridge_kyb_link_url: clientLinkUrl } : {}),
     ...(customerId ? { bridge_customer_id: customerId } : {}),
     ...(bridgeKybStatus ? { bridge_kyb_status: bridgeKybStatus } : {}),
     updated_at: new Date().toISOString(),
@@ -475,24 +492,6 @@ Deno.serve(async (req: Request) => {
   const tosRequired = Boolean(
     link.tos_link_url && tosStatus !== "approved" && tosStatus !== "accepted",
   );
-  let clientLinkUrl = link.link_url;
-  if (link.link_url) {
-    try {
-      // Bridge is the source of truth. Return its current hosted KYB URL
-      // unchanged so released clients open Persona directly after ToS.
-      clientLinkUrl = verifiedHostedLink(APP_URL, link.link_url);
-    } catch (error) {
-      console.error(
-        `bridge-kyb-link: hosted URL rejected user=${user.id}: ${
-          (error as Error).message
-        }`,
-      );
-      return json({
-        success: false,
-        error: "Could not open secure business verification. Please try again.",
-      }, 500);
-    }
-  }
   return json({
     success: true,
     data: {

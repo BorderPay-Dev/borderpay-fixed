@@ -18,6 +18,7 @@ checks = {
     "native callback cannot use an internal WebView origin": "verificationRedirectUrl(APP_URL, body.redirect_url)" in kyb and "capacitor://localhost" in url_guard,
     "external callback is pinned to the exact BorderPay HTTPS origin": 'parsed.protocol === "https:"' in url_guard and "parsed.origin === app.origin" in url_guard,
     "cached provider links have their native callback replaced": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(appUrl))' in url_guard,
+    "normalized KYB URL is persisted instead of the provider raw URL": "bridge_kyb_link_url: clientLinkUrl" in kyb,
     "legacy callback spelling is removed": 'target.searchParams.delete("redirect_uri")' in url_guard,
     "Vercel does not proxy HTML from Supabase": '"source": "/verification/continue"' not in vercel,
     "KYB backend cannot emit launcher HTML": "<!doctype html>" not in kyb and "text/html" not in kyb,

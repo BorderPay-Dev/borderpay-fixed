@@ -45,10 +45,6 @@ const STABLE_CHAIN: Record<string, string> = {
   EURC: 'BASE',
 };
 
-const STABLE_ICON_URL: Record<string, string> = {
-  USDC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/usdc.png',
-  EURC: 'https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/128/color/eurc.png',
-};
 const ACTIVE_ROW_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 
 function isActiveRow(row: { status?: string }): boolean {
@@ -422,18 +418,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                   key={card.code}
                   className={`px-4 py-3.5 flex items-center gap-3 ${idx > 0 ? `border-t ${tc.borderLight}` : ''}`}
                 >
-                  {card.type === 'stablecoin' && STABLE_ICON_URL[card.code] ? (
-                    <div className="w-11 h-11 rounded-full bg-white/10 overflow-hidden flex items-center justify-center">
-                      <img
-                        src={STABLE_ICON_URL[card.code]}
-                        alt={card.code}
-                        className="w-8 h-8 object-contain"
-                        loading="lazy"
-                      />
-                    </div>
-                  ) : (
-                    <AssetBadge symbol={card.code} size={44} />
-                  )}
+                  <AssetBadge symbol={card.code} size={44} />
                   <div className="flex-1 min-w-0">
                     <div className={`text-[15px] font-semibold ${tc.text}`}>{card.title}</div>
                     <div className={`text-[11px] ${tc.textMuted}`}>

@@ -41,6 +41,7 @@ import {
   logControlledBridgeTraffic,
 } from "../_shared/providers/bridge-country-policy.ts";
 import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/launch-gates.ts";
+import { verificationRedirectUrl, verifiedHostedLink } from "../_shared/bridge-verification-url.ts";
 
 const BRIDGE_BASE_URL = (Deno.env.get("BRIDGE_BASE_URL") ?? "https://api.bridge.xyz").replace(/\/+$/, "");
 const BRIDGE_API_KEY  = Deno.env.get("BRIDGE_API_KEY") ?? "";
@@ -359,7 +360,7 @@ Deno.serve(async (req: Request) => {
     email:        profile.email,
     full_name:    profile.full_name || "User",
     endorsements: body.endorsements ?? ["base"],
-    redirect_uri: body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
+    redirect_uri: verificationRedirectUrl(APP_URL, body.redirect_url),
   };
   if (profile.bridge_customer_id) reqBody.customer_id = profile.bridge_customer_id;
   await writeTrace(correlationId, "bridge_request_sent", {
@@ -474,9 +475,18 @@ Deno.serve(async (req: Request) => {
     }, 502);
   }
 
+  let clientLinkUrl = links.kyc_link_url;
+  if (links.kyc_link_url) {
+    try {
+      clientLinkUrl = verifiedHostedLink(APP_URL, links.kyc_link_url);
+    } catch {
+      return json({ success: false, error: "Could not open secure verification. Please try again." }, 500);
+    }
+  }
+
   const { error: updateErr } = await supa.from("user_profiles").update({
     bridge_kyc_link_id:  links.kyc_link_id,
-    bridge_kyc_link_url: links.kyc_link_url,
+    bridge_kyc_link_url: clientLinkUrl,
     ...(links.customer_id ? { bridge_customer_id: links.customer_id } : {}),
     updated_at:          new Date().toISOString(),
   }).eq("id", user.id);
@@ -522,7 +532,7 @@ Deno.serve(async (req: Request) => {
     success: true,
     data: {
       link_id: links.kyc_link_id,
-      link_url: links.kyc_link_url,
+      link_url: clientLinkUrl,
       tos_link_url: links.tos_link_url,
       expires_at,
       reused: !r.ok ? true : undefined,
