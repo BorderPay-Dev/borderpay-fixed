@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "supabase/functions/bridge-transfer/index.ts").read_text()
 PROVIDER = (ROOT / "supabase/functions/_shared/providers/bridge.ts").read_text()
+INITIATION = (ROOT / "supabase/functions/_shared/bridge-transfer-initiation.ts").read_text()
 SCA = (ROOT / "supabase/functions/_shared/sca.ts").read_text()
 SCOPE = (ROOT / "supabase/functions/_shared/bridge-sca-scope.ts").read_text()
 
@@ -38,9 +39,9 @@ checks = {
         "...(sca.required ?" in SOURCE and "sca_attestation" in SOURCE
     ),
     "provider serializes Bridge initiation attestation": (
-        "initiation:" in PROVIDER
-        and "attestations: { sca:" in PROVIDER
-        and "input.sca_attestation.outcome" in PROVIDER
+        "transferInitiation(requirement, input.sca_attestation)" in PROVIDER
+        and "attestations: { sca:" in INITIATION
+        and "attestation.outcome" in INITIATION
     ),
     "non-EEA transfers bypass SCA": (
         'scope.status === "not_required"' in SCA

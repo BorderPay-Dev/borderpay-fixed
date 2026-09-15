@@ -1,3 +1,4 @@
+import { transferInitiation, type WalletInitiationRequirement } from "../bridge-transfer-initiation.ts";
 /**
  * BridgeProvider — implements PaymentProvider against Bridge's REST API.
  *
@@ -839,7 +840,35 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Money movement ────────────────────────────────────────────────────────
-  async createTransfer(input: TransferCreateInput): Promise<TransferResult> {
+  /** Read the selected wallet under its canonical customer, never client flags. */
+  async getWalletInitiationRequirement(customerId: string, walletId: string): Promise<WalletInitiationRequirement> {
+    if (!customerId || !walletId) throw new Error("source_wallet_required");
+    const r = await bridgeFetch({
+      method: "GET",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/wallets/${encodeURIComponent(walletId)}`,
+    });
+    if (!r.ok) throw new BridgeProviderError("Bridge wallet initiation lookup failed", {
+      status: r.status, request_id: r.request_id, bridge_code: "wallet_initiation_unavailable",
+    });
+    const wallet = (r.data as any)?.data ?? r.data;
+    if (!wallet || wallet.id !== walletId
+      || (wallet.customer_id != null && wallet.customer_id !== customerId)
+      || (wallet.initiation_required !== undefined && typeof wallet.initiation_required !== "boolean")
+      || ["closed", "deleted", "disabled", "deactivated", "inactive"].includes(String(wallet.status || "").toLowerCase())) {
+      throw new Error("invalid_wallet_initiation_response");
+    }
+    return { customer_id: customerId, wallet_id: walletId, required: wallet.initiation_required === true };
+  }
+
+  async createTransfer(input: TransferCreateInput, checkedWallet?: WalletInitiationRequirement | null): Promise<TransferResult> {
+    const walletSource = String(input.source.payment_rail).toLowerCase() === "bridge_wallet";
+    const requirement = walletSource
+      ? checkedWallet ?? await this.getWalletInitiationRequirement(input.on_behalf_of || "", input.source.bridge_wallet_id || "")
+      : null;
+    if (requirement && (requirement.customer_id !== input.on_behalf_of || requirement.wallet_id !== input.source.bridge_wallet_id)) {
+      throw new Error("wallet_initiation_identity_mismatch");
+    }
+    const initiation = transferInitiation(requirement, input.sca_attestation);
     const bridgeRail = (rail: string) => String(rail || "").toLowerCase();
     const body: Record<string, unknown> = {
       ...(input.source.amount ? { amount: input.source.amount } : {}),
@@ -875,13 +904,7 @@ export class BridgeProvider implements PaymentProvider {
         developer_fee: input.developer_fee.flat_amount,
       } : {}),
       ...(input.features ? { features: input.features } : {}),
-      ...(input.sca_attestation ? {
-        initiation: {
-          channel: input.sca_attestation.channel,
-          subchannel: input.sca_attestation.subchannel,
-          attestations: { sca: { outcome: input.sca_attestation.outcome } },
-        },
-      } : {}),
+      ...(initiation ? { initiation } : {}),
     };
     const r = await bridgeFetch({
       method: "POST", path: "/v0/transfers", body,
@@ -919,6 +942,8 @@ export class BridgeProvider implements PaymentProvider {
       transfer_id: String(data?.id),
       state,
       raw:         r.data,
+      request_id: r.request_id,
+      initiation,
     };
   }
 

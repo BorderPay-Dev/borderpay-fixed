@@ -104,12 +104,15 @@ Deno.test('payload changes, wrong owner, expiry, DB failure and replay reject au
 Deno.test('EURC and USDC Base payments serialize SCA attestation after successful consume', async () => {
   const originalFetch = globalThis.fetch;
   const sent: any[] = [];
+  let walletRequiresInitiation = true;
   globalThis.fetch = async (_input, init) => {
+    if (init?.method === 'GET') return Response.json({ id: 'wallet-1', initiation_required: walletRequiresInitiation });
     sent.push(JSON.parse(String(init?.body)));
     return Response.json({ id: 'transfer-1', state: 'awaiting_funds' });
   };
   try {
     for (const country of ['IT', 'GB']) for (const currency of ['USDC', 'EURC'] as const) {
+      walletRequiresInitiation = country === 'IT';
       const db = database(country);
       const body = request(currency);
       assert(validateBridgePayout(body).ok, `${country} ${currency} must be withdrawable`);

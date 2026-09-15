@@ -62,6 +62,8 @@ Deno.test('PIN then real TOTP creates recorded authorization; failures and repla
     const url = new URL(req.url);
     const body = req.method === 'POST' ? await req.json() : {};
     const response = (data: unknown, status = 200) => Response.json(data, { status });
+    if (url.pathname === '/v0/customers/customer-1/wallets/wallet-1') return response({ id: 'wallet-1', initiation_required: true });
+    if (url.pathname.endsWith('/admin_action_audit')) return response(req.method === 'GET' ? [] : {});
     if (url.pathname === '/v0/transfers') {
       transfers.push(body);
       return response({ id: 'transfer-1', state: 'payment_processed' });

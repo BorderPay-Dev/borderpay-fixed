@@ -26,6 +26,7 @@ Deno.test('non-EEA USDT/Tron payout persists provider transfer ID, replays once,
     const request = new Request(input, init);
     const url = new URL(request.url);
     if (url.origin === provider) {
+      if (request.method === 'GET' && url.pathname === '/v0/customers/customer/wallets/tron-wallet') return Response.json({ id: 'tron-wallet', chain: 'tron' });
       if (request.method === 'GET' && url.pathname === '/v0/customers/customer/wallets') return Response.json({ data: [{ id: 'base-wallet', chain: 'base', currency: 'usdc', status: 'active' }] });
       assert(request.method === 'POST' && url.pathname === '/v0/transfers', 'only direct transfer endpoint is allowed');
       sent.push(await request.json());
@@ -43,6 +44,7 @@ Deno.test('non-EEA USDT/Tron payout persists provider transfer ID, replays once,
       return Response.json([{ amount_minor: balance, direction: 'credit' }]);
     }
     if (url.pathname.endsWith('/rpc/upsert_bridge_transaction')) { persisted.push(await request.json()); return Response.json(null); }
+    if (url.pathname.endsWith('/admin_action_audit')) return request.method === 'GET' ? Response.json([]) : new Response(null, { status: 201 });
     if (url.pathname.endsWith('/admin_alerts')) return new Response(null, { status: 201 });
     throw new Error(`Unexpected request ${request.method} ${url.pathname}`);
   };

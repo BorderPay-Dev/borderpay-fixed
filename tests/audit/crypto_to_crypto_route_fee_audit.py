@@ -24,6 +24,7 @@ external_wallet = read(EXTERNAL_WALLET)
 bridge_transfer = read(BRIDGE_TRANSFER)
 bridge_provider = read(BRIDGE_PROVIDER)
 send_flow = read(SEND_FLOW)
+initiation = read(ROOT / "supabase/functions/_shared/bridge-transfer-initiation.ts")
 
 for token in [
     "bridgeProvider.createLiquidationAddress",
@@ -65,7 +66,9 @@ if "to_address: input.destination.address" not in provider_transfer:
     failures.append("provider must serialize the direct destination address as to_address")
 if "createLiquidationAddress" in provider_transfer:
     failures.append("provider transfer path must not call liquidation address APIs")
-if "initiation:" not in provider_transfer or "attestations: { sca:" not in provider_transfer:
+if ("transferInitiation(requirement, input.sca_attestation)" not in provider_transfer
+    or "...(initiation ? { initiation } : {})" not in provider_transfer
+    or "attestations: { sca:" not in initiation):
     failures.append("provider transfer must preserve the conditional EEA SCA initiation attestation")
 
 stablecoin_send = send_flow[
