@@ -16,8 +16,15 @@ const FREE_OR_PERSONAL_DOMAINS = new Set([
   "gmx.com",
   "gmx.net",
   "mail.com",
+  "mail.ee",
+  "email.ee",
+  "hot.ee",
+  "online.ee",
+  "solo.ee",
   "inbox.com",
   "inbox.eu",
+  "inbox.lv",
+  "inbox.lt",
   "fastmail.com",
   "hey.com",
   "tuta.com",
@@ -25,6 +32,39 @@ const FREE_OR_PERSONAL_DOMAINS = new Set([
   "tutanota.de",
   "yandex.com",
   "yandex.ru",
+  "mail.ru",
+  "bk.ru",
+  "list.ru",
+  "internet.ru",
+  "rambler.ru",
+  "ukr.net",
+  "web.de",
+  "freenet.de",
+  "t-online.de",
+  "gmx.de",
+  "orange.fr",
+  "laposte.net",
+  "free.fr",
+  "wanadoo.fr",
+  "libero.it",
+  "virgilio.it",
+  "alice.it",
+  "seznam.cz",
+  "centrum.cz",
+  "centrum.sk",
+  "wp.pl",
+  "onet.pl",
+  "interia.pl",
+  "abv.bg",
+  "mail.bg",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "naver.com",
+  "daum.net",
+  "rediffmail.com",
+  "mailfence.com",
+  "hushmail.com",
 ]);
 
 const PERSONAL_DOMAIN_PREFIXES = ["yahoo.", "hotmail.", "live.", "gmx."];
@@ -50,7 +90,7 @@ export type BusinessEmailDecision = {
 
 export function evaluateBusinessEmail(value: unknown, countryCode?: unknown): BusinessEmailDecision {
   const email = String(value || "").trim().toLowerCase();
-  const country = String(countryCode || "").trim().toUpperCase();
+  void countryCode;
   if (email === "tst@hacker.com" || /^loadtest_[^@]+@/i.test(email)) {
     return { allowed: false, domain: email.split("@")[1] || null, code: "blocked_identity" };
   }
@@ -85,11 +125,12 @@ export function evaluateBusinessEmail(value: unknown, countryCode?: unknown): Bu
     return { allowed: false, domain, code: "disposable_email" };
   }
 
-  const ukInboxEuException = domain === "inbox.eu" && (country === "GB" || country === "UK");
-  if ((!ukInboxEuException && FREE_OR_PERSONAL_DOMAINS.has(domain)) || PERSONAL_DOMAIN_PREFIXES.some((prefix) => domain.startsWith(prefix))) {
+  // Product exception: inbox.eu is the only public mailbox domain accepted
+  // for direct business signup, regardless of incorporation country.
+  const inboxEuException = domain === "inbox.eu";
+  if ((!inboxEuException && FREE_OR_PERSONAL_DOMAINS.has(domain)) || PERSONAL_DOMAIN_PREFIXES.some((prefix) => domain.startsWith(prefix))) {
     return { allowed: false, domain, code: "personal_email" };
   }
 
   return { allowed: true, domain, code: "allowed" };
 }
-
