@@ -33,7 +33,7 @@ checks = {
     "add-wallet hides USDT unless non-EEA": "{ code: 'USDT'" in add_wallet and "card.code !== 'USDT' || allowUsdtTron" in add_wallet,
     "receive binds USDT to Tron": "sym === 'USDT' && chain === 'tron'" in receive,
     "saved payout wallets gate USDT by scope": "USDT:tron" in external and "allowUsdtTron" in external,
-    "withdrawal selector exposes no Tron route": "id: 'tron'" not in withdrawal,
+    "address validation is independent of the Base-only form selector": "../../utils/financial/cryptoAddress" in withdrawal,
     "provisioning keeps Base default and conditionally adds Tron": "const DEFAULT_WALLET = { symbol: \"USDC\", chain: \"BASE\" }" in provision and "allowUsdtTron" in provision,
     "manual wallet endpoint is region-gated": 'const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC", "USDT"]' in wallet_fn and "wallet_asset_not_available" in wallet_fn,
     "provider create payload is chain-only": "const body = { chain: input.chain.toLowerCase() };" in provider and "currency: input.symbol.toLowerCase()" not in provider,

@@ -43,12 +43,8 @@ const ADDRESS_RULES: Record<NetworkDef['family'], { re: RegExp; hint: string }> 
   solana: { re: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/,   hint: 'base58 (32–44 chars)' },
 };
 
-/** True if `address` is a valid crypto address for the chosen network. */
-export function isValidCryptoAddress(network: CryptoNetwork, address: string): boolean {
-  const def = NETWORKS.find((n) => n.id === network);
-  if (!def) return false;
-  return ADDRESS_RULES[def.family].re.test(String(address || '').trim());
-}
+import { isValidCryptoAddress } from '../../utils/financial/cryptoAddress';
+export { isValidCryptoAddress } from '../../utils/financial/cryptoAddress';
 
 interface Props {
   values:   CryptoWithdrawalValues;

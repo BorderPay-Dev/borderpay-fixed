@@ -15,7 +15,7 @@ This document records local validation, not a production compliance certificatio
 
 ## Local evidence
 
-- 43 Deno runtime tests: actual authorization and transfer HTTP handlers with mocked persistence/Bridge transport, real TOTP cryptography, payload binding, replay rejection, EEA/non-EEA decisions, alternate entrypoint guards, EURC serialization and verification URL/native launch behavior.
+- 44 Deno runtime tests: actual authorization and transfer HTTP handlers with mocked persistence/Bridge transport, real TOTP cryptography, payload binding, replay rejection, EEA/non-EEA decisions, alternate entrypoint guards, EURC serialization and verification URL/native launch behavior.
 - Frontend type check and affected Edge Function type checks.
 - Production web build and 26 mobile source regression gates.
 - Unified predeploy gate in CI mode. This mode skips live runtime/schema checks without linked production credentials; its PASS is not proof of live behavior.
@@ -52,3 +52,5 @@ The SCA schema migration is applied and recorded. The metadata retention trigger
 - Existing individual KYC resumes with GET customer/current kyc_link after authoritative accepted ToS, rather than POSTing the new-customer endpoint or retrying creation without customer_id. Current KYB backend already uses the resume endpoint. HTTP tests cover incomplete/awaiting_ubo/needs_ubos, accepted terms, public HTTPS callback normalization, and native fullscreen handoff. A failed provider lookup cannot create a replacement customer or serve a cached link.
 - Frontend type check, production build, both verification Edge type checks and unified predeploy gate passed. Physical-device completion and an actual customer-authorized payout remain unverified; mocked tests do not establish live completion.
 - Vercel production deployment targets only the linked borderpay-recovery project. Earlier deployment/promote attempts were blocked by the daily deployment quota. No protected preview has been substituted for the public production app. Installed native apps bundle their JavaScript and need replacement store binaries for frontend changes.
+
+The shared Send address validator previously derived allowed addresses from a Base-only form selector, which rejected every Tron destination. It now validates Base/Tron syntax independently of regional eligibility; the backend retains the EEA USDT prohibition. Added valid, wrong-network and malformed address tests. KYC v335 is confirmed ACTIVE.
