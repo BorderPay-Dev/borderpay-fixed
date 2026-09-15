@@ -4,8 +4,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 kyb = (ROOT / "supabase/functions/bridge-kyb-link/index.ts").read_text()
-launcher = (ROOT / "supabase/functions/verification-launch/index.ts").read_text()
-page = (ROOT / "components/verification/VerificationContinuePage.tsx").read_text()
 app = (ROOT / "App.tsx").read_text()
 vercel = (ROOT / "vercel.json").read_text()
 checks = {
@@ -13,15 +11,13 @@ checks = {
     "only the approved identity host is accepted": "host !== \"bridge.withpersona.com\"" in kyb and "host.endsWith(\".withpersona.com\")" in kyb,
     "KYB URL is not wrapped in an intermediate launcher": "verification_launch_tokens" not in kyb and "/verification/continue?token=" not in kyb,
     "client receives the validated provider URL": "return target.toString()" in kyb,
-    "launcher validates token expiry": "Date.parse(data.expires_at) <= Date.now()" in launcher,
-    "launcher returns a typed JSON contract": '"Content-Type": "application/json; charset=utf-8"' in launcher and "target_url: target.toString()" in launcher,
-    "launcher permits only the BorderPay app origin": "ALLOWED_ORIGINS" in launcher and "https://app.borderpayafrica.com" in launcher,
-    "launcher never serves raw HTML": "<!doctype html>" not in launcher and "text/html" not in launcher,
-    "app route renders the branded handoff": "<VerificationContinuePage />" in app and "'/verification/continue'" in app,
-    "branded handoff fetches the validated target": "/functions/v1/verification-launch?token=" in page and "payload?.data?.target_url" in page,
-    "branded handoff continues to the provider": "href={state.targetUrl}" in page and "Continue verification" in page,
+    "launcher Edge function is absent": not (ROOT / "supabase/functions/verification-launch/index.ts").exists(),
+    "launcher SPA page is absent": not (ROOT / "components/verification/VerificationContinuePage.tsx").exists(),
+    "launcher route is absent": "VerificationContinuePage" not in app and "'/verification/continue'" not in app,
+    "native callback cannot use an internal WebView origin": "verificationRedirectUrl(body.redirect_url)" in kyb and "capacitor://localhost" in kyb,
+    "external callback is pinned to BorderPay HTTPS": 'parsed.protocol === "https:"' in kyb and "parsed.hostname === app.hostname" in kyb,
     "Vercel does not proxy HTML from Supabase": '"source": "/verification/continue"' not in vercel,
-    "legacy launcher cannot serve raw HTML": "<!doctype html>" not in launcher and "text/html" not in launcher,
+    "KYB backend cannot emit launcher HTML": "<!doctype html>" not in kyb and "text/html" not in kyb,
     "ToS remains separately represented": "tos_link_url: tosRequired ? link.tos_link_url : null" in kyb,
     "existing customers fetch the current Bridge URL first": kyb.find("if (existingCustomerId) {") < kyb.find("Compatibility fallback only when the authoritative customer-resume route"),
     "stored link is fallback only": "Compatibility fallback only when the authoritative customer-resume route" in kyb,

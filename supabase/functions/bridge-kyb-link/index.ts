@@ -228,6 +228,23 @@ function verifiedHostedLink(targetUrl: string): string {
   return target.toString();
 }
 
+function verificationRedirectUrl(candidate: string | undefined): string {
+  const fallback = `${APP_URL.replace(/\/+$/, "")}/?screen=kyc`;
+  if (!candidate) return fallback;
+  try {
+    const parsed = new URL(candidate);
+    const app = new URL(APP_URL);
+    if (parsed.protocol === "https:" && parsed.hostname === app.hostname) {
+      parsed.pathname = "/";
+      parsed.searchParams.set("screen", "kyc");
+      return parsed.toString();
+    }
+  } catch {
+    // Native origins such as capacitor://localhost must never reach Persona.
+  }
+  return fallback;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") {
@@ -262,6 +279,7 @@ Deno.serve(async (req: Request) => {
   try {
     body = await req.json();
   } catch { /* tolerant */ }
+  const redirectUrl = verificationRedirectUrl(body.redirect_url);
 
   const { data: profile } = await supa
     .from("user_profiles")
@@ -358,7 +376,7 @@ Deno.serve(async (req: Request) => {
       const params = new URLSearchParams();
       params.set(
         "redirect_uri",
-        body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
+        redirectUrl,
       );
       r = await bridgeGet(
         `/v0/customers/${encodedCustomerId}/kyc_link?${params.toString()}`,
@@ -399,7 +417,7 @@ Deno.serve(async (req: Request) => {
       email: profile.email,
       full_name: biz.company_name,
       endorsements: body.endorsements ?? ["base"],
-      redirect_uri: body.redirect_url || `${APP_URL}/onboarding/kyc-complete`,
+      redirect_uri: redirectUrl,
     };
     r = await bridgePost(
       "/v0/kyc_links",
