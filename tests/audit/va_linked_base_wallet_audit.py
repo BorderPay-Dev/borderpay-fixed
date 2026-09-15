@@ -22,9 +22,9 @@ receive = RECEIVE.read_text()
 
 for marker in [
     "const activeBaseWallets = wallets.filter",
-    "if (!authoritative) return []",
-    "const displayAssets = ['USDC', 'EURC']",
+    "return ['USDC', 'EURC'].map",
     "presentation_id: `${authoritativeWalletId}:${asset}`",
+    "USDT is a separate Tron wallet",
     "return canonicalRows",
 ]:
     require(helper, marker, "VA-linked wallet selector")
@@ -32,13 +32,12 @@ for marker in [
 if "delete" in helper.lower() or ".update(" in helper:
     raise SystemExit("FAIL: presentation selector must not mutate provider or database records")
 
-require(api, "selectVaLinkedStablecoinWallets(rawStablecoinWallets, virtualAccounts)", "financial snapshot")
-require(api, "selectVaLinkedStablecoinWallets(stableRes?.data, virtualAccounts)", "wallet route fallback")
-require(wallet, "new Set(['USDC', 'EURC'])", "wallet supported assets")
+require(api, "allowUsdtTron: walletAssetScope.allow_usdt_tron", "financial snapshot scope")
+require(wallet, "new Set(['USDC', 'EURC', 'USDT'])", "wallet supported assets")
 require(wallet, "presentation_id", "stablecoin row key")
 require(wallet, "selectVaLinkedStablecoinWallets(scoped, cachedVas)", "wallet cache")
 require(receive, "selectVaLinkedStablecoinWallets(scoped, cachedVas)", "receive cache")
 
 print("PASS: one authoritative Base wallet is presented")
 print("PASS: unlinked Base duplicates are hidden without provider/database mutation")
-print("PASS: USDC and EURC share the authoritative wallet ID; Tron is not exposed")
+print("PASS: USDC/EURC share Base; region-permitted USDT remains a separate Tron wallet")

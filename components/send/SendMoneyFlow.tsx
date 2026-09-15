@@ -50,6 +50,7 @@ import {
 } from '../../utils/africanRailsPolicyCache';
 import { loadYellowCardCapability, YELLOW_CARD_PAYMENT_REASONS } from '../../utils/yellowCardCapabilityCache';
 import { yellowCardProviderBounds } from '../../utils/yellowCardProviderLimits';
+import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -415,9 +416,9 @@ function walletRouteKey(asset: string, chain: string) {
   return `${String(asset || '').toUpperCase()}:${String(chain || '').toLowerCase()}`;
 }
 
-function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>) {
+function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>, allowUsdtTron = false) {
   const key = walletRouteKey(wallet.asset, wallet.chain);
-  return key === 'USDC:base' || key === 'EURC:base';
+  return key === 'USDC:base' || key === 'EURC:base' || (allowUsdtTron && key === 'USDT:tron');
 }
 
 function chainDisplayName(chain: string) {
@@ -448,6 +449,7 @@ function localRailQuoteError(error: unknown) {
 export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMoneyFlowProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const { allowUsdtTron } = useWalletAssetScope(userId);
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
 
@@ -515,7 +517,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const cachedExternalWallets = useMemo(() => {
     try {
       const raw = JSON.parse(localStorage.getItem(externalWalletsCacheKey) || '[]');
-      return Array.isArray(raw) ? raw.filter(isSupportedExternalWallet) : [];
+      return Array.isArray(raw) ? raw.filter((wallet) => isSupportedExternalWallet(wallet, false)) : [];
     } catch {
       return [];
     }
@@ -637,7 +639,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const selectedCryptoRouteKey = walletRouteKey(crypto.token, crypto.network);
   const filteredExternalWallets = useMemo(
     () => externalWallets
-      .filter(isSupportedExternalWallet)
+      .filter((wallet) => isSupportedExternalWallet(wallet, allowUsdtTron))
       .filter((wallet) => {
         const walletChain = String(wallet.chain || '').toLowerCase();
         const walletAsset = String(wallet.asset || '').toUpperCase();
@@ -646,7 +648,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         return walletRouteKey(wallet.asset, wallet.chain) === selectedCryptoRouteKey;
       }),
-    [externalWallets, selectedCryptoRouteKey, crypto.network, crypto.token],
+    [externalWallets, selectedCryptoRouteKey, crypto.network, crypto.token, allowUsdtTron],
   );
   const selectedCryptoExternalWallet = useMemo(
     () => externalWallets.find((wallet) => String(wallet.id || '') === cryptoSavedWalletId) || null,
@@ -669,7 +671,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const response: any = await backendAPI.externalWallets.list();
       if (!response?.success) throw new Error(response?.error || 'Could not load withdrawal wallets.');
       const next = Array.isArray(response?.data?.wallets)
-        ? response.data.wallets.filter(isSupportedExternalWallet)
+        ? response.data.wallets.filter((wallet: ExternalWallet) => isSupportedExternalWallet(wallet, allowUsdtTron))
         : [];
       setExternalWallets(next);
       try { localStorage.setItem(externalWalletsCacheKey, JSON.stringify(next)); } catch { /* cache best effort */ }
@@ -678,7 +680,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } finally {
       setExternalWalletsLoading(false);
     }
-  }, [externalWallets.length, externalWalletsCacheKey]);
+  }, [externalWallets.length, externalWalletsCacheKey, allowUsdtTron]);
 
   const selectExternalWallet = useCallback((wallet: ExternalWallet) => {
     // A Base address can receive either supported Base asset. Preserve the
@@ -2166,6 +2168,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {[
                 { token: 'USDC', network: 'base', label: 'USDC', sub: 'Base' },
                 { token: 'EURC', network: 'base', label: 'EURC', sub: 'Base' },
+                ...(allowUsdtTron ? [{ token: 'USDT', network: 'tron', label: 'USDT', sub: 'Tron' }] : []),
               ].map((route) => {
                 const active = crypto.token === route.token && crypto.network === route.network;
                 return (

@@ -28,6 +28,7 @@ function destinationFor(virtualAccount: any): Record<string, unknown> | null {
 export function selectVaLinkedStablecoinWallets(
   walletRows: unknown,
   virtualAccountRows: unknown,
+  options: { allowUsdtTron?: boolean } = {},
 ): any[] {
   const wallets = Array.isArray(walletRows) ? walletRows : [];
   const virtualAccounts = Array.isArray(virtualAccountRows) ? virtualAccountRows : [];
@@ -57,20 +58,32 @@ export function selectVaLinkedStablecoinWallets(
   const authoritative = activeBaseWallets.find((row: any) =>
     String(row?.bridge_wallet_id ?? row?.wallet_id ?? '').trim() === linkedWalletId,
   ) ?? activeBaseWallets[0];
-  if (!authoritative) return [];
-  const authoritativeWalletId = String(
+  const canonicalRows = authoritative ? (() => {
+    const authoritativeWalletId = String(
     authoritative?.bridge_wallet_id ?? authoritative?.wallet_id ?? authoritative?.id ?? 'base',
-  ).trim();
+    ).trim();
 
-  // Customer wallet surfaces are deliberately bounded to these two Base
-  // assets. Historical/provider Tron rows remain stored for audit but are
-  // never returned to the product presentation layer.
-  const displayAssets = ['USDC', 'EURC'];
-  const canonicalRows = displayAssets.map((asset) => ({
-    ...authoritative,
-    currency: asset,
-    presentation_id: `${authoritativeWalletId}:${asset}`,
-  }));
+    // Base is one provider wallet that presents two supported assets. Virtual
+    // accounts settle only to these Base assets.
+    return ['USDC', 'EURC'].map((asset) => ({
+      ...authoritative,
+      currency: asset,
+      presentation_id: `${authoritativeWalletId}:${asset}`,
+    }));
+  })() : [];
+
+  // USDT is a separate Tron wallet for verified non-EEA customers. It is not
+  // VA-linked and must never be synthesized from the Base wallet.
+  const tronUsdt = options.allowUsdtTron
+    ? wallets.find((row: any) =>
+        normalized(row?.chain ?? row?.payment_rail) === 'tron'
+        && String(row?.currency || '').trim().toUpperCase() === 'USDT'
+        && ACTIVE_STATUSES.has(normalized(row?.status)))
+    : null;
+  if (tronUsdt) {
+    const walletId = String(tronUsdt?.bridge_wallet_id ?? tronUsdt?.wallet_id ?? tronUsdt?.id ?? 'tron').trim();
+    canonicalRows.push({ ...tronUsdt, currency: 'USDT', presentation_id: `${walletId}:USDT` });
+  }
 
   return canonicalRows;
 }

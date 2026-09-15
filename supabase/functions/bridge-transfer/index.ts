@@ -76,6 +76,7 @@ import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 import { consumeScaAuthorization } from "../_shared/sca.ts";
+import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -366,6 +367,25 @@ Deno.serve(async (req) => {
   }
   if (profile.verification_status !== "approved") {
     return await failAfterAuth({ success: false, error: "KYC not approved yet", code: "kyc_not_approved" }, 409, profile.account_type);
+  }
+
+  // USDT/Tron is a separate non-EEA wallet rail. It is never a VA settlement
+  // destination, and EEA or unresolved customer scope must fail closed before
+  // any provider-side money movement.
+  const requestsUsdt = srcCcy === "USDT" || dstCcy === "USDT"
+    || srcRail === "tron" || dstRail === "tron";
+  if (requestsUsdt) {
+    const walletScope = await resolveBridgeScaScope(supa, user.id);
+    const allowUsdtTron = walletScope.status === "not_required"
+      && walletScope.reason === "non_eea"
+      && Boolean(walletScope.country);
+    if (!allowUsdtTron) {
+      return await failAfterAuth({
+        success: false,
+        code: "wallet_asset_not_available",
+        error: "USDT on Tron is not available for this account region.",
+      }, 403, profile.account_type);
+    }
   }
 
   // Legacy minimum-balance gate retained as a compatibility no-op.

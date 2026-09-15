@@ -122,7 +122,7 @@ const STABLE_ICON_URL: Record<string, string> = {
 };
 
 function isSpendableBusinessWallet(row: { currency?: string; balance?: number }): boolean {
-  if (!['USDC', 'EURC'].includes(String(row?.currency || '').toUpperCase())) return false;
+  if (!['USDC', 'EURC', 'USDT'].includes(String(row?.currency || '').toUpperCase())) return false;
   const balance = Number(row?.balance || 0);
   return Number.isFinite(balance) && balance > 0;
 }
@@ -248,7 +248,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   }, [wallets]);
 
   const usdLikeTotal = useMemo(
-    () => wallets.filter(w => ['USDC', 'EURC'].includes(w.currency))
+    () => wallets.filter(w => ['USDC', 'EURC', 'USDT'].includes(w.currency))
                  .reduce((s, w) => s + (w.balance || 0), 0),
     [wallets],
   );

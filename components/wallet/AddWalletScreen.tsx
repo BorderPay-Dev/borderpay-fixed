@@ -14,6 +14,7 @@ import { showToast } from '../common/StatusToast';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { virtualAccountActivationMessage } from '../../utils/virtualAccountActivationCopy';
+import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 
 interface AddWalletScreenProps {
   userId: string;
@@ -38,11 +39,13 @@ const CARDS: WalletCard[] = [
   { code: 'GBP', type: 'virtual_account', title: 'British Pound', subtitle: 'Global receive account' },
   { code: 'USDC', type: 'stablecoin', title: 'USD Coin', subtitle: 'Digital dollar wallet' },
   { code: 'EURC', type: 'stablecoin', title: 'Euro Coin', subtitle: 'Digital euro wallet' },
+  { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Tron digital dollar wallet' },
 ];
 
 const STABLE_CHAIN: Record<string, string> = {
   USDC: 'BASE',
   EURC: 'BASE',
+  USDT: 'TRON',
 };
 
 const ACTIVE_ROW_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
@@ -76,6 +79,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
+  const { allowUsdtTron } = useWalletAssetScope(userId);
+  const visibleCards = useMemo(
+    () => CARDS.filter((card) => card.code !== 'USDT' || allowUsdtTron),
+    [allowUsdtTron],
+  );
 
   const [country, setCountry] = useState<string | null>(() => {
     const cached = readCachedUser();
@@ -399,7 +407,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
         )}
 
         <div className={`rounded-3xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
-          {CARDS.map((card, idx) => {
+          {visibleCards.map((card, idx) => {
               const active = card.type === 'virtual_account'
                 ? activeVa.has(card.code)
                 : activeStable.has(card.code);

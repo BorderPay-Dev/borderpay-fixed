@@ -38,6 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 import {
   assertBridgeIngressDecision,
   evaluateBridgeIngressEvent,
@@ -2953,11 +2954,16 @@ async function ensureStablecoinWalletsProvisioned(input: {
   const statusValue = (profile as Record<string, unknown> | null)?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
 
-  const { symbol, chain } = DEFAULT_STABLECOIN_WALLET;
-  {
+  const walletScope = await resolveBridgeScaScope(supabase, input.userId);
+  const targets = [DEFAULT_STABLECOIN_WALLET] as Array<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }>;
+  if (walletScope.status === "not_required" && walletScope.reason === "non_eea" && walletScope.country) {
+    targets.push({ symbol: "USDT", chain: "TRON" });
+  }
+
+  for (const { symbol, chain } of targets) {
     const chainLc = chain.toLowerCase();
     const lock = await tryAcquireProvisioningLock(input.bridgeCustomerId, symbol, chainLc);
-    if (lock.state === "already_completed" || lock.state === "busy") return;
+    if (lock.state === "already_completed" || lock.state === "busy") continue;
 
     try {
       const { data: existing } = await supabase
@@ -2971,7 +2977,7 @@ async function ensureStablecoinWalletsProvisioned(input: {
         .maybeSingle();
       if (existing?.bridge_wallet_id) {
         await completeProvisioningLock(lock.lockEventId, "already_exists");
-        return;
+        continue;
       }
 
       const created = await bridgeProvider.createWallet({

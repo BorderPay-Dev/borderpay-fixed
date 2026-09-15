@@ -12,8 +12,8 @@ checks = {
     "dashboard EURC chip uses EU flag": "EURC: '🇪🇺'" in dashboard,
     "add-wallet uses shared asset badge": '<AssetBadge symbol={card.code} size={44} />' in add_wallet,
     "add-wallet has no EURC remote-icon override": "const STABLE_ICON_URL" not in add_wallet,
-    "wallet boundary permits EURC": "const SUPPORTED_STABLES = new Set(['USDC', 'EURC'])" in (ROOT / "components/wallet/WalletScreen.tsx").read_text(),
-    "dashboard boundary permits only USDC and EURC": "if (!['USDC', 'EURC'].includes" in dashboard,
+    "wallet boundary permits EURC": "const SUPPORTED_STABLES = new Set(['USDC', 'EURC', 'USDT'])" in (ROOT / "components/wallet/WalletScreen.tsx").read_text(),
+    "dashboard permits the region-filtered wallet set": "if (!['USDC', 'EURC', 'USDT'].includes" in dashboard,
 }
 
 failed = [name for name, passed in checks.items() if not passed]

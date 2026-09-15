@@ -201,7 +201,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
   const [ipCountry, setIpCountry] = useState<string | null>(null);
 
   const stableWalletsCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    () => financialCacheKey('borderpay_wallets_v2', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
@@ -774,11 +774,12 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     stables.forEach((row) => {
       const rawSym = String(row.currency || '').toUpperCase();
       const sym = rawSym || 'USDC';
-      if ((sym === 'USDC' || sym === 'EURC') && String(row.chain).toLowerCase() === 'base' && !byCurrency.has(sym)) {
+      const chain = String(row.chain).toLowerCase();
+      if (((sym === 'USDC' || sym === 'EURC') && chain === 'base' || (sym === 'USDT' && chain === 'tron')) && !byCurrency.has(sym)) {
         byCurrency.set(sym, { ...row, currency: sym });
       }
     });
-    return ['USDC', 'EURC'].map((symbol) => byCurrency.get(symbol)).filter(Boolean) as StableRow[];
+    return ['USDC', 'EURC', 'USDT'].map((symbol) => byCurrency.get(symbol)).filter(Boolean) as StableRow[];
   }, [stables]);
 
   const collectionAmountNumber = useMemo(() => {

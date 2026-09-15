@@ -51,7 +51,7 @@ const CURRENCY_FULL_NAME: Record<string, string> = {
   USD: 'US Dollar', EUR: 'Euro', GBP: 'British Pound',
 };
 const RAIL_NAME: Record<string, string> = { USD: 'ACH', EUR: 'SEPA', GBP: 'Faster Payments' };
-const SUPPORTED_STABLES = new Set(['USDC', 'EURC']);
+const SUPPORTED_STABLES = new Set(['USDC', 'EURC', 'USDT']);
 const SUPPORTED_VA = new Set(['USD', 'EUR', 'GBP']);
 const ACTIVE_WALLET_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 const ACTIVE_VA_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
@@ -150,7 +150,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     () => bridgeVirtualAccountCurrenciesForCountry(readCachedCountry()),
   );
   const stableWalletsCacheKey = useMemo(
-    () => financialCacheKey('borderpay_wallets_v1', { userId }),
+    () => financialCacheKey('borderpay_wallets_v2', { userId }),
     [userId],
   );
   const vaCacheKey = useMemo(
