@@ -42,7 +42,7 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
       if (url.pathname.endsWith('/tos_acceptance_link')) return Response.json({ url: 'https://bridge.xyz/terms/test' });
       if (url.pathname.endsWith('/kyc_link')) {
         assert(accepted, 'identity flow must follow accepted terms');
-        assert(url.searchParams.get('redirect_uri')?.startsWith('https://app.borderpayafrica.com'), 'native callback must be replaced with public HTTPS');
+        assert(new URL(url.searchParams.get('redirect_uri') || '').origin === 'https://app.borderpayafrica.com', 'native callback must be replaced with public HTTPS');
         return Response.json({ url: 'https://bridge.withpersona.com/verify?inquiry-id=current&redirect-uri=capacitor%3A%2F%2Flocalhost' });
       }
     }
@@ -64,7 +64,7 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
         assert(!response.body.data.tos_link_url, 'accepted terms must not reopen');
         const link = new URL(response.body.data.link_url);
         assert(link.searchParams.get('inquiry-id') === 'current', 'must return current inquiry');
-        assert(link.searchParams.get('redirect-uri')?.startsWith('https://app.borderpayafrica.com'), 'browser redirect must be public HTTPS');
+        assert(new URL(link.searchParams.get('redirect-uri') || '').origin === 'https://app.borderpayafrica.com', 'browser redirect must be public HTTPS');
         assert(calls.join(',') === 'GET /v0/customers/existing-customer,GET /v0/customers/existing-customer/kyc_link', 'must fetch current customer and current link');
         assert(patches.every(p => !p.bridge_customer_id || p.bridge_customer_id === 'existing-customer'), 'customer identity must remain stable');
         let opened = false;
