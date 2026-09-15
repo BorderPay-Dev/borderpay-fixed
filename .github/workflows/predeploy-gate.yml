@@ -34,6 +34,8 @@ jobs:
           deno test --node-modules-dir=auto --allow-env
           tests/sca-payment-runtime.test.ts
           tests/sca-authorization-http.test.ts
+          tests/usdt-transfer-http.test.ts
+          tests/hosted-verification-resume-http.test.ts
           tests/external-wallet-eurc-http.test.ts
           tests/unit/base_wallet_funding_test.ts
           tests/bridge-eea-sca-scope.test.ts

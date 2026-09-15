@@ -22,6 +22,7 @@ Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA and non-EE
   let country = 'LV';
   let status = 'approved';
   let frozen = false;
+  let expectedAsset = 'EURC';
   let rows: any[] = [source];
   const saved: any[] = [];
   globalThis.fetch = async (input, init) => {
@@ -43,7 +44,7 @@ Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA and non-EE
     if (url.pathname.endsWith('/external_wallets')) {
       if (req.method === 'POST') {
         const body = await req.json();
-        assert(body.user_id === uid && body.asset === 'EURC' && body.chain === 'base', 'saved route must retain owner and EURC asset');
+        assert(body.user_id === uid && body.asset === expectedAsset && body.chain === (expectedAsset === 'USDT' ? 'tron' : 'base'), 'saved route must retain owner and requested asset');
         assert(!body.bridge_payment_route_id, 'must not persist an invented provider route ID');
         const row = { ...body, id: 'saved-1' }; saved.push(row); return response([row]);
       }
@@ -75,5 +76,14 @@ Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA and non-EE
     status = 'approved'; frozen = true;
     assert((await call(destination)).status === 423, 'frozen customer must be blocked');
     assert(saved.length === savedCount, 'rejected requests must not change saved destinations');
+    frozen = false; expectedAsset = 'USDT';
+    const tronAddress = `T${'a'.repeat(33)}`;
+    rows = [{ ...source, currency: 'USDT', chain: 'tron', address: tronAddress }];
+    for (country of ['GB', 'KE']) {
+      const result = await call({ ...destination, asset: 'USDT', chain: 'tron', address: tronAddress });
+      assert(result.status === 200, 'non-EEA must be able to save USDT/Tron destinations');
+      const listed = await (await call({ action: 'list' })).json();
+      assert(listed.data.wallets[0].asset === 'USDT', 'non-EEA saved USDT destination must remain visible');
+    }
   } finally { globalThis.fetch = originalFetch; }
 });

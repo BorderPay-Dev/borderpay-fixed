@@ -15,7 +15,7 @@ const virtualAccounts = [
 ];
 
 const selected = selectVaLinkedStablecoinWallets(wallets, virtualAccounts);
-assert.deepEqual(selected.map((row) => row.currency), ['USDC', 'EURC', 'USDT']);
+assert.deepEqual(selected.map((row) => row.currency), ['USDC', 'EURC']);
 assert.equal(selected.some((row) => row.bridge_wallet_id === duplicateId), false);
 assert.equal(selected.filter((row) => row.chain === 'base').every((row) => row.bridge_wallet_id === canonicalId), true);
 assert.equal(selected.find((row) => row.currency === 'USDC')?.address, '0xcanonical');
@@ -23,16 +23,19 @@ assert.equal(selected.find((row) => row.currency === 'EURC')?.address, '0xcanoni
 
 const nonEea = selectVaLinkedStablecoinWallets(wallets, [
   { currency: 'USD', status: 'active', account_details: { destination: { bridge_wallet_id: duplicateId, currency: 'USDC', payment_rail: 'base' } } },
-]);
-assert.deepEqual(nonEea, wallets);
+], { allowUsdtTron: true });
+assert.deepEqual(nonEea.map(row => row.currency), ['USDC', 'USDT']);
+assert.equal(nonEea[0].bridge_wallet_id, duplicateId);
 
 const ambiguous = selectVaLinkedStablecoinWallets(wallets, [
   ...virtualAccounts,
   { currency: 'EUR', status: 'active', account_details: { destination: { bridge_wallet_id: duplicateId, currency: 'EURC', payment_rail: 'base' } } },
 ]);
-assert.deepEqual(ambiguous, wallets);
+assert.deepEqual(ambiguous.map(row => row.currency), ['USDC', 'EURC']);
+assert.equal(ambiguous.every(row => row.bridge_wallet_id === duplicateId), true);
 
 const inactive = selectVaLinkedStablecoinWallets(wallets, virtualAccounts.map((row) => ({ ...row, status: 'closed' })));
-assert.deepEqual(inactive, wallets);
+assert.deepEqual(inactive.map(row => row.currency), ['USDC', 'EURC']);
+assert.equal(inactive.every(row => row.bridge_wallet_id === duplicateId), true);
 
 console.log('PASS: VA-linked Base wallet runtime fixtures');

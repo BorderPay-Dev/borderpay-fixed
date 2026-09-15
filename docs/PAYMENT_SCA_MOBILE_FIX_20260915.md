@@ -15,7 +15,7 @@ This document records local validation, not a production compliance certificatio
 
 ## Local evidence
 
-- 41 Deno runtime tests: actual authorization and transfer HTTP handlers with mocked persistence/Bridge transport, real TOTP cryptography, payload binding, replay rejection, EEA/non-EEA decisions, alternate entrypoint guards, EURC serialization and verification URL/native launch behavior.
+- 43 Deno runtime tests: actual authorization and transfer HTTP handlers with mocked persistence/Bridge transport, real TOTP cryptography, payload binding, replay rejection, EEA/non-EEA decisions, alternate entrypoint guards, EURC serialization and verification URL/native launch behavior.
 - Frontend type check and affected Edge Function type checks.
 - Production web build and 26 mobile source regression gates.
 - Unified predeploy gate in CI mode. This mode skips live runtime/schema checks without linked production credentials; its PASS is not proof of live behavior.
@@ -41,3 +41,14 @@ The deployed TOTP verifier already enforced all-flow replay protection, and bulk
 ## Confirmed backend release
 
 The SCA schema migration is applied and recorded. The metadata retention trigger is enabled; client roles cannot consume authorization or TOTP counters. Confirmed active versions: verify-2fa 395, sca-scope 79, sca-authorize 33, bridge-transfer 444, bridge-bulk-payout 313, public-api-gateway 259 and bridge-operator-readonly 15. The enforcement flag is true. Runtime tests check all 30 EEA incorporation codes. No live customer payout has been initiated by this work.
+
+
+## Regional wallet and resumed verification completion
+
+- Wallet/Receive/Add Wallet show USDC + EURC for EEA and USDC + USDT for non-EEA. External withdrawal selectors display USDC/Base, EURC/Base and USDT/Tron; USDT remains disabled for EEA under Bridge's documented regional restriction.
+- Applied and recorded `20260915190000_restore_non_eea_usdt_reads.sql`. The prior bridge_wallets, bridge_balance_ledger and legacy wallets RLS globally hid USDT. The migration restores authenticated owner SELECT for approved non-EEA customers without granting balance writes. Business incorporation is authoritative; individual residence uses a current provider scope record. Actual authenticated reads confirmed one existing Tron wallet visible for an eligible non-EEA owner and none for an EEA owner. Disposable PostgreSQL tests passed for all 30 EEA codes, non-EEA, ownership, expiry, frozen access and unchanged write restrictions.
+- Downloaded production process-pending-events and compared it with this branch: entrypoint identical. Approval provisioning uses one chain-only Base wallet and a chain-level lock; Tron is added only for resolved non-EEA scope. USDT remains a supported wallet settlement asset.
+- New HTTP payout test executes the transfer handler and provider serializer against mocked transport: non-EEA USDT goes directly to the saved Tron address, records Bridge transfer ID, returns the same transfer on retry, and rejects insufficient funds, unsaved destinations and EEA/unknown jurisdictions. Actual save/list tests also cover non-EEA USDT.
+- Existing individual KYC resumes with GET customer/current kyc_link after authoritative accepted ToS, rather than POSTing the new-customer endpoint or retrying creation without customer_id. Current KYB backend already uses the resume endpoint. HTTP tests cover incomplete/awaiting_ubo/needs_ubos, accepted terms, public HTTPS callback normalization, and native fullscreen handoff. A failed provider lookup cannot create a replacement customer or serve a cached link.
+- Frontend type check, production build, both verification Edge type checks and unified predeploy gate passed. Physical-device completion and an actual customer-authorized payout remain unverified; mocked tests do not establish live completion.
+- Vercel production deployment targets only the linked borderpay-recovery project. Earlier deployment/promote attempts were blocked by the daily deployment quota. No protected preview has been substituted for the public production app. Installed native apps bundle their JavaScript and need replacement store binaries for frontend changes.

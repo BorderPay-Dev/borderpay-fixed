@@ -2168,12 +2168,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {[
                 { token: 'USDC', network: 'base', label: 'USDC', sub: 'Base' },
                 { token: 'EURC', network: 'base', label: 'EURC', sub: 'Base' },
-                ...(allowUsdtTron ? [{ token: 'USDT', network: 'tron', label: 'USDT', sub: 'Tron' }] : []),
+                { token: 'USDT', network: 'tron', label: 'USDT', sub: allowUsdtTron ? 'Tron' : 'Unavailable for this region' },
               ].map((route) => {
                 const active = crypto.token === route.token && crypto.network === route.network;
                 return (
                   <button
                     key={`${route.token}-${route.network}`}
+                    disabled={route.token === 'USDT' && !allowUsdtTron}
                     type="button"
                     onClick={() => {
                       const normalized = normalizeCryptoRoute(route.network, route.token);

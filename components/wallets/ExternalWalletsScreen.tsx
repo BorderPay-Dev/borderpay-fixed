@@ -69,9 +69,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   void snapshotReader;
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const { allowUsdtTron } = useWalletAssetScope(userId);
-  const withdrawalRoutes = allowUsdtTron
-    ? [...BASE_WITHDRAWAL_ROUTES, USDT_WITHDRAWAL_ROUTE]
-    : [...BASE_WITHDRAWAL_ROUTES];
+  const withdrawalRoutes = [...BASE_WITHDRAWAL_ROUTES, USDT_WITHDRAWAL_ROUTE];
   const verification = useVerification(userId);
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
 
@@ -133,7 +131,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
-    if (!withdrawalRoutes.some(route => route.key === selectedRouteKey)) {
+    if (!withdrawalRoutes.some(route => route.key === selectedRouteKey) || (asset === 'USDT' && !allowUsdtTron)) {
       toast.error(allowUsdtTron ? 'Choose USDC or EURC on Base, or USDT on Tron.' : 'Choose USDC or EURC on Base.');
       return;
     }
@@ -253,7 +251,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       <main className="px-5 sm:px-6 pb-10 max-w-md mx-auto">
         <p className={`text-[12px] ${tc.textMuted} mb-4 leading-snug`}>
           Save your own digital dollar address (e.g. from an exchange). Withdraw to it anytime —
-          confirmed with your PIN or biometric.
+          confirmed with secure authentication.
         </p>
 
         {wallets.length === 0 ? (
@@ -326,7 +324,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
                   className={`w-full ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-3 py-3 text-sm ${tc.text} focus:outline-none`}
                 >
                   {withdrawalRoutes.map(route => (
-                    <option key={route.key} value={route.key}>{route.label}</option>
+                    <option key={route.key} value={route.key} disabled={route.asset === 'USDT' && !allowUsdtTron}>{route.label}{route.asset === 'USDT' && !allowUsdtTron ? ' — unavailable for this region' : ''}</option>
                   ))}
                 </select>
                 <input value={address} onChange={e => setAddress(e.target.value)} placeholder={`${chainName(chain)} address`}

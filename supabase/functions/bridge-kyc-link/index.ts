@@ -1,37 +1,6 @@
-// bridge-kyc-link v6 — embedded /v0/kyc_links flow (no /v0/customers pre-create).
-//
-// SOURCE OF TRUTH for what is deployed at version 6. Earlier vendored
-// versions of this file used `bridgeProvider.createCustomer()` followed
-// by `createKycLink()`. That path failed with HTTP 400/502 because
-// Bridge's /v0/customers requires signed_agreement_id, birth_date, and
-// a full address up-front — fields the user only enters on Bridge's
-// hosted page. Every signup attempt produced an orphaned Bridge
-// customer or no customer at all.
-//
-// Current contract:
-//   • Build the Bridge `/v0/kyc_links` body with `type=individual`,
-//     `email`, `full_name` UNCONDITIONALLY. Bridge requires those even
-//     when `customer_id` is supplied (confirmed via 400 response body:
-//     `{"code":"invalid_parameters","source":{"key":{"email":"is missing"}}}`).
-//   • Only attach `customer_id` when we already have one in
-//     user_profiles.bridge_customer_id (orphan from a previous attempt).
-//   • Idempotency key: `borderpay:kyc:individual:<customer_id || user_id>`.
-//   • Handle Bridge's 400-with-`existing_kyc_link` as success — when the
-//     same email already has a KYC link, Bridge returns the existing one
-//     in the response body for convenience.
-//   • Surface bridge_request_id, bridge_status, and the first 800 bytes
-//     of Bridge's raw body on any unrecoverable failure so the
-//     operator can debug from edge-function logs.
-//
-// Country policy: DRC (CD) returns 403 country_not_supported. Account-type
-// guard returns 403 wrong_account_type for business accounts (they use
-// bridge-kyb-link). Approved users short-circuit to already_approved.
-// Pre-existing bridge_kyc_link_url short-circuits to reused.
-//
-// Deploy via MCP `deploy_edge_function` (verify_jwt=false; the function
-// validates the JWT itself via supabase.auth.getUser). This file is the
-// canonical source the repo uses to validate that deploy matches what
-// reviewers see in git.
+// Hosted individual verification: create new customers through POST /kyc_links;
+// resume existing customers through GET /customers/{id}/kyc_link. Never create
+// another customer when a resume request fails. Accepted terms are authoritative.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -206,6 +175,33 @@ async function bridgePost(path: string, body: unknown, idemKey: string, correlat
   };
 }
 
+async function bridgeGet(path: string, correlationId?: string): Promise<BridgeFetchResult> {
+  if (!BRIDGE_API_KEY) {
+    return { ok: false, status: 0, data: null, raw_text: "BRIDGE_API_KEY missing", error: "BRIDGE_API_KEY missing" };
+  }
+  const res = await fetch(`${BRIDGE_BASE_URL}${path}`, {
+    method: "GET",
+    headers: {
+      "Api-Key":         BRIDGE_API_KEY,
+      "Accept":          "application/json",
+      "Content-Type":    "application/json",
+      ...(correlationId ? { "X-Correlation-Id": correlationId } : {}),
+      "User-Agent":      "borderpay-edge/1.0",
+    },
+  });
+  const text = await res.text();
+  let parsed: any = null;
+  if (text) { try { parsed = JSON.parse(text); } catch { /* keep null */ } }
+  return {
+    ok:         res.ok,
+    status:     res.status,
+    data:       parsed,
+    raw_text:   text,
+    error:      res.ok ? undefined : (parsed?.message || `HTTP ${res.status}`),
+    request_id: res.headers.get("x-request-id") || undefined,
+  };
+}
+
 // Extract a kyc_link from Bridge's response body in any of the three
 // shapes we have seen: top-level success, embedded data wrapper, or 400
 // with existing_kyc_link. Returns null if no link is present anywhere.
@@ -353,79 +349,56 @@ Deno.serve(async (req: Request) => {
   // Do not short-circuit to cached link_url: old links can expire and trap users
   // in repeated verification errors. Always ask Bridge for the current link state.
 
-  // Build the /v0/kyc_links body. email + full_name are unconditional.
-  // customer_id is attached only when we have one from a prior attempt.
-  const reqBody: Record<string, unknown> = {
-    type:         "individual",
-    email:        profile.email,
-    full_name:    profile.full_name || "User",
-    endorsements: body.endorsements ?? ["base"],
-    redirect_uri: verificationRedirectUrl(APP_URL, body.redirect_url),
-  };
-  if (profile.bridge_customer_id) reqBody.customer_id = profile.bridge_customer_id;
+  const redirectUrl = verificationRedirectUrl(APP_URL, body.redirect_url);
+  let bridgeEndpoint = "/v0/kyc_links";
+  let r: BridgeFetchResult;
+  let links: ExtractedLinks | null = null;
+  const existingCustomerId = profile.bridge_customer_id;
   await writeTrace(correlationId, "bridge_request_sent", {
-    executionTimestamp,
-    userId: user.id,
-    email: profile.email,
-    bridgeEndpoint: "/v0/kyc_links",
-    requestPayload: sanitizeTracePayload(body, Boolean(profile.bridge_customer_id)),
-    elapsedMs: elapsed(),
+    executionTimestamp, userId: user.id, email: profile.email,
+    bridgeEndpoint: existingCustomerId ? `/v0/customers/${encodeURIComponent(existingCustomerId)}` : bridgeEndpoint,
+    requestPayload: sanitizeTracePayload(body, Boolean(existingCustomerId)), elapsedMs: elapsed(),
   });
-
-  const idemSource = profile.bridge_customer_id || user.id;
-  let r = await bridgePost(
-    "/v0/kyc_links",
-    reqBody,
-    `borderpay:kyc:individual:${idemSource}`,
-    correlationId,
-  );
-
-  let links = extractLinks(r.data);
-
-  // Legacy safety: if a stale/invalid bridge_customer_id is stored locally,
-  // Bridge can reject the request. Retry once without customer_id using the
-  // embedded-customer hosted KYC flow (provider-supported) to unblock users.
-  if (!r.ok && !links && profile.bridge_customer_id) {
-    const fallbackBody = { ...reqBody };
-    delete fallbackBody.customer_id;
-    await writeTrace(correlationId, "bridge_request_sent", {
-      executionTimestamp,
-      userId: user.id,
-      email: profile.email,
-      bridgeEndpoint: "/v0/kyc_links",
-      requestPayload: {
-        ...sanitizeTracePayload(body, false),
-        retry_without_customer_id: true,
-      },
-      elapsedMs: elapsed(),
-    });
-    r = await bridgePost(
-      "/v0/kyc_links",
-      fallbackBody,
-      `borderpay:kyc:individual:fallback:${user.id}`,
-      correlationId,
-    );
+  if (existingCustomerId) {
+    const customerPath = `/v0/customers/${encodeURIComponent(existingCustomerId)}`;
+    bridgeEndpoint = customerPath;
+    r = await bridgeGet(customerPath, correlationId);
+    if (r.ok) {
+      const customer = r.data?.data ?? r.data;
+      const termsAccepted = customer?.has_accepted_terms_of_service === true;
+      bridgeEndpoint = termsAccepted
+        ? `${customerPath}/kyc_link?redirect_uri=${encodeURIComponent(redirectUrl)}`
+        : `${customerPath}/tos_acceptance_link`;
+      r = await bridgeGet(bridgeEndpoint, correlationId);
+      if (r.ok) {
+        if (termsAccepted) {
+          links = extractLinks(r.data);
+          if (links) links.tos_link_url = null;
+        } else {
+          const data = r.data?.data ?? r.data;
+          const tosUrl = data?.url ?? data?.tos_link?.url ?? data?.tos_link;
+          if (typeof tosUrl === "string" && tosUrl.startsWith("https://")) {
+            links = { kyc_link_url: null, kyc_link_id: null, tos_link_url: tosUrl };
+          }
+        }
+        if (links) {
+          links.customer_id = existingCustomerId;
+          links.kyc_link_id ||= profile.bridge_kyc_link_id;
+        }
+      }
+    }
+  } else {
+    r = await bridgePost(bridgeEndpoint, {
+      type: "individual", email: profile.email, full_name: profile.full_name || "User",
+      endorsements: body.endorsements ?? ["base"], redirect_uri: redirectUrl,
+    }, `borderpay:kyc:individual:${user.id}`, correlationId);
     links = extractLinks(r.data);
-    await writeTrace(correlationId, "bridge_response_received", {
-      executionTimestamp,
-      userId: user.id,
-      email: profile.email,
-      bridgeEndpoint: "/v0/kyc_links",
-      httpStatus: r.status,
-      bridgeRequestId: r.request_id ?? null,
-      responseBody: {
-        ...sanitizeResponseBody(r.data),
-        retry_without_customer_id: true,
-      },
-      errorBody: r.ok ? null : (r.raw_text || "").slice(0, 1200),
-      elapsedMs: elapsed(),
-    });
   }
   await writeTrace(correlationId, "bridge_response_received", {
     executionTimestamp,
     userId: user.id,
     email: profile.email,
-    bridgeEndpoint: "/v0/kyc_links",
+    bridgeEndpoint,
     httpStatus: r.status,
     bridgeRequestId: r.request_id ?? null,
     responseBody: sanitizeResponseBody(r.data),
@@ -440,7 +413,7 @@ Deno.serve(async (req: Request) => {
       executionTimestamp,
       userId: user.id,
       email: profile.email,
-      bridgeEndpoint: "/v0/kyc_links",
+      bridgeEndpoint,
       httpStatus: r.status,
       bridgeRequestId: r.request_id ?? null,
       responseBody: sanitizeResponseBody(r.data),
@@ -461,7 +434,7 @@ Deno.serve(async (req: Request) => {
       executionTimestamp,
       userId: user.id,
       email: profile.email,
-      bridgeEndpoint: "/v0/kyc_links",
+      bridgeEndpoint,
       httpStatus: r.status,
       bridgeRequestId: r.request_id ?? null,
       responseBody: sanitizeResponseBody(r.data),
@@ -485,7 +458,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const { error: updateErr } = await supa.from("user_profiles").update({
-    bridge_kyc_link_id:  links.kyc_link_id,
+    ...(links.kyc_link_id ? { bridge_kyc_link_id: links.kyc_link_id } : {}),
     bridge_kyc_link_url: clientLinkUrl,
     ...(links.customer_id ? { bridge_customer_id: links.customer_id } : {}),
     updated_at:          new Date().toISOString(),
@@ -516,7 +489,7 @@ Deno.serve(async (req: Request) => {
     executionTimestamp,
     userId: user.id,
     email: profile.email,
-    bridgeEndpoint: "/v0/kyc_links",
+    bridgeEndpoint,
     httpStatus: r.status,
     bridgeRequestId: r.request_id ?? null,
     responseBody: {
@@ -524,7 +497,7 @@ Deno.serve(async (req: Request) => {
       link_url_present: Boolean(links.kyc_link_url),
       tos_link_present: Boolean(links.tos_link_url),
       expires_at: expires_at ?? null,
-      reused: !r.ok ? true : false,
+      reused: Boolean(existingCustomerId) || !r.ok,
     },
     elapsedMs: elapsed(),
   });
@@ -535,7 +508,7 @@ Deno.serve(async (req: Request) => {
       link_url: clientLinkUrl,
       tos_link_url: links.tos_link_url,
       expires_at,
-      reused: !r.ok ? true : undefined,
+      reused: Boolean(existingCustomerId) || !r.ok,
       correlation_id: correlationId,
     },
   });

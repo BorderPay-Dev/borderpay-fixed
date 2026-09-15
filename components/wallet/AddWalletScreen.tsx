@@ -81,7 +81,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
   const { allowUsdtTron } = useWalletAssetScope(userId);
   const visibleCards = useMemo(
-    () => CARDS.filter((card) => card.code !== 'USDT' || allowUsdtTron),
+    () => CARDS.filter((card) => (card.code !== 'USDT' || allowUsdtTron) && (card.code !== 'EURC' || !allowUsdtTron)),
     [allowUsdtTron],
   );
 

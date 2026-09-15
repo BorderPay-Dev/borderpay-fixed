@@ -607,6 +607,7 @@ export const walletAPI = {
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
       if (currency === 'USDT' && !walletAssetScope.allow_usdt_tron) continue;
+      if (currency === 'EURC' && walletAssetScope.allow_usdt_tron) continue;
       if (!['USDC', 'EURC', 'USDT'].includes(currency)) continue;
       const row = ensure(currency);
       if (!row) continue;
@@ -614,6 +615,7 @@ export const walletAPI = {
     }
 
     const wallets = Array.from(byCurrency.values())
+      .filter(row => row.currency !== 'EURC' || !walletAssetScope.allow_usdt_tron)
       .sort((a, b) => String(a.currency).localeCompare(String(b.currency)));
     return { success: true, data: { wallets, wallet_asset_scope: walletAssetScope } };
   },

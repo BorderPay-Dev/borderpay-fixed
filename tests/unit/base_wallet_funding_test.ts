@@ -10,7 +10,7 @@ Deno.test('USDC-labelled Base resource exposes EURC funding with its VA-linked p
   const vas = [{ status: 'active', account_details: { destination: { payment_rail: 'base', currency: 'EURC', bridge_wallet_id: 'funded' } } }];
   for (const allowUsdtTron of [false, true]) {
     const funding = selectVaLinkedStablecoinWallets(rows, vas, { allowUsdtTron });
-    assert(funding.find(w => w.currency === 'EURC')?.bridge_wallet_id === 'funded', 'EURC must carry the linked source ID');
+    assert(allowUsdtTron ? !funding.some(w => w.currency === 'EURC') : funding.find(w => w.currency === 'EURC')?.bridge_wallet_id === 'funded', 'EURC must carry the linked source ID for EEA and stay hidden for non-EEA');
     assert(funding.find(w => w.currency === 'USDC')?.bridge_wallet_id === 'funded', 'USDC must use the same Base resource');
     assert(funding.some(w => w.currency === 'USDT') === allowUsdtTron, 'USDT region boundary must remain');
     assert(!funding.some(w => w.bridge_wallet_id === 'duplicate'), 'duplicate resource must not become funding source');
