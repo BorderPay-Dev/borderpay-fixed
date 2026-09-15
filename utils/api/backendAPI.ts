@@ -524,7 +524,7 @@ export const walletAPI = {
         .in('currency', ['USDC', 'EURC', 'USDT']),
       supabase
         .from('bridge_virtual_accounts')
-        .select('bridge_virtual_account_id,currency,status,updated_at')
+        .select('bridge_virtual_account_id,currency,status,updated_at,account_details')
         .or(ownerOrFilter(user.id)),
       supabase
         .from('bridge_balance_ledger')
@@ -579,7 +579,11 @@ export const walletAPI = {
       if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
       return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
     });
-    for (const w of allowedWalletRows) {
+    // Resolve both Base assets to the VA-linked wallet; balances remain asset-specific.
+    const fundingWalletRows = selectVaLinkedStablecoinWallets(allowedWalletRows, bridgeVas, {
+      allowUsdtTron: walletAssetScope.allow_usdt_tron,
+    });
+    for (const w of fundingWalletRows) {
       const c = String((w as any).currency || '').toUpperCase();
       const row = ensure(c);
       if (!row) continue;

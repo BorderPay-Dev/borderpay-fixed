@@ -50,7 +50,7 @@ Deno.test('EEA payout scope uses incorporation even if wallet API is unavailable
   const original = bridgeProvider.listWallets;
   bridgeProvider.listWallets = () => { throw new Error('wallet listing must not control payment SCA'); };
   try {
-    for (const country of ['IT', 'ITA', 'FR', 'NO', 'IS', 'LI']) {
+    for (const country of ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IS', 'IE', 'IT', 'LV', 'LI', 'LT', 'LU', 'MT', 'NL', 'NO', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'ITA']) {
       const result = await resolveBridgeScaScope(database(country), userId, 'payment');
       assert(result.required && result.reason === 'eea_payment');
     }
