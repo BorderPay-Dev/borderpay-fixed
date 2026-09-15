@@ -51,8 +51,9 @@ checks = {
         and "country_of_incorporation" in SCOPE
         and "registeredAddress.country" in SCOPE
     ),
-    "business scope falls back only to stored incorporation country": (
-        "normalizeBridgeScaCountry(identity.context.country)" in SCOPE
+    "business scope uses stored signup incorporation country": (
+        'identity.context.account_type === "business"' in SCOPE
+        and "normalizeBridgeScaCountry(identity.context.country)" in SCOPE
         and "operating_address" not in SCOPE
     ),
     "missing business incorporation country fails closed": (
