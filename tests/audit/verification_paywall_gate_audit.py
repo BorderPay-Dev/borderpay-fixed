@@ -7,9 +7,8 @@ There is NO admin manual-review step. This audit locks that model:
 
   V1  launch-gates.ts defines verificationGate + loadVerificationContext +
       PAID_PLAN_KEYS (free tiers excluded) + payment_required + kycRequiresPayment.
-  V2  The 3 billable Bridge entry points (bridge-customer, bridge-kyc-link,
-      bridge-kyb-link) call verificationGate(loadVerificationContext(...)) AND
-      keep the outer env pause (bridgeOnboardingEnabled).
+  V2  The 3 Bridge verification entry points remain available before payment
+      and keep the outer emergency pause (bridgeOnboardingEnabled).
   V3  The admin manual-review gate is GONE — launch-gates.ts no longer references
       pending_manual_review / VERIFICATION_AUTHORIZED / reviewStatus, so KYC/KYB
       can never be blocked behind admin authorization again.
@@ -66,8 +65,8 @@ for f in BRIDGE_FNS:
     if not s:
         continue
     name = f.parent.name
-    if "verificationGate(await loadVerificationContext(supa, user.id))" not in s:
-        failures.append(f"V2 {name} does not enforce verificationGate(loadVerificationContext)")
+    if "verificationGate(await loadVerificationContext(supa, user.id))" in s:
+        failures.append(f"V2 {name} incorrectly paywalls verification")
     if "bridgeOnboardingEnabled" not in s:
         failures.append(f"V2 {name} dropped the outer env pause (bridgeOnboardingEnabled)")
 
@@ -93,6 +92,6 @@ if failures:
 
 print("VERIFICATION GATE AUDIT: PASS (4/4)")
 print("  ✓ V1 verificationGate + loader + PAID_PLAN_KEYS (free excluded) + payment + kycRequiresPayment")
-print("  ✓ V2 all 3 Bridge entry points gate behind env pause + (optional) payment")
+print("  ✓ V2 all 3 Bridge entry points remain free and retain the emergency pause")
 print("  ✓ V3 admin manual-review gate removed — KYC/KYB is automatic via webhook")
 print("  ✓ V4 frontend gate helpers present")
