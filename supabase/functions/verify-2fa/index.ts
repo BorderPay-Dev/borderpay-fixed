@@ -59,7 +59,7 @@ function constantTimeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return r === 0;
 }
-async function verifyTOTP(secret: string, token: string, win = 1): Promise<boolean> {
+async function verifyTOTP(secret: string, token: string, win = 1): Promise<number | null> {
   const secretBytes = base32Decode(secret);
   const step = 30;
   const now  = Math.floor(Date.now() / 1000 / step);
@@ -70,9 +70,9 @@ async function verifyTOTP(secret: string, token: string, win = 1): Promise<boole
     const code    = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16) |
                     ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
     const otp     = (code % 1000000).toString().padStart(6, '0');
-    if (constantTimeEqual(otp, token)) return true;
+    if (constantTimeEqual(otp, token)) return counter;
   }
-  return false;
+  return null;
 }
 
 // ── AES-GCM helpers ─────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ async function importDecKey(): Promise<CryptoKey | null> {
   let bytes: Uint8Array;
   try { bytes = b64ToBytes(raw); } catch { return null; }
   if (bytes.byteLength !== 32) return null;
-  return crypto.subtle.importKey('raw', bytes, { name: 'AES-GCM' }, false, ['decrypt']);
+  return crypto.subtle.importKey('raw', bytes as BufferSource, { name: 'AES-GCM' }, false, ['decrypt']);
 }
 async function decryptSecret(blob: Uint8Array, key: CryptoKey): Promise<string | null> {
   if (blob.byteLength < 12 + 16) return null;
@@ -117,7 +117,7 @@ Deno.serve(async (req: Request) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return json({ success: false, error: 'Unauthorized' }, 401);
 
-    const { token: totpToken } = await req.json();
+    const { token: totpToken, purpose } = await req.json();
     if (!totpToken || !/^\d{6}$/.test(totpToken)) {
       return json({ success: false, error: 'Token must be 6 digits' }, 400);
     }
@@ -156,9 +156,17 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, error: 'Secret unavailable', code: 'decrypt_failed' }, 500);
     }
 
-    const isValid = await verifyTOTP(secret, totpToken);
-    if (!isValid) {
+    const matchedCounter = await verifyTOTP(secret, totpToken);
+    if (matchedCounter === null) {
       return json({ success: false, error: 'Invalid verification code' }, 401);
+    }
+
+    if (purpose === 'sca_payment') {
+      const { data: consumed, error: consumeError } = await supabase.rpc('consume_totp_counter', {
+        p_user_id: user.id, p_counter: matchedCounter,
+      });
+      if (consumeError) return json({ success: false, error: 'Strong authentication is temporarily unavailable.' }, 503);
+      if (consumed !== true) return json({ success: false, error: 'This authenticator code was already used. Wait for a new code.' }, 401);
     }
 
     const { error: updateError } = await supabase
@@ -169,7 +177,7 @@ Deno.serve(async (req: Request) => {
       );
     if (updateError) return json({ success: false, error: updateError.message }, 500);
 
-    return json({ success: true });
+    return json({ success: true, ...(purpose === 'sca_payment' ? { totp_counter_consumed: true } : {}) });
   } catch (err) {
     return json({ success: false, error: (err as Error).message }, 500);
   }

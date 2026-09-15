@@ -24,6 +24,8 @@ AUDITS = (
     "app_store_exchange_navigation_audit.py",
     "signup_hosted_verification_handoff_audit.py",
     "eea_payout_sca_challenge_audit.py",
+    "verification_tos_external_handoff_audit.py",
+    "eurc_external_withdrawal_audit.py",
     "signup_phone_optional_app_review_audit.py",
     "password_recovery_routing_audit.py",
     "kyc_path_canonical_audit.py",

@@ -61,7 +61,9 @@ export async function loadAndAssertBridgeIdentityInvariant(
       .select("user_id, country, bridge_customer_id, bridge_kyb_status")
       .eq("user_id", userId)
       .maybeSingle();
-    country = biz?.country ?? country;
+    // Business jurisdiction is exclusively the stored incorporation country.
+    // Never fall back to the user/contact residence when the business row is absent.
+    country = biz?.country ?? null;
     verification_status = biz?.bridge_kyb_status ?? verification_status;
     bridge_customer_id = biz?.bridge_customer_id ?? bridge_customer_id;
   }

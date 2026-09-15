@@ -18,6 +18,7 @@ import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { Browser } from '@capacitor/browser';
+import { openHostedVerification } from '../../utils/native/hostedVerification';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { isNativeRuntime } from '../../utils/native/mobileRuntime';
@@ -185,7 +186,26 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     return (Date.now() - ts) <= 90_000;
   }, []);
 
-  const openHostedVerificationUrl = useCallback((url: string, opts?: { cacheAsVerifyUrl?: boolean; title?: string; returnEnabled?: boolean }) => {
+  const [openingVerification, setOpeningVerification] = useState(false);
+  const openingVerificationRef = useRef(false);
+  const nativeVerificationOpenRef = useRef(false);
+  const openTopLevelHostedFallback = useCallback(async (url: string | null) => {
+    if (!url) return;
+    try { sessionStorage.setItem('borderpay_post_callback_screen', 'kyc'); } catch { /* storage is optional */ }
+    try {
+      nativeVerificationOpenRef.current = isNativeRuntime();
+      await openHostedVerification(url, {
+        native: isNativeRuntime(),
+        openBrowser: options => Browser.open(options),
+        navigateWeb: target => window.location.assign(target),
+      });
+    } catch {
+      nativeVerificationOpenRef.current = false;
+      toast.error('Could not open secure verification. Please try again.');
+    }
+  }, []);
+
+  const openHostedVerificationUrl = useCallback(async (url: string, opts?: { cacheAsVerifyUrl?: boolean; title?: string; returnEnabled?: boolean }) => {
     const cacheAsVerifyUrl = opts?.cacheAsVerifyUrl ?? true;
     const title = String(opts?.title || 'Continue verification');
     const returnEnabled = opts?.returnEnabled !== false;
@@ -203,6 +223,12 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       // to dashboard if query params are stripped by external redirects.
       sessionStorage.setItem('borderpay_post_callback_screen', 'kyc');
     } catch { /* noop */ }
+    if (isNativeRuntime()) {
+      // Terms can redirect to identity verification, so they also belong in
+      // the native browser. Do not create an iframe in the app shell.
+      await openTopLevelHostedFallback(url);
+      return;
+    }
     setEmbeddedUrl(url);
     setEmbeddedTitle(title);
     setEmbeddedPolling(true);
@@ -215,24 +241,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       sessionStorage.setItem('borderpay_verification_embed_return_enabled', returnEnabled ? '1' : '0');
       window.dispatchEvent(new CustomEvent('borderpay:verification_embed_visibility', { detail: { open: true, title, returnEnabled } }));
     } catch { /* noop */ }
-  }, [userId]);
-
-  const openTopLevelHostedFallback = useCallback((url: string | null) => {
-    if (!url) return;
-    // Persona refuses embedded WebViews. Native shells must hand the URL to a
-    // separate browsing context; replacing the Capacitor WebView produces
-    // ERR_BLOCKED_BY_RESPONSE on both Android and iOS.
-    if (isNativeRuntime()) {
-      void Browser.open({ url, presentationStyle: 'popover' }).catch(() => {
-        // If the native browser service itself is unavailable, keep the user
-        // on a top-level page rather than falling back to an embedded popup.
-        window.location.assign(url);
-      });
-      return;
-    }
-    // Web/PWA navigation stays in the browser and preserves the proven flow.
-    window.location.assign(url);
-  }, []);
+  }, [userId, openTopLevelHostedFallback]);
 
   useEffect(() => {
     if (!embeddedUrl) return;
@@ -282,6 +291,34 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       // silent probe: never block verification screen
     }
   }, [persistTosAccepted, resolveVerificationContext, refresh]);
+
+  useEffect(() => {
+    if (!isNativeRuntime()) return;
+    let disposed = false;
+    const onReturn = async () => {
+      if (disposed || !nativeVerificationOpenRef.current) return;
+      nativeVerificationOpenRef.current = false;
+      await probeVerificationState();
+      try {
+        const ctx = await resolveVerificationContext();
+        const result: any = await requestHostedLink(ctx.accountType, 'terms');
+        if (!disposed && result?.success && result.data?.tos_accepted) {
+          persistTosAccepted(true);
+          setTosLinkUrl(null);
+        }
+      } catch { /* The Continue button retries the authoritative state. */ }
+    };
+    const listener = Browser.addListener('browserFinished', () => { void onReturn(); }).catch(() => null);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void onReturn();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      disposed = true;
+      document.removeEventListener('visibilitychange', onVisible);
+      void listener.then(handle => handle?.remove()).catch(() => {});
+    };
+  }, [probeVerificationState, resolveVerificationContext, requestHostedLink, persistTosAccepted]);
 
   useEffect(() => {
     if (status === 'verified' || status === 'under_review' || status === 'rejected') return;
@@ -340,6 +377,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   }, []);
 
   const startVerification = async () => {
+    if (openingVerificationRef.current) return;
+    openingVerificationRef.current = true;
+    setOpeningVerification(true);
     try {
       // Always request a fresh hosted link on CTA click to avoid consumed/stale
       // URLs that can render as blank white screens in iframe mode.
@@ -363,7 +403,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_tos_url:${userId}`, r.data.tos_link_url);
           localStorage.setItem(`borderpay_last_tos_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
-        openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
+        await openHostedVerificationUrl(r.data.tos_link_url, { cacheAsVerifyUrl: false, title: 'Terms of Service', returnEnabled: false });
         return;
       }
       if (r?.success && r.data?.link_url) {
@@ -379,9 +419,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
           localStorage.setItem(`borderpay_last_verify_url_ts:${userId}`, String(now));
         } catch { /* noop */ }
         // The identity-verification host disallows iframe embedding. Keep the
-        // Terms step in BorderPay, then hand the KYB link to the top-level
+        // Terms step separate, then hand the KYB link to the top-level
         // browser so native WebViews cannot fail with ERR_BLOCKED_BY_RESPONSE.
-        openTopLevelHostedFallback(r.data.link_url);
+        await openTopLevelHostedFallback(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.already_approved) { await refresh(); toast.success('You’re already verified.'); return; }
@@ -397,6 +437,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       toast.error(safe);
     } catch (e) {
       toast.error(friendlyError(e, 'Could not start verification. Please try again.'));
+    } finally {
+      openingVerificationRef.current = false;
+      setOpeningVerification(false);
     }
   };
 
@@ -429,7 +472,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         // can strand iOS/Android WebViews on a white page when the async link
         // request completes. The provider page cannot be embedded, so this
         // top-level handoff is the only path used for KYC/KYB.
-        openTopLevelHostedFallback(r.data.link_url);
+        await openTopLevelHostedFallback(r.data.link_url);
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
@@ -551,10 +594,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
               / regeneration idempotently server-side. */}
           {(status === 'not_started' || status === 'incomplete' || status === 'needs_ubos' || status === 'awaiting_rfi' || status === 'needs_edd' || status === 'pending') && (
             <button
+              disabled={openingVerification}
               onClick={() => { void startVerification(); }}
               className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
             >
-              <>Continue verification <ArrowRight className="w-4 h-4" /></>
+              <>{openingVerification ? 'Opening verification…' : 'Continue verification'} <ArrowRight className="w-4 h-4" /></>
             </button>
           )}
           {(status === 'pending' || status === 'under_review') && (

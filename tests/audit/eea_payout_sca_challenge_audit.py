@@ -9,7 +9,7 @@ send = (ROOT / "components/send/SendMoneyFlow.tsx").read_text()
 api = (ROOT / "utils/api/backendAPI.ts").read_text()
 
 checks = {
-    "scope is server-derived": "resolveBridgeScaScope(supabase, user.id)" in authorize,
+    "scope is server-derived": 'resolveBridgeScaScope(supabase, user.id, "payment")' in authorize,
     "released-client scope endpoint is restored": "resolveBridgeScaScope(supabase, user.id)" in scope,
     "SCA kill switch is respected": "bridgeEeaScaEnforcementEnabled()" in authorize,
     "non-EEA bypasses challenge": 'required: false, reason: scope.reason' in authorize,

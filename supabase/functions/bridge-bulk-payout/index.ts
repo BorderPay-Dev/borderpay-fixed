@@ -1,3 +1,4 @@
+import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
 // bridge-bulk-payout v1 — batch payouts (payroll / supplier / contractor /
 // marketplace / creator) over the SAME validated single-transfer rail.
 //
@@ -163,6 +164,9 @@ Deno.serve(async (req) => {
     });
     if (!gate.allowed) return json(gate.body, gate.status);
   }
+  const scaGuard = await guardUnattestedTransfer(supa, { userId: user.id });
+  if (!scaGuard.ok) return json(scaGuard.body, scaGuard.status);
+
   const { data: sourceWallet } = await supa
     .from("bridge_wallets")
     .select("bridge_wallet_id")

@@ -19,10 +19,10 @@ screens = "\n".join((ROOT / path).read_text() for path in [
 
 checks = {
     "native runtime is explicit": "isNativeRuntime()" in kyc_ui,
-    "native KYB opens outside WebView": "Browser.open({ url, presentationStyle: 'popover' })" in kyc_ui,
+    "native KYB opens outside WebView": "openBrowser: options => Browser.open(options)" in kyc_ui,
     "native handoff uses official Browser plugin": "import { Browser } from '@capacitor/browser'" in kyc_ui,
     "native handoff never uses a blank placeholder": "window.open('about:blank'" not in kyc_ui,
-    "web/PWA retains browser navigation": "window.location.assign(url)" in kyc_ui,
+    "web/PWA retains browser navigation": "navigateWeb: target => window.location.assign(target)" in kyc_ui,
     "Persona is never sent to the ToS iframe": "openHostedVerificationUrl(r.data.link_url" not in kyc_ui,
     "client always requests public HTTPS callback": "https://app.borderpayafrica.com/?screen=kyc" in kyc_ui,
     "KYB request rejects native callbacks": "verificationRedirectUrl(APP_URL, body.redirect_url)" in kyb,

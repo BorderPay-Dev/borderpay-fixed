@@ -29,8 +29,8 @@ Deno.serve(async (req: Request) => {
   if (error || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
   const scope = await resolveBridgeScaScope(supabase, user.id);
-  if (!bridgeEeaScaEnforcementEnabled()) {
-    return json({ success: true, data: { ...scope, required: false, status: "not_required", enforcement_enabled: false } });
+  if (!bridgeEeaScaEnforcementEnabled() && scope.status !== "not_required") {
+    return json({ success: false, code: "sca_unavailable", error: "Strong authentication is temporarily unavailable.", data: scope }, 503);
   }
   if (scope.status === "unknown") {
     return json({ success: false, code: "sca_scope_unavailable", error: "Strong-authentication scope could not be verified.", data: scope }, 503);

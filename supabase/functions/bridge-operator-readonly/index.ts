@@ -1,3 +1,4 @@
+import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
@@ -621,6 +622,9 @@ Deno.serve(async (req: Request) => {
         error: `Insufficient ${currency} balance.`,
       }, 402);
     }
+
+    const scaGuard = await guardUnattestedTransfer(db, { customerId });
+    if (!scaGuard.ok) return json(req, scaGuard.body, scaGuard.status);
 
     const authorization = req.headers.get("Authorization") || "";
     const pinResult = await verifyTransactionPin(authorization, pin);

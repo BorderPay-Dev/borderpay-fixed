@@ -29,6 +29,15 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Test payout SCA, EURC and native verification behavior
+        run: >-
+          deno test --allow-env
+          tests/sca-payment-runtime.test.ts
+          tests/sca-authorization-http.test.ts
+          tests/bridge-eea-sca-scope.test.ts
+          tests/unit/hosted_verification_test.ts
+          tests/unit/bridge_verification_url_test.ts
+
       - name: Install Supabase CLI
         run: npm install -g supabase
 

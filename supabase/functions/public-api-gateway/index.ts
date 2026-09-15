@@ -1,3 +1,4 @@
+import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   checkIpAllowlist,
@@ -330,6 +331,12 @@ async function handleRoute(
         body: { success: false, error: parsed.error },
       };
     }
+    // Determine jurisdiction from the source wallet owner, never caller-supplied
+    // attestation or the API tenant's country. This API has no SCA challenge.
+    const scaGuard = await guardUnattestedTransfer(supa, {
+      walletId: String(parsed.value.source.bridge_wallet_id || ""),
+    });
+    if (!scaGuard.ok) return { status: scaGuard.status, body: scaGuard.body };
     const result = await bridgeProvider.createTransfer(parsed.value as any);
     const source = parsed.value.source as Record<string, unknown>;
     const destination = parsed.value.destination as Record<string, unknown>;

@@ -43,16 +43,17 @@ export async function consumeScaAuthorization(params: {
   country: string | null;
   scope_reason: string;
 } | { ok: false; status: number; body: Record<string, unknown> }> {
-  if (!bridgeEeaScaEnforcementEnabled()) {
-    return { ok: true, required: false, country: null, scope_reason: "enforcement_disabled" };
-  }
-
-  const scope = await resolveBridgeScaScope(params.supabase, params.userId);
+  const scope = await resolveBridgeScaScope(params.supabase, params.userId, params.operation === "payment" ? "payment" : "access");
   if (scope.status === "not_required") {
     return { ok: true, required: false, country: scope.country, scope_reason: scope.reason };
   }
   if (scope.status === "unknown") {
     return { ok: false, status: 503, body: { success: false, code: "sca_scope_unavailable", error: "Strong authentication could not be verified. Nothing was changed." } };
+  }
+
+  // Disabling the service pauses protected payouts; it never exempts EEA users.
+  if (!bridgeEeaScaEnforcementEnabled()) {
+    return { ok: false, status: 503, body: { success: false, code: "sca_unavailable", error: "Strong authentication is temporarily unavailable. Nothing was changed." } };
   }
 
   const authorizationId = String(params.authorizationId || "").trim();
