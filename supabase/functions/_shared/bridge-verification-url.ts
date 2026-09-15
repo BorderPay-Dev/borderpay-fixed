@@ -10,9 +10,11 @@ export function verificationRedirectUrl(
 
   try {
     const parsed = new URL(candidate);
-    if (parsed.protocol === "https:" && parsed.hostname === app.hostname) {
+    if (parsed.protocol === "https:" && parsed.origin === app.origin) {
       parsed.pathname = "/";
+      parsed.search = "";
       parsed.searchParams.set("screen", "kyc");
+      parsed.hash = "";
       return parsed.toString();
     }
   } catch {

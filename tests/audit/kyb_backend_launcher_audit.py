@@ -16,7 +16,7 @@ checks = {
     "launcher SPA page is absent": not (ROOT / "components/verification/VerificationContinuePage.tsx").exists(),
     "launcher route is absent": "VerificationContinuePage" not in app and "'/verification/continue'" not in app,
     "native callback cannot use an internal WebView origin": "verificationRedirectUrl(APP_URL, body.redirect_url)" in kyb and "capacitor://localhost" in url_guard,
-    "external callback is pinned to BorderPay HTTPS": 'parsed.protocol === "https:"' in url_guard and "parsed.hostname === app.hostname" in url_guard,
+    "external callback is pinned to the exact BorderPay HTTPS origin": 'parsed.protocol === "https:"' in url_guard and "parsed.origin === app.origin" in url_guard,
     "cached provider links have their native callback replaced": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(appUrl))' in url_guard,
     "legacy callback spelling is removed": 'target.searchParams.delete("redirect_uri")' in url_guard,
     "Vercel does not proxy HTML from Supabase": '"source": "/verification/continue"' not in vercel,
