@@ -1165,7 +1165,7 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
 
 function DashboardCurrencyIcon({ currency, color }: { currency: string; color: string }) {
   const code = String(currency || '').toUpperCase();
-  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧' };
+  const flag: Record<string, string> = { USD: '🇺🇸', EUR: '🇪🇺', EURC: '🇪🇺', GBP: '🇬🇧' };
   const [imgFailed, setImgFailed] = React.useState(false);
   const iconUrl = STABLE_ICON_URL[code];
 

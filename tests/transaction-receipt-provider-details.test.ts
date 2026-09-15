@@ -34,6 +34,7 @@ Deno.test('normalizes customer-visible Bridge bank and tracking fields', () => {
   });
   if (!receipt) throw new Error('expected receipt');
   assertEquals(receipt.bridgeTransactionId, 'bridge-transfer-1', 'Bridge transaction ID');
+  assertEquals(providerReceiptTextRows(receipt)[0]?.label, 'BorderPay transaction ID', 'customer-facing transaction label');
   assertEquals(receipt.sourceBankName, 'Sender Bank', 'source bank');
   assertEquals(receipt.sourceBankRoutingNumber, '110000000', 'source routing');
   assertEquals(receipt.receivingBankName, 'Banking Circle', 'receiving bank');
@@ -80,4 +81,57 @@ Deno.test('does not expose arbitrary raw webhook keys as receipt rows', () => {
   if (!receipt) throw new Error('expected provider receipt');
   const values = providerReceiptTextRows(receipt).map((row) => row.value);
   if (values.includes('secret')) throw new Error('internal webhook fields leaked');
+});
+
+Deno.test('maps the production transfer webhook shape and hides the internal wallet rail', () => {
+  const receipt = normalizeTransactionReceipt({
+    amount: 100,
+    metadata: {
+      bridge_transfer_id: 'tx-production-shape',
+      receipt: { initial_amount: '100', developer_fee: '1', final_amount: '99', destination_tx_hash: '0xdestination' },
+      raw: {
+        id: 'tx-production-shape',
+        currency: 'USDC',
+        client_reference_id: 'invoice-42',
+        source: { currency: 'USDC', payment_rail: 'bridge_wallet', from_address: '0xsource' },
+        destination: { currency: 'USDC', payment_rail: 'base', to_address: '0xdestination' },
+      },
+    },
+  });
+  if (!receipt) throw new Error('expected production-shape receipt');
+  assertEquals(receipt.sourceRail, 'base', 'internal source rail must be normalized');
+  assertEquals(receipt.destinationRail, 'base', 'destination rail');
+  assertEquals(receipt.sourceAddress, '0xsource', 'source wallet address');
+  assertEquals(receipt.destinationAddress, '0xdestination', 'destination wallet address');
+  assertEquals(receipt.destinationTransactionHash, '0xdestination', 'destination transaction hash');
+  assertEquals(receipt.paymentReferenceText, 'invoice-42', 'client reference');
+  if (providerReceiptTextRows(receipt).some((row) => /bridge/i.test(row.label) || row.value === 'bridge_wallet')) {
+    throw new Error('provider branding or internal wallet rail leaked into customer receipt');
+  }
+});
+
+Deno.test('maps production virtual-account bank tracing fields', () => {
+  const receipt = normalizeTransactionReceipt({
+    amount: 500,
+    metadata: {
+      raw: {
+        id: 'va-activity-1',
+        amount: '500',
+        currency: 'EUR',
+        destination_payment_rail: 'base',
+        source: {
+          payment_rail: 'sepa', payment_scheme: 'sepa_credit', sender_name: 'Sender Ltd',
+          iban: 'DE001234', bic: 'BANKDEFF', reference: 'INV-500', tracking_number: 'track-500', uetr: 'uetr-500',
+        },
+        receipt: { initial_amount: '500', final_amount: '490', developer_fee: '10', destination_tx_hash: '0xsettled' },
+      },
+    },
+  });
+  if (!receipt) throw new Error('expected VA receipt');
+  assertEquals(receipt.sourcePaymentScheme, 'sepa_credit', 'payment scheme');
+  assertEquals(receipt.senderName, 'Sender Ltd', 'sender name');
+  assertEquals(receipt.sourceIban, 'DE001234', 'IBAN');
+  assertEquals(receipt.sourceBic, 'BANKDEFF', 'BIC');
+  assertEquals(receipt.trackingNumber, 'track-500', 'tracking number');
+  assertEquals(receipt.uetr, 'uetr-500', 'UETR');
 });

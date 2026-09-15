@@ -15,6 +15,7 @@ export interface TransactionReceiptBreakdown {
   destinationAddress?: string;
   destinationRail?: string;
   sourceRail?: string;
+  sourcePaymentScheme?: string;
   depositId?: string;
   bridgeTransactionId?: string;
   sourceBankName?: string;
@@ -32,6 +33,14 @@ export interface TransactionReceiptBreakdown {
   imad?: string;
   uetr?: string;
   claveDeRastreo?: string;
+  trackingNumber?: string;
+  sourceBic?: string;
+  sourceIban?: string;
+  sourceAddress?: string;
+  sourceTransactionHash?: string;
+  destinationTransactionHash?: string;
+  destinationReference?: string;
+  gasFeeAmount?: number;
   refundReturnReason?: string;
   refundReturnedAt?: string;
   refundRiskRejectionReason?: string;
@@ -81,16 +90,31 @@ function record(value: unknown): Record<string, any> {
     : {};
 }
 
+function customerRail(value: string | null, currency?: string | null, fallback?: string | null): string | null {
+  const rail = String(value || '').trim().toLowerCase();
+  if (rail && rail !== 'bridge_wallet') return rail;
+  const safeFallback = String(fallback || '').trim().toLowerCase();
+  if (safeFallback && safeFallback !== 'bridge_wallet') return safeFallback;
+  const asset = String(currency || '').trim().toUpperCase();
+  if (asset === 'USDT') return 'tron';
+  if (asset === 'USDC' || asset === 'EURC') return 'base';
+  return null;
+}
+
 export function providerReceiptTextRows(receipt: TransactionReceiptBreakdown): TransactionReceiptTextRow[] {
   const rows: Array<[string, string | undefined]> = [
-    ['Bridge transaction ID', receipt.bridgeTransactionId],
+    ['BorderPay transaction ID', receipt.bridgeTransactionId],
     ['Deposit ID', receipt.depositId],
     ['Source payment rail', receipt.sourceRail],
+    ['Source payment scheme', receipt.sourcePaymentScheme],
     ['Source bank', receipt.sourceBankName],
     ['Source account name', receipt.senderName],
     ['Source account', receipt.sourceBankAccount],
     ['Source routing number', receipt.sourceBankRoutingNumber],
     ['Source bank address', receipt.sourceBankAddress],
+    ['Source BIC / SWIFT', receipt.sourceBic],
+    ['Source IBAN', receipt.sourceIban],
+    ['Source wallet address', receipt.sourceAddress],
     ['Bank reference', receipt.paymentReferenceText],
     ['Receiving bank', receipt.receivingBankName],
     ['Receiving bank address', receipt.receivingBankAddress],
@@ -99,10 +123,15 @@ export function providerReceiptTextRows(receipt: TransactionReceiptBreakdown): T
     ['Receiving account', receipt.receivingAccountNumber],
     ['Destination rail', receipt.destinationRail],
     ['Destination', receipt.destinationAddress],
+    ['Destination reference', receipt.destinationReference],
+    ['Source transaction hash', receipt.sourceTransactionHash],
+    ['Destination transaction hash', receipt.destinationTransactionHash],
+    ['Tracking number', receipt.trackingNumber],
     ['Trace ID', receipt.traceId],
     ['IMAD', receipt.imad],
     ['UETR', receipt.uetr],
     ['Clave de rastreo', receipt.claveDeRastreo],
+    ['Gas fee', receipt.gasFeeAmount === undefined ? undefined : String(receipt.gasFeeAmount)],
     ['Return reason', receipt.refundReturnReason],
     ['Returned at', receipt.refundReturnedAt],
     ['Risk rejection reason', receipt.refundRiskRejectionReason],
@@ -153,23 +182,31 @@ export function normalizeTransactionReceipt(tx: {
     receipt?.source_currency,
     md?.source_currency,
     rawReceipt?.source_currency,
+    raw?.source_currency,
+    raw?.currency,
+    source?.currency,
     payloadReceipt?.source_currency,
+    payload?.source_currency,
+    payload?.currency,
   )?.toUpperCase();
   const destinationCurrency = firstText(
     receipt?.destination_currency,
     md?.destination_currency,
     rawReceipt?.destination_currency,
     raw?.destination_currency,
+    destination?.currency,
     payloadReceipt?.destination_currency,
     payload?.destination_currency,
   )?.toUpperCase();
   const destinationAmount = firstAmount(
     receipt?.destination_amount,
+    receipt?.converted_amount,
     md?.destination_amount,
     rawReceipt?.destination_amount,
     raw?.destination_amount,
     payloadReceipt?.destination_amount,
     payload?.destination_amount,
+    destinationCurrency ? receipt?.final_amount : null,
   );
   const serviceChargeAmount = Math.abs(firstAmount(
     receipt?.service_charge_amount,
@@ -202,10 +239,12 @@ export function normalizeTransactionReceipt(tx: {
     md?.destination_address,
     rawReceipt?.destination_address,
     raw?.destination_address,
+    destination?.to_address,
+    destination?.address,
     payloadReceipt?.destination_address,
     payload?.destination_address,
   ) || undefined;
-  const destinationRail = firstText(
+  const rawDestinationRail = firstText(
     receipt?.destination_rail,
     receipt?.destination_payment_rail,
     md?.destination_rail,
@@ -214,12 +253,22 @@ export function normalizeTransactionReceipt(tx: {
     destination?.payment_rail,
     destination?.rail,
     destination?.blockchain,
-  ) || undefined;
-  const sourceRail = firstText(
+  );
+  const rawSourceRail = firstText(
     receipt?.source_rail,
     md?.source_rail,
     rawReceipt?.source_rail,
     payloadReceipt?.source_rail,
+    source?.payment_rail,
+  );
+  const destinationRail = customerRail(rawDestinationRail, destinationCurrency, rawSourceRail) || undefined;
+  const sourceRail = customerRail(rawSourceRail, sourceCurrency, rawDestinationRail) || undefined;
+  const sourcePaymentScheme = firstText(
+    receipt?.source_payment_scheme,
+    md?.source_payment_scheme,
+    rawReceipt?.source_payment_scheme,
+    payloadReceipt?.source_payment_scheme,
+    source?.payment_scheme,
   ) || undefined;
   const depositId = firstText(
     receipt?.deposit_id,
@@ -230,6 +279,7 @@ export function normalizeTransactionReceipt(tx: {
     payload?.deposit_id,
   ) || undefined;
   const bridgeTransactionId = firstText(
+    receipt?.transaction_id,
     md?.bridge_transfer_id,
     md?.transaction_id,
     raw?.bridge_transfer_id,
@@ -241,20 +291,28 @@ export function normalizeTransactionReceipt(tx: {
   ) || undefined;
 
   const sourceBankName = firstText(receipt?.source_bank_name, md?.source_bank_name, sourceBank?.name, source?.bank_name, sender?.bank_name, originator?.bank_name) || undefined;
-  const sourceBankAccount = firstText(receipt?.source_bank_account, md?.source_bank_account, sourceBank?.account_number, source?.account_number, source?.account_last_4, sender?.account_number, originator?.account_number) || undefined;
-  const sourceBankRoutingNumber = firstText(receipt?.source_bank_routing_number, md?.source_bank_routing_number, sourceBank?.routing_number, source?.routing_number, source?.routing_code) || undefined;
-  const sourceBankAddress = firstText(receipt?.source_bank_address, md?.source_bank_address, sourceBank?.address, source?.bank_address) || undefined;
-  const senderName = firstText(receipt?.sender_name, md?.sender_name, source?.sender_name, source?.account_name, sender?.name, sender?.account_name, originator?.name, originator?.account_name) || undefined;
-  const paymentReferenceText = firstText(receipt?.payment_reference_text, receipt?.reference_text, receipt?.payment_reference, md?.payment_reference_text, md?.reference_text, raw?.reference_text, raw?.payment_reference, raw?.memo, payload?.reference_text, payload?.payment_reference, payload?.memo) || undefined;
+  const sourceBankAccount = firstText(receipt?.source_bank_account, md?.source_bank_account, sourceBank?.account_number, source?.account_number, source?.account_last_4, source?.last_4, sender?.account_number, originator?.account_number) || undefined;
+  const sourceBankRoutingNumber = firstText(receipt?.source_bank_routing_number, md?.source_bank_routing_number, sourceBank?.routing_number, source?.routing_number, source?.routing_code, source?.bank_routing_number, source?.sender_bank_routing_number, source?.sort_code) || undefined;
+  const sourceBankAddress = firstText(receipt?.source_bank_address, md?.source_bank_address, sourceBank?.address, source?.bank_address, source?.bank_beneficiary_address, source?.originator_address) || undefined;
+  const senderName = firstText(receipt?.sender_name, md?.sender_name, source?.sender_name, source?.originator_name, source?.account_name, source?.bank_beneficiary_name, sender?.name, sender?.account_name, originator?.name, originator?.account_name) || undefined;
+  const paymentReferenceText = firstText(receipt?.payment_reference_text, receipt?.reference_text, receipt?.payment_reference, md?.payment_reference_text, md?.reference_text, source?.reference, source?.description, source?.wire_message, raw?.reference_text, raw?.payment_reference, raw?.client_reference_id, raw?.memo, payload?.reference_text, payload?.payment_reference, payload?.client_reference_id, payload?.memo) || undefined;
   const receivingBankName = firstText(receipt?.receiving_bank_name, md?.receiving_bank_name, receivingBank?.name, destination?.bank_name, sourceInstructions?.bank_name) || undefined;
-  const receivingBankAddress = firstText(receipt?.receiving_bank_address, md?.receiving_bank_address, receivingBank?.address, destination?.bank_address, sourceInstructions?.bank_address) || undefined;
-  const receivingBankRoutingNumber = firstText(receipt?.receiving_bank_routing_number, md?.receiving_bank_routing_number, receivingBank?.routing_number, destination?.routing_number, sourceInstructions?.routing_number, sourceInstructions?.routing_code) || undefined;
-  const receivingAccountName = firstText(receipt?.receiving_account_name, md?.receiving_account_name, destination?.account_name, destination?.beneficiary_name, sourceInstructions?.account_name, sourceInstructions?.beneficiary_name) || undefined;
-  const receivingAccountNumber = firstText(receipt?.receiving_account_number, md?.receiving_account_number, destination?.account_number, destination?.iban, sourceInstructions?.account_number, sourceInstructions?.iban) || undefined;
-  const traceId = firstText(receipt?.trace_id, receipt?.ach_trace_number, md?.trace_id, md?.ach_trace_number, tracking?.trace_id, tracking?.ach_trace_number) || undefined;
-  const imad = firstText(receipt?.imad, receipt?.imad_number, md?.imad, tracking?.imad, tracking?.imad_number) || undefined;
-  const uetr = firstText(receipt?.uetr, md?.uetr, tracking?.uetr) || undefined;
+  const receivingBankAddress = firstText(receipt?.receiving_bank_address, md?.receiving_bank_address, receivingBank?.address, destination?.bank_address, sourceInstructions?.bank_address, sourceInstructions?.bank_beneficiary_address) || undefined;
+  const receivingBankRoutingNumber = firstText(receipt?.receiving_bank_routing_number, md?.receiving_bank_routing_number, receivingBank?.routing_number, destination?.routing_number, sourceInstructions?.routing_number, sourceInstructions?.routing_code, sourceInstructions?.bank_routing_number) || undefined;
+  const receivingAccountName = firstText(receipt?.receiving_account_name, md?.receiving_account_name, destination?.account_name, destination?.beneficiary_name, sourceInstructions?.account_name, sourceInstructions?.beneficiary_name, sourceInstructions?.bank_beneficiary_name) || undefined;
+  const receivingAccountNumber = firstText(receipt?.receiving_account_number, md?.receiving_account_number, destination?.account_number, destination?.iban, sourceInstructions?.account_number, sourceInstructions?.bank_account_number, sourceInstructions?.iban) || undefined;
+  const traceId = firstText(receipt?.trace_id, receipt?.ach_trace_number, md?.trace_id, md?.ach_trace_number, tracking?.trace_id, tracking?.ach_trace_number, source?.trace_number) || undefined;
+  const imad = firstText(receipt?.imad, receipt?.imad_number, md?.imad, tracking?.imad, tracking?.imad_number, source?.imad) || undefined;
+  const uetr = firstText(receipt?.uetr, md?.uetr, tracking?.uetr, source?.uetr, destination?.uetr) || undefined;
   const claveDeRastreo = firstText(receipt?.clave_de_rastreo, md?.clave_de_rastreo, tracking?.clave_de_rastreo) || undefined;
+  const trackingNumber = firstText(receipt?.tracking_number, md?.tracking_number, tracking?.tracking_number, source?.tracking_number, destination?.tracking_number) || undefined;
+  const sourceBic = firstText(receipt?.source_bic, md?.source_bic, source?.bic) || undefined;
+  const sourceIban = firstText(receipt?.source_iban, md?.source_iban, source?.iban, source?.iban_last_4) || undefined;
+  const sourceAddress = firstText(receipt?.source_address, md?.source_address, source?.from_address) || undefined;
+  const sourceTransactionHash = firstText(receipt?.source_tx_hash, md?.source_tx_hash, rawReceipt?.source_tx_hash, payloadReceipt?.source_tx_hash) || undefined;
+  const destinationTransactionHash = firstText(receipt?.destination_tx_hash, md?.destination_tx_hash, rawReceipt?.destination_tx_hash, raw?.destination_tx_hash, payloadReceipt?.destination_tx_hash, payload?.destination_tx_hash, destination?.tx_hash) || undefined;
+  const destinationReference = firstText(receipt?.destination_reference, md?.destination_reference, destination?.reference) || undefined;
+  const gasFeeAmount = firstAmount(receipt?.gas_fee, md?.gas_fee, rawReceipt?.gas_fee, raw?.gas_fee, payloadReceipt?.gas_fee, payload?.gas_fee) ?? undefined;
   const refundReturnReason = firstText(refund?.return_reason, refund?.reason, md?.refund_return_reason, md?.return_reason) || undefined;
   const refundReturnedAt = firstText(refund?.returned_at, refund?.refunded_at, md?.refund_returned_at, md?.returned_at) || undefined;
   const refundRiskRejectionReason = firstText(refund?.risk_rejection_reason, refund?.rejection_reason, md?.refund_risk_rejection_reason) || undefined;
@@ -338,14 +396,17 @@ export function normalizeTransactionReceipt(tx: {
     Math.abs(initialAmount - finalAmount) > 0.000001;
   const hasBridgeReceipt = Boolean(destinationCurrency && destinationAmount !== null && destinationAmount > 0);
   const hasProviderDetails = Boolean([
-    bridgeTransactionId, depositId, sourceBankName, sourceBankAccount,
+    bridgeTransactionId, depositId, sourceRail, destinationRail, sourceBankName, sourceBankAccount,
     sourceBankRoutingNumber, sourceBankAddress, senderName, paymentReferenceText,
     receivingBankName, receivingBankAddress, receivingBankRoutingNumber,
     receivingAccountName, receivingAccountNumber, traceId, imad, uetr,
     claveDeRastreo, refundReturnReason, refundReturnedAt,
     refundRiskRejectionReason, refundCustomerName,
     refundDepositOriginatorName, refundDepositBeneficiaryName, refundRail,
-    refundBeneficiaryName, refundReferenceId,
+    refundBeneficiaryName, refundReferenceId, sourcePaymentScheme, trackingNumber,
+    sourceBic, sourceIban, sourceAddress, sourceTransactionHash,
+    destinationTransactionHash, destinationReference,
+    gasFeeAmount === undefined ? undefined : String(gasFeeAmount),
   ].some(Boolean));
 
   if (!hasFees && !hasBridgeReceipt && !hasProviderDetails) return null;
@@ -367,6 +428,7 @@ export function normalizeTransactionReceipt(tx: {
     destinationAddress,
     destinationRail,
     sourceRail,
+    sourcePaymentScheme,
     depositId,
     bridgeTransactionId,
     sourceBankName,
@@ -384,6 +446,14 @@ export function normalizeTransactionReceipt(tx: {
     imad,
     uetr,
     claveDeRastreo,
+    trackingNumber,
+    sourceBic,
+    sourceIban,
+    sourceAddress,
+    sourceTransactionHash,
+    destinationTransactionHash,
+    destinationReference,
+    gasFeeAmount,
     refundReturnReason,
     refundReturnedAt,
     refundRiskRejectionReason,

@@ -12,7 +12,10 @@ export function ReceiptProviderDetails({
   labelClassName = '',
   valueClassName = '',
 }: ReceiptProviderDetailsProps) {
-  const rows = providerReceiptTextRows(receipt);
+  const coreRows = receipt.hasBridgeReceipt
+    ? new Set(['Deposit ID', 'Source payment rail', 'Destination'])
+    : new Set<string>();
+  const rows = providerReceiptTextRows(receipt).filter(({ label }) => !coreRows.has(label));
   if (rows.length === 0) return null;
 
   return (
