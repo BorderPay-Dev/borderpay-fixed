@@ -32,6 +32,7 @@ jobs:
       - name: Test payout SCA, EURC and native verification behavior
         run: >-
           deno test --node-modules-dir=auto --allow-env
+          tests/va-settlement-receipt.test.ts
           tests/sca-payment-runtime.test.ts
           tests/sca-authorization-http.test.ts
           tests/usdt-transfer-http.test.ts

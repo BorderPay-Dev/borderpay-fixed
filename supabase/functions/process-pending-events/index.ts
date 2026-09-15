@@ -1370,9 +1370,9 @@ function bridgeVirtualAccountSourceCurrency(payload: any, existingAccountDetails
     "USD";
 }
 
-function isConvertedVirtualAccountSettlementEvent(activityType: string, sourceCurrency: string, eventCurrency: string): boolean {
+function isConvertedVirtualAccountSettlementEvent(activityType: string, sourceCurrency: string, eventCurrency: string, destinationCurrency?: string | null): boolean {
   return FIAT_VA_CURRENCIES.has(sourceCurrency) &&
-    BRIDGE_SETTLEMENT_ASSET_CURRENCIES.has(eventCurrency) &&
+    (BRIDGE_SETTLEMENT_ASSET_CURRENCIES.has(eventCurrency) || BRIDGE_SETTLEMENT_ASSET_CURRENCIES.has(destinationCurrency || "")) &&
     ["payment_submitted", "payment_processed", "processed", "succeeded", "success"].includes(activityType);
 }
 
@@ -1382,28 +1382,43 @@ function isFiatVirtualAccountCreditEvent(activityType: string, sourceCurrency: s
     ["funds_received", "payment_received", "credit_received"].includes(activityType);
 }
 
-function receivedAmountBreakdown(payload: any, currency: string): {
+function isVirtualAccountOutgoingActivity(payload: any): boolean {
+  return ["payment_submitted", "payment_processed", "processed", "succeeded", "success"].includes(
+    String(payload?.status ?? payload?.type ?? "").trim().toLowerCase(),
+  );
+}
+
+export function receivedAmountBreakdown(payload: any, currency: string): {
   grossMinor: bigint;
   developerFeeMinor: bigint;
   exchangeFeeMinor: bigint;
   netMinor: bigint;
 } | null {
-  const grossMinor = toMinorUnits(payload?.amount, currency);
-  if (grossMinor === null) return null;
+  const receipt = objectValue(payload?.receipt) ?? {};
+  const outgoing = isVirtualAccountOutgoingActivity(payload);
+  // Bridge documents activity.amount as the *destination* amount on outgoing
+  // events. receipt.initial_amount and receipt.subtotal_amount remain fiat.
+  // Never relabel the outgoing amount as source currency or deduct fees twice.
+  const grossMinor = outgoing
+    ? toMinorUnits(receipt.initial_amount, currency)
+    : toMinorUnits(payload?.amount, currency);
+  if (grossMinor === null || grossMinor < 0n) return null;
 
-  const developerFeeMinor = firstMinorUnitAmount(payload, currency, [
-    "developer_fee_amount",
-    "developerFeeAmount",
-    "developer_fee",
-    "developerFee",
-  ]);
-  const exchangeFeeMinor = firstMinorUnitAmount(payload, currency, [
-    "exchange_fee_amount",
-    "exchangeFeeAmount",
-    "exchange_fee",
-    "exchangeFee",
-  ]);
-  const netMinor = grossMinor - developerFeeMinor - exchangeFeeMinor;
+  const fee = (receiptKeys: string[], payloadKeys: string[]): bigint => {
+    for (const [object, keys] of [[receipt, receiptKeys], [payload, payloadKeys]] as const) {
+      for (const key of keys) {
+        const raw = object?.[key];
+        if (raw && typeof raw === "object" && raw.currency && String(raw.currency).toUpperCase() !== currency.toUpperCase()) continue;
+        const value = toMinorUnits(raw?.amount ?? raw, currency);
+        if (value !== null) return absMinor(value); // An explicit zero is authoritative.
+      }
+    }
+    return 0n;
+  };
+  const developerFeeMinor = fee(["developer_fee", "developer_fee_amount"], ["developer_fee_amount", "developerFeeAmount", "developer_fee", "developerFee"]);
+  const exchangeFeeMinor = fee(["exchange_fee", "exchange_fee_amount"], ["exchange_fee_amount", "exchangeFeeAmount", "exchange_fee", "exchangeFee"]);
+  const netMinor = (outgoing ? toMinorUnits(receipt.subtotal_amount, currency) : null)
+    ?? (grossMinor - developerFeeMinor - exchangeFeeMinor);
 
   return {
     grossMinor,
@@ -1413,7 +1428,7 @@ function receivedAmountBreakdown(payload: any, currency: string): {
   };
 }
 
-function bridgeVaReceiptDetails(params: {
+export function bridgeVaReceiptDetails(params: {
   payload: any;
   sourceCurrency: string;
   vaId: unknown;
@@ -1426,6 +1441,7 @@ function bridgeVaReceiptDetails(params: {
     objectValue(p.destination) ??
     objectValue(receipt.destination) ??
     objectValue(params.accountDetails.destination) ??
+    objectValue(objectValue(params.accountDetails.bridge_sync_raw)?.destination) ??
     objectValue(objectValue(p.account_details)?.destination) ??
     {};
   const sourceInstructions =
@@ -1441,16 +1457,19 @@ function bridgeVaReceiptDetails(params: {
     p.to_currency,
     destination.currency,
     destination.asset,
+    isVirtualAccountOutgoingActivity(p) && BRIDGE_SETTLEMENT_ASSET_CURRENCIES.has(String(p.currency || "").toUpperCase()) ? p.currency : null,
   )?.toUpperCase() ?? null;
   const destinationAmount = firstFiniteNumber(
     receipt.destination_amount,
     receipt.outgoing_amount,
     receipt.final_destination_amount,
+    isVirtualAccountOutgoingActivity(p) ? receipt.final_amount : null,
     p.destination_amount,
     p.outgoing_amount,
     p.final_destination_amount,
     p.net_destination_amount,
     destination.amount,
+    isVirtualAccountOutgoingActivity(p) ? p.amount : null,
   );
   const destinationAddress = firstNonEmptyText(
     receipt.destination_address,
@@ -1470,9 +1489,9 @@ function bridgeVaReceiptDetails(params: {
     transaction_id: firstNonEmptyText(p.id, p.transfer_id),
     deposit_id: bridgeReceiptId(p, params.vaId),
     source_currency: sourceCurrency,
-    source_amount: breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : firstFiniteNumber(receipt.initial_amount, p.initial_amount, p.amount),
+    source_amount: breakdown ? minorToDecimal(breakdown.grossMinor, sourceCurrency) : null,
     service_charge_amount: breakdown ? minorToDecimal(breakdown.developerFeeMinor, sourceCurrency) : firstFiniteNumber(receipt.developer_fee_amount, receipt.developer_fee, p.developer_fee_amount, p.developer_fee),
-    available_amount: breakdown ? minorToDecimal(breakdown.netMinor, sourceCurrency) : firstFiniteNumber(receipt.final_amount, receipt.net_amount, p.final_amount, p.net_amount),
+    available_amount: breakdown ? minorToDecimal(breakdown.netMinor, sourceCurrency) : null,
     destination_currency: destinationCurrency,
     destination_amount: destinationAmount,
     exchange_rate: exchangeRate,
@@ -1595,7 +1614,17 @@ function decimalAmountLabel(value: unknown, currency: unknown): string | null {
   return minor === null ? `${n} ${c}` : formatMinorUnits(minor, c);
 }
 
-function transactionStatusBody(status: TransactionEmailStatus, amountLabel: string, metadata?: Record<string, unknown>): string {
+export function transactionStatusBody(status: TransactionEmailStatus, amountLabel: string, metadata?: Record<string, unknown>): string {
+  const receipt = objectValue(metadata?.receipt);
+  if (status === "approved" && receipt?.source_amount != null && receipt?.destination_amount != null) {
+    const incoming = decimalAmountLabel(receipt.source_amount, receipt.source_currency);
+    const outgoing = decimalAmountLabel(receipt.destination_amount, receipt.destination_currency);
+    const fee = Number(receipt.service_charge_amount) > 0
+      ? decimalAmountLabel(receipt.service_charge_amount, receipt.source_currency) : null;
+    if (incoming && outgoing) {
+      return `Incoming funds: ${incoming}. ${fee ? `Transaction fee: ${fee}. ` : ""}Outgoing funds: ${outgoing}. This transaction has been approved.`;
+    }
+  }
   const currency = metadata?.currency;
   const grossLabel = decimalAmountLabel(metadata?.gross_amount, currency);
   const transactionFeeLabel = decimalAmountLabel(metadata?.developer_fee_amount, currency);
@@ -1873,7 +1902,7 @@ async function upsertBridgeVirtualAccountProjection(params: {
   };
 }
 
-async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
+export async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the virtual_account; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const vaId   = d?.virtual_account_id ?? d?.id ?? ev.payload?.event_object_id;
@@ -2127,7 +2156,6 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
   }
 
   if (!isFiatVirtualAccountCreditEvent(activityType, currency, eventCurrency)) {
-    const isConvertedSettlement = isConvertedVirtualAccountSettlementEvent(activityType, currency, eventCurrency);
     const depositId = String(d?.deposit_id ?? "").trim();
     const statusBreakdown = receivedAmountBreakdown(d, currency);
     const statusReceipt = bridgeVaReceiptDetails({
@@ -2137,6 +2165,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
       accountDetails,
       breakdown: statusBreakdown,
     });
+    const isConvertedSettlement = isConvertedVirtualAccountSettlementEvent(activityType, currency, eventCurrency, String(statusReceipt.destination_currency || ""));
     const receiptDepositId = String(statusReceipt.deposit_id || depositId || "").trim();
     const approvedStatus = normalizeTransactionEmailStatus(activityType) === "approved" || activityType === "payment_processed";
     if (isConvertedSettlement && approvedStatus && statusBreakdown?.netMinor && statusBreakdown.netMinor > 0n) {
@@ -2213,6 +2242,7 @@ async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void> {
         event_currency: eventCurrency,
         credited: false,
         skipped: isConvertedSettlement ? "converted_settlement_status_only" : "non_credit_activity_status",
+        receipt_status: isConvertedSettlement ? (statusBreakdown ? "available" : "source_amount_unavailable") : null,
       },
     });
     return;

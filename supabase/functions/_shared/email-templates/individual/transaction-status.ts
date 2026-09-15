@@ -98,11 +98,10 @@ export function render(p: TransactionStatusProps): RenderedEmail {
   const availableAmount = Number(p.available_amount ?? netAmount);
   const hasReceipt = Boolean(destinationCurrency && Number.isFinite(destinationAmount) && destinationAmount > 0);
   const outgoing = hasReceipt ? fmtMoney(destinationAmount, destinationCurrency) : amount;
-  const isApprovedReceipt = hasReceipt && p.status === "approved";
   const isRefund = p.status === "refunded";
-  const displayHeading = isApprovedReceipt ? "Your payment has been submitted!" : c.heading;
-  const displayIntro = isApprovedReceipt ? "Expected same day" : `Hi ${firstName(p.full_name)}, ${c.intro}`;
-  const subject = isApprovedReceipt ? `Your payment has been submitted: ${outgoing}` : `${c.subject}: ${outgoing}`;
+  const displayHeading = c.heading;
+  const displayIntro = `Hi ${firstName(p.full_name)}, ${c.intro}`;
+  const subject = `${c.subject}: ${outgoing}`;
   const occurredAt = p.occurred_at ? new Date(p.occurred_at).toUTCString() : new Date().toUTCString();
   const refundReturnedAt = formatUtcDateTime(p.refund_returned_at || p.occurred_at);
   const fn = firstName(p.full_name);
@@ -166,7 +165,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
     ${hasReceipt ? `
       <div style="border:1px solid ${BORDERPAY_BRAND.border};background-color:#F8FAF8;border-radius:12px;padding:14px 16px;margin:0 0 14px;">
         <p style="margin:0 0 6px;color:${BORDERPAY_BRAND.text};font-size:14px;font-weight:700;">${escapeHtml(p.deposit_id ? `Deposit #${p.deposit_id}` : "Payment receipt")}</p>
-        <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;line-height:1.6;">${isApprovedReceipt ? "Expected same day" : escapeHtml(receiptSummary)}</p>
+        <p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:13px;line-height:1.6;">${escapeHtml(receiptSummary)}</p>
       </div>
     ` : ""}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BORDERPAY_BRAND.border};border-radius:12px;padding:16px;margin:8px 0 0;">
@@ -197,7 +196,7 @@ export function render(p: TransactionStatusProps): RenderedEmail {
     text: textLayout({
       heading: displayHeading,
       body: hasReceipt
-        ? `${displayHeading}\n\n${isRefund ? `Return reason: ${p.refund_return_reason || p.description || "Payment refunded"}\n${refundReturnedAt ? `Returned at: ${refundReturnedAt}\n` : ""}${p.refund_risk_rejection_reason ? `Risk rejection reason: ${p.refund_risk_rejection_reason}\n` : ""}The payment has been refunded to the original destination.\n${p.refund_rail ? `Refund rail: ${p.refund_rail}\n` : ""}${p.refund_beneficiary_name ? `Refund beneficiary name: ${p.refund_beneficiary_name}\n` : ""}${p.refund_reference_id ? `Refund reference ID: ${p.refund_reference_id}\n` : ""}` : (isApprovedReceipt ? "Expected same day" : `What this means: ${receiptSummary}`)}\n\n${p.deposit_id ? `Deposit #${p.deposit_id}\n` : ""}Incoming funds: ${fmtMoney(sourceAmount, sourceCurrency)}\n${p.source_rail ? `Payment rail: ${String(p.source_rail).toUpperCase()}\n` : ""}${serviceChargeAmount > 0 ? `Service charge: ${fmtMoney(serviceChargeAmount, sourceCurrency)}\nBorderPay\n` : ""}Available for conversion: ${fmtMoney(availableAmount, sourceCurrency)}\n${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `Exchange rate: 1 ${sourceCurrency} = ${p.exchange_rate} ${destinationCurrency}\n` : ""}Outgoing funds: ${outgoing}\n${p.destination_address ? `Destination: ${p.destination_address}\n` : ""}Status: ${displayHeading}\nReference: ${p.reference}\nWhen: ${occurredAt}`
+        ? `${displayHeading}\n\n${isRefund ? `Return reason: ${p.refund_return_reason || p.description || "Payment refunded"}\n${refundReturnedAt ? `Returned at: ${refundReturnedAt}\n` : ""}${p.refund_risk_rejection_reason ? `Risk rejection reason: ${p.refund_risk_rejection_reason}\n` : ""}The payment has been refunded to the original destination.\n${p.refund_rail ? `Refund rail: ${p.refund_rail}\n` : ""}${p.refund_beneficiary_name ? `Refund beneficiary name: ${p.refund_beneficiary_name}\n` : ""}${p.refund_reference_id ? `Refund reference ID: ${p.refund_reference_id}\n` : ""}` : (`What this means: ${receiptSummary}`)}\n\n${p.deposit_id ? `Deposit #${p.deposit_id}\n` : ""}Incoming funds: ${fmtMoney(sourceAmount, sourceCurrency)}\n${p.source_rail ? `Payment rail: ${String(p.source_rail).toUpperCase()}\n` : ""}${serviceChargeAmount > 0 ? `Service charge: ${fmtMoney(serviceChargeAmount, sourceCurrency)}\nBorderPay\n` : ""}Available for conversion: ${fmtMoney(availableAmount, sourceCurrency)}\n${Number.isFinite(Number(p.exchange_rate)) && Number(p.exchange_rate) > 0 ? `Exchange rate: 1 ${sourceCurrency} = ${p.exchange_rate} ${destinationCurrency}\n` : ""}Outgoing funds: ${outgoing}\n${p.destination_address ? `Destination: ${p.destination_address}\n` : ""}Status: ${displayHeading}\nReference: ${p.reference}\nWhen: ${occurredAt}`
         : `${c.intro}\n${hasFeeBreakdown ? `Full amount received: ${gross}\n${transactionFeeAmount > 0 ? `Transaction fee: -${transactionFee}\n` : ""}${exchangeFeeAmount > 0 ? `Exchange fee: -${exchangeFee}\n` : ""}Net amount: ${amount}` : `Amount: ${amount}`}\nStatus: ${c.heading}\nReference: ${p.reference}\n${p.description ? "Description: " + p.description + "\n" : ""}When: ${occurredAt}`,
       ctaText: "Open BorderPay",
       ctaUrl,
