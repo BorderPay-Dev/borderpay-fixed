@@ -162,6 +162,8 @@ export interface TransferCreateInput {
 }
 
 export interface TransferResult {
+  request_id?: string;
+  initiation?: import("../bridge-transfer-initiation.ts").TransferInitiation | null;
   provider:     ProviderName;
   transfer_id:  string;
   state:        string;              // raw provider state (preserved)

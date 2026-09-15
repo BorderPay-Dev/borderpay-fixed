@@ -75,7 +75,8 @@ import {
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/fees/schedule.ts";
 import type { BridgePaymentRail } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
-import { consumeScaAuthorization } from "../_shared/sca.ts";
+import { consumeScaAuthorization, scaPayloadHash } from "../_shared/sca.ts";
+import { transferInitiation, withdrawalInitiationChannel, type WalletInitiationRequirement } from "../_shared/bridge-transfer-initiation.ts";
 import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
@@ -594,6 +595,41 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Inspect the exact source wallet before consuming a one-time authorization.
+  // Absence of initiation_required means omit provider initiation, NOT skip
+  // BorderPay's mandatory EEA authentication.
+  let walletInitiation: WalletInitiationRequirement | null = null;
+  let initiationChannel = withdrawalInitiationChannel(req.headers);
+  const paymentPayloadHash = await scaPayloadHash("bridge_transfer", scaAuthorizedRequest);
+  try {
+    if (normalizedSourceType === "wallet") {
+      walletInitiation = await bridgeProvider.getWalletInitiationRequirement(
+        profile.bridge_customer_id, String(body.source.bridge_wallet_id || ""),
+      );
+    }
+    // Preserve the first initiation context across client retries as well as
+    // bridgeFetch's HTTP retries. Never reuse a key for changed payment data.
+    const { data: prepared, error: preparedError } = await supa.from("admin_action_audit")
+      .select("after_state")
+      .eq("actor_id", user.id).eq("request_id", idem)
+      .eq("action_type", "bridge_transfer_initiation_prepared")
+      .order("timestamp", { ascending: true }).limit(1).maybeSingle();
+    if (preparedError) throw new Error("initiation_audit_lookup_failed");
+    if (prepared) {
+      const prior = prepared.after_state;
+      if (prior?.payload_hash !== paymentPayloadHash
+        || prior?.wallet_initiation_required !== (walletInitiation?.required ?? false)
+        || !["other", "other_mobile_payment"].includes(prior?.channel)) {
+        return await failAfterAuth({ success: false, code: "initiation_retry_mismatch",
+          error: "This payment's details changed. Refresh and authorize a new payment." }, 409, profile.account_type);
+      }
+      initiationChannel = prior.channel;
+    }
+  } catch {
+    return await failAfterAuth({ success: false, code: "wallet_initiation_unavailable",
+      error: "We could not verify the payment authentication requirements. Nothing was sent. Please retry shortly." }, 503, profile.account_type);
+  }
+
   // For verified EEA custodial-wallet customers, consume a one-time PIN +
   // authenticator authorization bound to this exact transfer request. This is
   // deliberately after replay/validation checks and before the provider call.
@@ -606,6 +642,35 @@ Deno.serve(async (req) => {
     request: scaAuthorizedRequest,
   });
   if (!sca.ok) return await failAfterAuth(sca.body, sca.status, profile.account_type);
+
+  const scaAttestation = sca.required ? {
+    outcome: "sca_used" as const,
+    channel: initiationChannel,
+    subchannel: "remote" as const,
+  } : undefined;
+  // No exemption is invented when Bridge requires SCA outside local scope.
+  if (walletInitiation?.required && !scaAttestation) {
+    return await failAfterAuth({ success: false, code: "bridge_wallet_sca_required",
+      error: "This wallet requires strong authentication. Contact support before retrying." }, 403, profile.account_type);
+  }
+  const initiation = transferInitiation(walletInitiation, scaAttestation);
+  const initiationEvidence = {
+    payload_hash: paymentPayloadHash,
+    source_wallet_id: walletInitiation?.wallet_id ?? null,
+    wallet_initiation_required: walletInitiation?.required ?? false,
+    channel: initiationChannel,
+    initiation,
+    sca_required: sca.required,
+    sca_authorization_id: sca.required ? String(body.sca_authorization_id) : null,
+  };
+  const { error: initiationAuditError } = await supa.from("admin_action_audit").insert({
+    actor_id: user.id, role: "system", action_type: "bridge_transfer_initiation_prepared",
+    target_resource: "bridge_transfer", request_id: idem, after_state: initiationEvidence,
+  });
+  if (initiationAuditError) {
+    return await failAfterAuth({ success: false, code: "sca_evidence_unavailable",
+      error: "Payment authentication could not be recorded. Nothing was sent. Please authorize again." }, 503, profile.account_type);
+  }
 
   try {
     fxLog("bridge_request_sent", {
@@ -648,18 +713,26 @@ Deno.serve(async (req) => {
             ),
           }
         : undefined,
-      ...(sca.required ? {
-        sca_attestation: {
-          outcome: "sca_used" as const,
-          channel: "other" as const,
-          subchannel: "remote" as const,
-        },
-      } : {}),
+      ...(sca.required ? { sca_attestation: scaAttestation } : {}),
       // Pass the same canonical key to Bridge so Bridge's own idempotency
       // store dedupes retries too. The shared bridge-client forwards this
       // as the HTTP `Idempotency-Key` header.
       idempotency_key: idem,
+    }, walletInitiation);
+
+    // The outgoing write-only field and Bridge's HTTP request/transfer IDs
+    // remain queryable independently of webhook metadata replacement.
+    const { error: acceptedAuditError } = await supa.from("admin_action_audit").insert({
+      actor_id: user.id, role: "system", action_type: "bridge_transfer_initiation_accepted",
+      target_resource: result.transfer_id, request_id: idem,
+      after_state: { ...initiationEvidence, initiation: result.initiation ?? null,
+        bridge_transfer_id: result.transfer_id, bridge_request_id: result.request_id ?? null },
     });
+    if (acceptedAuditError) {
+      // Money may already have moved. Persist the transfer below; never
+      // describe this audit failure as a pre-provider rejection.
+      fxLog("bridge_initiation_acceptance_audit_failed", { transfer_id: result.transfer_id, code: acceptedAuditError.code });
+    }
 
     // Persist via the upsert_bridge_transaction RPC. PostgREST upsert
     // cannot infer the partial unique index on bridge_transfer_id
@@ -702,6 +775,9 @@ Deno.serve(async (req) => {
         sca_scope_reason: sca.scope_reason,
         sca_attestation_outcome: sca.required ? "sca_used" : null,
         sca_authorization_id: sca.required ? String(body?.sca_authorization_id || "") : null,
+        bridge_initiation: result.initiation ?? null,
+        bridge_initiation_required: walletInitiation?.required ?? false,
+        bridge_request_id: result.request_id ?? null,
         provider_state:  mapped.providerState,
         provider_state_recognized: mapped.recognized,
         raw: result.raw,
