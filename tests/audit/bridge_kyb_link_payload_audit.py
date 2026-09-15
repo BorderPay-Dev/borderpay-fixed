@@ -8,6 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "supabase/functions/bridge-kyb-link/index.ts").read_text(encoding="utf-8")
+URL_GUARD = (ROOT / "supabase/functions/_shared/bridge-verification-url.ts").read_text(encoding="utf-8")
 PROVIDER = (ROOT / "supabase/functions/_shared/providers/bridge.ts").read_text(encoding="utf-8")
 UPGRADE = (ROOT / "supabase/functions/subscription-upgrade/index.ts").read_text(encoding="utf-8")
 
@@ -35,9 +36,9 @@ def main() -> int:
         "direct creation key uses contract version": "${KYB_LINK_CONTRACT_VERSION}:${user.id}" in SOURCE,
         "shared provider key uses contract version": "${KYC_LINK_CONTRACT_VERSION}:${input.account_type}" in provider_body,
         "subscription fallback key uses contract version": "business:full-name-v2" in UPGRADE,
-        "redirect URI remains application callback": "redirect_uri: redirectUrl" in body and "verificationRedirectUrl(body.redirect_url)" in SOURCE,
-        "native internal origin is rejected": "capacitor://localhost" in SOURCE and 'parsed.protocol === "https:"' in SOURCE,
-        "returned Persona callback is normalized": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(undefined))' in SOURCE,
+        "redirect URI remains application callback": "redirect_uri: redirectUrl" in body and "verificationRedirectUrl(APP_URL, body.redirect_url)" in SOURCE,
+        "native internal origin is rejected": "capacitor://localhost" in URL_GUARD and 'parsed.protocol === "https:"' in URL_GUARD,
+        "returned Persona callback is normalized": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(appUrl))' in URL_GUARD,
         "existing customer resumes through customer KYB endpoint": (
             "const encodedCustomerId = encodeURIComponent(existingCustomerId)" in SOURCE
             and "/v0/customers/${encodedCustomerId}/kyc_link" in SOURCE
