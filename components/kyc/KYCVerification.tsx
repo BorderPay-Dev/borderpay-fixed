@@ -17,6 +17,7 @@ import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { Browser } from '@capacitor/browser';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { isNativeRuntime } from '../../utils/native/mobileRuntime';
@@ -222,8 +223,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
     // separate browsing context; replacing the Capacitor WebView produces
     // ERR_BLOCKED_BY_RESPONSE on both Android and iOS.
     if (isNativeRuntime()) {
-      const externalWindow = window.open(url, '_blank', 'noopener,noreferrer');
-      if (externalWindow) externalWindow.opener = null;
+      void Browser.open({ url, presentationStyle: 'popover' }).catch(() => {
+        // If the native browser service itself is unavailable, keep the user
+        // on a top-level page rather than falling back to an embedded popup.
+        window.location.assign(url);
+      });
       return;
     }
     // Web/PWA navigation stays in the browser and preserves the proven flow.

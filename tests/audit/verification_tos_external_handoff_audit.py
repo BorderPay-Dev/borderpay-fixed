@@ -24,8 +24,8 @@ checks = {
     "KYB link uses the external handoff": "openTopLevelHostedFallback(r.data.link_url)" in success,
     "identity verification is never loaded in the embedded iframe": "openHostedVerificationUrl(r.data.link_url" not in SOURCE,
     "native runtime is detected explicitly": "isNativeRuntime()" in SOURCE,
-    "native provider verification leaves the application WebView": "window.open(url, '_blank', 'noopener,noreferrer')" in SOURCE,
-    "external handoff severs opener access": "externalWindow.opener = null" in SOURCE,
+    "native provider verification uses the Capacitor Browser": "Browser.open({ url, presentationStyle: 'popover' })" in SOURCE,
+    "native provider verification does not use window.open": "window.open(url" not in SOURCE,
     "web and PWA retain direct browser navigation": "window.location.assign(url)" in SOURCE,
     "blank placeholder popup remains forbidden": "window.open('about:blank'" not in SOURCE,
 }
