@@ -37,11 +37,20 @@ export async function consumeScaAuthorization(params: {
   operation: ScaOperation;
   resource: string;
   request: unknown;
-}): Promise<{ ok: true; required: boolean } | { ok: false; status: number; body: Record<string, unknown> }> {
-  if (!bridgeEeaScaEnforcementEnabled()) return { ok: true, required: false };
+}): Promise<{
+  ok: true;
+  required: boolean;
+  country: string | null;
+  scope_reason: string;
+} | { ok: false; status: number; body: Record<string, unknown> }> {
+  if (!bridgeEeaScaEnforcementEnabled()) {
+    return { ok: true, required: false, country: null, scope_reason: "enforcement_disabled" };
+  }
 
   const scope = await resolveBridgeScaScope(params.supabase, params.userId);
-  if (scope.status === "not_required") return { ok: true, required: false };
+  if (scope.status === "not_required") {
+    return { ok: true, required: false, country: scope.country, scope_reason: scope.reason };
+  }
   if (scope.status === "unknown") {
     return { ok: false, status: 503, body: { success: false, code: "sca_scope_unavailable", error: "Strong authentication could not be verified. Nothing was changed." } };
   }
@@ -66,5 +75,5 @@ export async function consumeScaAuthorization(params: {
   if (data !== true) {
     return { ok: false, status: 403, body: { success: false, code: "sca_invalid", error: "Strong authentication expired, was already used, or does not match this action." } };
   }
-  return { ok: true, required: true };
+  return { ok: true, required: true, country: scope.country, scope_reason: scope.reason };
 }
