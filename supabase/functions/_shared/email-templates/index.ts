@@ -57,6 +57,7 @@ import { render as businessAppStoreAnnouncement } from "./business/app-store-ann
 import { render as businessAccountMaintenanceFee } from "./business/account-maintenance-fee.ts";
 import { render as businessOnboardingLifecycle } from "./business/onboarding-lifecycle.ts";
 import { render as businessPartnerInvoice } from "./business/partner-invoice.ts";
+import { render as businessOwnershipReview } from "./business/ownership-review.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 import { render as adminSupportHandoff }                from "./admin/support-handoff.ts";
 import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
@@ -107,6 +108,7 @@ export type TemplateName =
   | "business.account_maintenance_fee"
   | "business.onboarding_lifecycle"
   | "business.partner_invoice"
+  | "business.ownership_review"
   | "admin.incident_alert"
   | "admin.support_handoff"
   | "partner.access_invite";
@@ -159,6 +161,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.account_maintenance_fee": businessAccountMaintenanceFee,
   "business.onboarding_lifecycle": businessOnboardingLifecycle,
   "business.partner_invoice":          businessPartnerInvoice,
+  "business.ownership_review":         businessOwnershipReview,
   "admin.incident_alert":                adminIncidentAlert,
   "admin.support_handoff":               adminSupportHandoff,
   "partner.access_invite":               partnerAccessInvite,

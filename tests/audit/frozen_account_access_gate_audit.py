@@ -13,7 +13,10 @@ checks = {
     "VA endpoint returns a frozen denial": 'code: "account_frozen"' in va and '}, 423)' in va,
     "status guard precedes capabilities and Bridge traffic": va.index('const { data: accessProfile') < va.index('if (action === "capabilities")') < va.index('logControlledBridgeTraffic("bridge-virtual-account"'),
     "profile response exposes local freeze evidence": all(value in profile for value in ('account_status:', 'account_frozen_at:', 'account_frozen_reason:')),
-    "released-client compatibility maps blocks to paused": 'bridge_account_status: accountAccessRestricted ? "paused"' in profile,
+    "released-client compatibility maps blocks to paused":
+        'const clientBridgeAccountStatus = accountAccessRestricted' in profile
+        and '? "paused"' in profile
+        and 'bridge_account_status: clientBridgeAccountStatus' in profile,
     "future clients evaluate local and provider states": 'profile?.account_status' in client and 'profile?.bridge_account_status' in client and 'BLOCKED_ACCOUNT_STATUSES' in client,
 }
 
