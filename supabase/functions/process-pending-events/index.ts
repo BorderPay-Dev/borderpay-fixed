@@ -158,10 +158,18 @@ function currentMonthEndDate(): string {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
 }
 
-/** Separate post-approval maintenance notice; never combined with KYC/KYB or account-limit emails. */
+/** Maintenance notice is sent only after at least one receiving account is active. */
 async function emailAccountMaintenanceFeeBestEffort(userId: string, accountType: AccountType): Promise<void> {
   try {
     if (!SEND_EMAIL_TOKEN) return;
+    const { data: activeVa } = await supabase
+      .from("bridge_virtual_accounts")
+      .select("id")
+      .or(`user_id.eq.${userId},business_user_id.eq.${userId}`)
+      .in("status", ["active", "activated"])
+      .limit(1)
+      .maybeSingle();
+    if (!activeVa?.id) return;
     const rcpt = await resolveEmailRecipient(userId);
     if (!rcpt) return;
 
@@ -191,7 +199,7 @@ async function emailAccountMaintenanceFeeBestEffort(userId: string, accountType:
         template,
         to: rcpt.email,
         user_id: userId,
-        idempotency_key: `wh:account-maintenance-approved:${userId}:v1`,
+        idempotency_key: `subscription:active_va_maintenance:${billingStartDate}:${userId}`,
         props,
       }),
     });
