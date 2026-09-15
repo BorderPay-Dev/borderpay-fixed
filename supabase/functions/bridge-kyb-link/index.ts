@@ -357,12 +357,14 @@ Deno.serve(async (req: Request) => {
       // mobile build or mutable server-side handoff state.
       const params = new URLSearchParams();
       params.set("redirect_uri", redirectUrl);
-      const tosResult = phase === "kyb" && termsAccepted ? null : await bridgeGet(
+      const shouldReturnTerms = phase === "terms" || (phase === null && !termsAccepted);
+      const shouldReturnKyb = phase === "kyb" || (phase === null && termsAccepted);
+      const tosResult = shouldReturnTerms ? await bridgeGet(
         `/v0/customers/${encodedCustomerId}/tos_acceptance_link`,
-      );
-      const kycResult = phase === "terms" || !termsAccepted ? null : await bridgeGet(
+      ) : null;
+      const kycResult = shouldReturnKyb && termsAccepted ? await bridgeGet(
         `/v0/customers/${encodedCustomerId}/kyc_link?${params.toString()}`,
-      );
+      ) : null;
       const effectiveTosResult = tosResult || customerResult;
       const tosPayload = effectiveTosResult.data?.data ?? effectiveTosResult.data;
       const tosUrl = typeof tosPayload?.url === "string"
