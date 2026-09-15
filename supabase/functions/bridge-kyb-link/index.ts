@@ -211,23 +211,6 @@ function extractKybStatus(parsed: any): string | null {
   return null;
 }
 
-function verifiedHostedLink(targetUrl: string): string {
-  let target: URL;
-  try {
-    target = new URL(targetUrl);
-  } catch {
-    throw new Error("Invalid hosted verification URL");
-  }
-  const host = target.hostname.toLowerCase();
-  if (
-    target.protocol !== "https:" ||
-    (host !== "bridge.withpersona.com" && !host.endsWith(".withpersona.com"))
-  ) {
-    throw new Error("Untrusted hosted verification URL");
-  }
-  return target.toString();
-}
-
 function verificationRedirectUrl(candidate: string | undefined): string {
   const fallback = `${APP_URL.replace(/\/+$/, "")}/?screen=kyc`;
   if (!candidate) return fallback;
@@ -243,6 +226,28 @@ function verificationRedirectUrl(candidate: string | undefined): string {
     // Native origins such as capacitor://localhost must never reach Persona.
   }
   return fallback;
+}
+
+function verifiedHostedLink(targetUrl: string): string {
+  let target: URL;
+  try {
+    target = new URL(targetUrl);
+  } catch {
+    throw new Error("Invalid hosted verification URL");
+  }
+  const host = target.hostname.toLowerCase();
+  if (
+    target.protocol !== "https:" ||
+    (host !== "bridge.withpersona.com" && !host.endsWith(".withpersona.com"))
+  ) {
+    throw new Error("Untrusted hosted verification URL");
+  }
+  // Bridge can return a previously-created Persona link with the original
+  // native WebView callback even when the resume request supplies a newer
+  // redirect_uri. Normalize the actual URL returned to every client.
+  target.searchParams.delete("redirect_uri");
+  target.searchParams.set("redirect-uri", verificationRedirectUrl(undefined));
+  return target.toString();
 }
 
 Deno.serve(async (req: Request) => {
