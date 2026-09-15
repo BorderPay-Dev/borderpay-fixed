@@ -197,6 +197,8 @@ def stage1_repository_integrity(ci_mode: bool, allow_dirty: bool) -> StageResult
         "tests/audit/customer_wallet_asset_boundary_audit.py",
         "tests/audit/bridge_kyb_existing_customer_resume_audit.py",
         "tests/audit/eea_payout_sca_challenge_audit.py",
+        "tests/audit/bridge_sca_entrypoints_audit.py",
+        "tests/audit/eurc_external_withdrawal_audit.py",
     ]
     missing = [p for p in required_files if not (ROOT / p).is_file()]
     stage.checks.append(CheckResult(
@@ -453,6 +455,8 @@ def stage_recent_release_regressions() -> StageResult:
         "tests/audit/customer_wallet_asset_boundary_audit.py",
         "tests/audit/bridge_kyb_existing_customer_resume_audit.py",
         "tests/audit/eea_payout_sca_challenge_audit.py",
+        "tests/audit/bridge_sca_entrypoints_audit.py",
+        "tests/audit/eurc_external_withdrawal_audit.py",
     ]
     for audit in audits:
         stage.checks.append(run_check_command(

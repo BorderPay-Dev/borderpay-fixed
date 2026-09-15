@@ -1,0 +1,48 @@
+name: Payment SCA database contract
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260915170000_payment_sca_evidence_contract.sql'
+      - 'tests/sql/payment_sca_*.sql'
+      - 'tests/sql/usdt_read_*.sql'
+      - 'supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql'
+      - '.github/workflows/payment-sca-db.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sca-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: sca_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable-ci-only
+      PGDATABASE: sca_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Test migration and payment evidence behavior in disposable PostgreSQL
+        run: |
+          psql -v ON_ERROR_STOP=1 -f tests/sql/payment_sca_fixture.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915170000_payment_sca_evidence_contract.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915170000_payment_sca_evidence_contract.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/payment_sca_contract.sql
+      - name: Test non-EEA USDT reads and unchanged write restrictions
+        run: |
+          psql -v ON_ERROR_STOP=1 -f tests/sql/usdt_read_fixture.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/usdt_read_contract.sql

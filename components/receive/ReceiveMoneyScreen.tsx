@@ -24,6 +24,7 @@ import {
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { selectVaLinkedStablecoinWallets } from '../../utils/financial/vaLinkedWalletPresentation';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
+import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { PINManager, BiometricManager } from '../../utils/security/SecurityManager';
 import { TransactionSecurityGate } from '../security/TransactionSecurityGate';
@@ -192,6 +193,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
   const storedUser = authAPI.getStoredUser() || {};
   const userId = (storedUser.id as string) || '';
+  const { allowUsdtTron, resolved: walletScopeResolved } = useWalletAssetScope(userId);
   const africanRailsTester = canUseAfricanRails({
     id: userId || (storedUser as any)?.id,
     email: (storedUser as any)?.email,
@@ -233,7 +235,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
       const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      return selectVaLinkedStablecoinWallets(scoped, cachedVas) as StableRow[];
+      return selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron }) as StableRow[];
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
@@ -351,6 +353,18 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
 
   useEffect(() => { stablesRef.current = stables; }, [stables]);
   useEffect(() => { vasRef.current = vas; }, [vas]);
+
+  // Resolve regional eligibility before restoring cached Tron rows. Otherwise
+  // the safe initial Base-only list can persist for the refresh throttle window.
+  useEffect(() => {
+    if (!walletScopeResolved) return;
+    try {
+      const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
+      if (!Array.isArray(scoped) || scoped.length === 0) return;
+      const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
+      setStables(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron }) as StableRow[]);
+    } catch { /* fresh route data will replace an unreadable cache */ }
+  }, [walletScopeResolved, allowUsdtTron, stableWalletsCacheKey, vaCacheKey]);
   useEffect(() => {
     let active = true;
     void loadIpCountry().then((value) => {
@@ -422,7 +436,7 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
         const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        return selectVaLinkedStablecoinWallets(scoped, cachedVas) as StableRow[];
+        return selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron }) as StableRow[];
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {

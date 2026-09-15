@@ -43,12 +43,15 @@ function validAddress(chain: string, address: string): boolean {
 async function findCurrentBridgeWallet(userId: string, asset: string, chain: string): Promise<{ id: string; address: string } | null> {
   const normalizedAsset = String(asset || "").toUpperCase();
   const normalizedChain = String(chain || "").toLowerCase();
+  // Base supports both assets under one custodial wallet resource.
+  const sourceAssets = normalizedChain === "base" && ["USDC", "EURC"].includes(normalizedAsset)
+    ? ["USDC", "EURC"] : [normalizedAsset];
   const activeStatuses = ["active", "enabled", "ready", "provisioned"];
   const select = "bridge_wallet_id,address,status,chain,currency,updated_at";
   const matches = (rows: any[] | null | undefined) => (rows || [])
     .filter((w) =>
       String(w?.bridge_wallet_id || "").trim()
-      && String(w?.currency || "").toUpperCase() === normalizedAsset
+      && sourceAssets.includes(String(w?.currency || "").toUpperCase())
       && String(w?.chain || "").toLowerCase() === normalizedChain
       && activeStatuses.includes(String(w?.status || "active").toLowerCase()))
     .sort((a, b) => Date.parse(String(b?.updated_at || "")) - Date.parse(String(a?.updated_at || "")));
@@ -57,7 +60,7 @@ async function findCurrentBridgeWallet(userId: string, asset: string, chain: str
     .from("bridge_wallets")
     .select(select)
     .eq("user_id", userId)
-    .ilike("currency", normalizedAsset);
+    .ilike("chain", normalizedChain);
   const userMatch = matches(userRows)[0];
   if (userMatch?.bridge_wallet_id && userMatch?.address) {
     return { id: String(userMatch.bridge_wallet_id), address: String(userMatch.address) };
@@ -67,7 +70,7 @@ async function findCurrentBridgeWallet(userId: string, asset: string, chain: str
     .from("bridge_wallets")
     .select(select)
     .eq("business_user_id", userId)
-    .ilike("currency", normalizedAsset);
+    .ilike("chain", normalizedChain);
   const businessMatch = matches(businessRows)[0];
   if (businessMatch?.bridge_wallet_id && businessMatch?.address) {
     return { id: String(businessMatch.bridge_wallet_id), address: String(businessMatch.address) };

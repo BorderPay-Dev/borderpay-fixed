@@ -524,7 +524,7 @@ export const walletAPI = {
         .in('currency', ['USDC', 'EURC', 'USDT']),
       supabase
         .from('bridge_virtual_accounts')
-        .select('bridge_virtual_account_id,currency,status,updated_at')
+        .select('bridge_virtual_account_id,currency,status,updated_at,account_details')
         .or(ownerOrFilter(user.id)),
       supabase
         .from('bridge_balance_ledger')
@@ -579,7 +579,11 @@ export const walletAPI = {
       if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
       return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
     });
-    for (const w of allowedWalletRows) {
+    // Resolve both Base assets to the VA-linked wallet; balances remain asset-specific.
+    const fundingWalletRows = selectVaLinkedStablecoinWallets(allowedWalletRows, bridgeVas, {
+      allowUsdtTron: walletAssetScope.allow_usdt_tron,
+    });
+    for (const w of fundingWalletRows) {
       const c = String((w as any).currency || '').toUpperCase();
       const row = ensure(c);
       if (!row) continue;
@@ -603,6 +607,7 @@ export const walletAPI = {
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
       if (currency === 'USDT' && !walletAssetScope.allow_usdt_tron) continue;
+      if (currency === 'EURC' && walletAssetScope.allow_usdt_tron) continue;
       if (!['USDC', 'EURC', 'USDT'].includes(currency)) continue;
       const row = ensure(currency);
       if (!row) continue;
@@ -610,6 +615,7 @@ export const walletAPI = {
     }
 
     const wallets = Array.from(byCurrency.values())
+      .filter(row => row.currency !== 'EURC' || !walletAssetScope.allow_usdt_tron)
       .sort((a, b) => String(a.currency).localeCompare(String(b.currency)));
     return { success: true, data: { wallets, wallet_asset_scope: walletAssetScope } };
   },
@@ -1289,6 +1295,7 @@ export const financialReadModelAPI = (() => {
               total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
               stablecoin_wallets_partial: Boolean(snapshot.data.stablecoin_wallets_partial),
               virtual_accounts_partial: false,
+              wallet_asset_scope: snapshot.data.wallet_asset_scope || EEA_SAFE_WALLET_SCOPE,
               snapshot_source: 'financial_snapshot',
             },
           };
@@ -1372,6 +1379,7 @@ export const financialReadModelAPI = (() => {
         data: {
           stablecoin_wallets: (r as any).data?.stablecoin_wallets || [],
           virtual_accounts: (r as any).data?.virtual_accounts || [],
+          wallet_asset_scope: (r as any).data?.wallet_asset_scope || EEA_SAFE_WALLET_SCOPE,
         },
       };
     },

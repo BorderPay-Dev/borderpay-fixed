@@ -63,9 +63,9 @@ export function selectVaLinkedStablecoinWallets(
     authoritative?.bridge_wallet_id ?? authoritative?.wallet_id ?? authoritative?.id ?? 'base',
     ).trim();
 
-    // Base is one provider wallet that presents two supported assets. Virtual
-    // accounts settle only to these Base assets.
-    return ['USDC', 'EURC'].map((asset) => ({
+    // One Base resource supports both assets. Show EURC for EEA accounts;
+    // non-EEA wallets show USDC here and their separate USDT/Tron wallet below.
+    return (options.allowUsdtTron ? ['USDC'] : ['USDC', 'EURC']).map((asset) => ({
       ...authoritative,
       currency: asset,
       presentation_id: `${authoritativeWalletId}:${asset}`,

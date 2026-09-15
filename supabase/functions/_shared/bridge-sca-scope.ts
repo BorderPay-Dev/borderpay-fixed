@@ -21,6 +21,17 @@ const NON_EEA_ISO3_TO_ISO2: Readonly<Record<string, string>> = {
   NZL: "NZ", KEN: "KE", ZAF: "ZA", NGA: "NG", GHA: "GH",
 };
 
+// ISO 3166-1 alpha-2 codes. A syntactically plausible typo (ZZ/XXX) must
+// never classify an EEA business as non-EEA. Signup stores alpha-2 codes.
+const ISO2_COUNTRIES = new Set(
+  ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ " +
+   "CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR " +
+   "GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP " +
+   "KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ " +
+   "NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ " +
+   "TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW").split(" "),
+);
+
 type SupaLike = { from: (table: string) => any };
 
 export type BridgeScaScope = {
@@ -28,6 +39,7 @@ export type BridgeScaScope = {
   status: "required" | "not_required" | "unknown";
   reason:
     | "verified_eea_custodial_wallet"
+    | "eea_payment"
     | "not_verified"
     | "no_bridge_customer"
     | "non_eea"
@@ -42,10 +54,10 @@ export type BridgeScaScope = {
 
 export function normalizeBridgeScaCountry(value: unknown): string | null {
   const code = String(value ?? "").trim().toUpperCase();
-  if (/^[A-Z]{2}$/.test(code)) return code;
+  if (ISO2_COUNTRIES.has(code)) return code;
   return EEA_ISO3_TO_ISO2[code]
     ?? NON_EEA_ISO3_TO_ISO2[code]
-    ?? (/^[A-Z]{3}$/.test(code) ? code : null);
+    ?? null;
 }
 
 export function isBridgeEeaScaCountry(value: unknown): boolean {
@@ -101,7 +113,9 @@ export function isActiveBridgeCustodialWallet(wallet: { wallet_id?: unknown; sta
 }
 
 /** Scope is derived only from authoritative Bridge identity data. */
-export async function resolveBridgeScaScope(supabase: SupaLike, userId: string): Promise<BridgeScaScope> {
+export async function resolveBridgeScaScope(
+  supabase: SupaLike, userId: string, purpose: "access" | "payment" = "access",
+): Promise<BridgeScaScope> {
   const identity = await loadAndAssertBridgeIdentityInvariant(supabase, userId);
   if (!identity.ok) {
     return { required: false, status: "unknown", reason: "identity_invariant_violation", country: null, verified: false, has_custodial_wallet: null };
@@ -137,6 +151,11 @@ export async function resolveBridgeScaScope(supabase: SupaLike, userId: string):
     }
     if (!BRIDGE_EEA_SCA_COUNTRIES.has(resolvedCountry)) {
       return { required: false, status: "not_required", reason: "non_eea", country: resolvedCountry, verified, has_custodial_wallet: null };
+    }
+    // A payout cannot use a missing/stale wallet listing as an SCA exemption.
+    // Access/provisioning callers still need the inventory-based scope.
+    if (purpose === "payment") {
+      return { required: true, status: "required", reason: "eea_payment", country: resolvedCountry, verified, has_custodial_wallet: null };
     }
     const wallets = await bridgeProvider.listWallets(customerId);
     const hasCustodialWallet = wallets.some(isActiveBridgeCustodialWallet);

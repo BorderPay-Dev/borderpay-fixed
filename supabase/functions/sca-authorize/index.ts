@@ -26,7 +26,13 @@ async function verifyFactor(endpoint: "verify-pin" | "verify-2fa", authorization
     body: JSON.stringify(body),
   });
   const payload = await response.json().catch(() => ({}));
-  return { ok: response.ok && payload?.success === true, status: response.status, payload };
+  const missingReplayProtection = endpoint === "verify-2fa" && response.ok
+    && payload?.success === true && payload?.totp_counter_consumed !== true;
+  return {
+    ok: response.ok && payload?.success === true && !missingReplayProtection,
+    status: missingReplayProtection ? 503 : response.status,
+    payload: missingReplayProtection ? { error: "Strong authentication is temporarily unavailable." } : payload,
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -48,16 +54,15 @@ Deno.serve(async (req: Request) => {
   let body: Record<string, any> = {};
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
 
-  if (!bridgeEeaScaEnforcementEnabled()) {
-    return json({ success: true, data: { required: false, reason: "sca_enforcement_disabled" } });
-  }
-
-  const scope = await resolveBridgeScaScope(supabase, user.id);
+  const scope = await resolveBridgeScaScope(supabase, user.id, "payment");
   if (scope.status === "unknown") {
     return json({ success: false, code: "sca_scope_unavailable", error: "Strong authentication could not be verified. Nothing was changed." }, 503);
   }
   if (scope.status === "not_required") {
     return json({ success: true, data: { required: false, reason: scope.reason } });
+  }
+  if (!bridgeEeaScaEnforcementEnabled()) {
+    return json({ success: false, code: "sca_unavailable", error: "Strong authentication is temporarily unavailable. Nothing was changed." }, 503);
   }
   if (body.action === "status") {
     return json({ success: true, data: { required: true, reason: scope.reason } });
@@ -109,7 +114,7 @@ Deno.serve(async (req: Request) => {
     });
     return json({ success: false, code: "pin_verification_failed", error: pin.payload?.error || "Invalid transaction PIN." }, pin.status === 429 ? 429 : 401);
   }
-  const totp = await verifyFactor("verify-2fa", authorization, { token: String(body.totp) });
+  const totp = await verifyFactor("verify-2fa", authorization, { token: String(body.totp), purpose: "sca_payment" });
   if (!totp.ok) {
     await supabase.from("sca_audit_events").insert({
       user_id: user.id, event_type: "authorization_failed", operation: "payment", resource: "bridge_transfer", reason: "totp_rejected",
@@ -136,7 +141,7 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, code: "sca_unavailable", error: "Strong authentication could not be completed. Nothing was changed." }, 503);
   }
 
-  await supabase.from("sca_audit_events").insert({
+  const { error: auditError } = await supabase.from("sca_audit_events").insert({
     user_id: user.id,
     authorization_id: authorizationRow.id,
     event_type: "authorization_succeeded",
@@ -144,6 +149,10 @@ Deno.serve(async (req: Request) => {
     resource: "bridge_transfer",
     payload_hash: payloadHash,
   });
+
+  if (auditError) {
+    return json({ success: false, code: "sca_unavailable", error: "Strong authentication could not be recorded. Nothing was changed." }, 503);
+  }
 
   return json({
     success: true,

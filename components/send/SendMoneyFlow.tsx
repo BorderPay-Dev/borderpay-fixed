@@ -34,7 +34,8 @@ import { computePayoutFee } from '../../utils/fees/engine';
 import { calculateYellowCardCustomerFee } from '../../utils/fees/yellowCard';
 import { convertYellowCardLocalFeeToFunding } from '../../utils/fees/yellowCardMath';
 import { classifyCorridor } from '../../utils/payouts/corridor';
-import { isValidCryptoAddress, type CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
+import type { CryptoWithdrawalValues } from '../payouts/ExternalCryptoWithdrawalFields';
+import { isValidCryptoAddress } from '../../utils/financial/cryptoAddress';
 import { TRANSFERS_LIVE, EXTERNAL_ACCOUNTS_LIVE } from '../../utils/featureFlags';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
@@ -2168,12 +2169,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               {[
                 { token: 'USDC', network: 'base', label: 'USDC', sub: 'Base' },
                 { token: 'EURC', network: 'base', label: 'EURC', sub: 'Base' },
-                ...(allowUsdtTron ? [{ token: 'USDT', network: 'tron', label: 'USDT', sub: 'Tron' }] : []),
+                { token: 'USDT', network: 'tron', label: 'USDT', sub: allowUsdtTron ? 'Tron' : 'Unavailable for this region' },
               ].map((route) => {
                 const active = crypto.token === route.token && crypto.network === route.network;
                 return (
                   <button
                     key={`${route.token}-${route.network}`}
+                    disabled={route.token === 'USDT' && !allowUsdtTron}
                     type="button"
                     onClick={() => {
                       const normalized = normalizeCryptoRoute(route.network, route.token);

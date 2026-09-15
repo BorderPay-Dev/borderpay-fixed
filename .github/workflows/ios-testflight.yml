@@ -187,6 +187,22 @@ jobs:
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID"
           ls -la "$EXPORT_PATH"
 
+      - name: Collect iOS export diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios-export-diagnostics"
+          find "$TMPDIR" -type d -name '*.xcdistributionlogs' -prune -exec cp -R {} "$RUNNER_TEMP/ios-export-diagnostics/" \;
+
+      - name: Upload iOS export diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: borderpay-ios-export-diagnostics
+          path: ${{ runner.temp }}/ios-export-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
