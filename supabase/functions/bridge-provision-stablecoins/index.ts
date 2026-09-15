@@ -1,6 +1,6 @@
 // bridge-provision-stablecoins — ensure an activated, KYC-approved customer has
-// their Base stablecoin assets (USDC and EURC) so they can receive
-// stablecoin AND so a virtual account has a settlement destination ready.
+// USDC/EURC on Base; verified non-EEA customers additionally receive USDT/Tron.
+// Virtual-account settlement remains Base-only.
 //
 // Idempotent: creates a wallet only if the Base chain wallet is missing; if it
 // already exists (incl. created on the Bridge dashboard once synced), it's a
@@ -14,6 +14,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -105,6 +106,41 @@ Deno.serve(async (req) => {
     }
   }
 
+  const walletScope = await resolveBridgeScaScope(supa, user.id);
+  const allowUsdtTron = walletScope.status === "not_required"
+    && walletScope.reason === "non_eea"
+    && Boolean(walletScope.country);
+  if (allowUsdtTron) {
+    const { data: existingTron } = await supa
+      .from("bridge_wallets")
+      .select("bridge_wallet_id,address")
+      .eq("bridge_customer_id", profile.bridge_customer_id)
+      .ilike("chain", "tron")
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existingTron?.bridge_wallet_id) {
+      out.push({ symbol: "USDT", chain: "tron", address: existingTron.address, already: true });
+    } else {
+      try {
+        const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: "USDT", chain: "TRON" });
+        await supa.from("bridge_wallets").upsert({
+          ...ownerCols,
+          bridge_customer_id: profile.bridge_customer_id,
+          bridge_wallet_id: created.wallet_id,
+          currency: "USDT",
+          chain: "tron",
+          address: created.deposit_address,
+          status: "active",
+        }, { onConflict: "bridge_wallet_id" });
+        out.push({ symbol: "USDT", chain: "tron", address: created.deposit_address, already: false });
+      } catch (e) {
+        console.warn(`provision tron wallet: ${(e as Error).message}`);
+      }
+    }
+  }
+
   return json({ success: true, data: { wallets: out } });
 });
 
@@ -185,6 +221,40 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
       }
     } catch (e) {
       out.push({ symbol, chain: "base", created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  const walletScope = await resolveBridgeScaScope(supa, profile.id);
+  const allowUsdtTron = walletScope.status === "not_required"
+    && walletScope.reason === "non_eea"
+    && Boolean(walletScope.country);
+  if (allowUsdtTron) {
+    const { data: existingTron } = await supa
+      .from("bridge_wallets")
+      .select("bridge_wallet_id,address,currency,chain,status")
+      .eq("bridge_customer_id", profile.bridge_customer_id)
+      .ilike("chain", "tron")
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existingTron?.bridge_wallet_id) {
+      out.push({ ...existingTron, symbol: "USDT", display_chain: "tron", already: true });
+    } else try {
+      const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: "USDT", chain: "TRON" });
+      await supa.from("bridge_wallets").upsert({
+        ...ownerCols,
+        bridge_customer_id: profile.bridge_customer_id,
+        bridge_wallet_id: created.wallet_id,
+        currency: "USDT",
+        chain: "tron",
+        address: created.deposit_address,
+        status: "active",
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "bridge_wallet_id", ignoreDuplicates: false });
+      out.push({ symbol: "USDT", chain: "tron", created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
+    } catch (e) {
+      out.push({ symbol: "USDT", chain: "tron", created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
 

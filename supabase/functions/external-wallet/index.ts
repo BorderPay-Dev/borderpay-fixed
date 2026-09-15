@@ -14,6 +14,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
+import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -116,6 +117,14 @@ Deno.serve(async (req) => {
   const accessBlock = await getFinancialAccessBlock(supa, user.id);
   if (accessBlock) return json({ success: false, ...accessBlock }, 423);
 
+  // The provider-backed incorporation/residence scope is authoritative. USDT
+  // on Tron is available only to verified non-EEA customers. Unknown scope is
+  // deliberately EEA-safe and cannot expose or create a USDT destination.
+  const walletScope = await resolveBridgeScaScope(supa, user.id);
+  const allowUsdtTron = walletScope.status === "not_required"
+    && walletScope.reason === "non_eea"
+    && Boolean(walletScope.country);
+
   if (action === "list") {
     const { data } = await supa
       .from("external_wallets")
@@ -123,7 +132,13 @@ Deno.serve(async (req) => {
       .eq("user_id", user.id)
       .eq("status", "active")
       .order("created_at", { ascending: false });
-    return json({ success: true, data: { wallets: (data ?? []).map((wallet) => withDirectTransferCompatibility(wallet)) } });
+    const visible = (data ?? []).filter((wallet) => {
+      const asset = String(wallet?.asset || "").toUpperCase();
+      const chain = String(wallet?.chain || "").toLowerCase();
+      if (asset === "USDT") return allowUsdtTron && chain === "tron";
+      return (asset === "USDC" || asset === "EURC") && chain === "base";
+    });
+    return json({ success: true, data: { wallets: visible.map((wallet) => withDirectTransferCompatibility(wallet)) } });
   }
 
   if (action === "remove") {
@@ -147,6 +162,13 @@ Deno.serve(async (req) => {
     if (!SUPPORTED_ASSETS.has(asset))    return json({ success: false, error: "Unsupported asset." }, 400);
     if (((asset === "USDC" || asset === "EURC") && chain !== "base") || (asset === "USDT" && chain !== "tron")) {
       return json({ success: false, error: "Use USDC or EURC on Base, or USDT on Tron." }, 400);
+    }
+    if (asset === "USDT" && !allowUsdtTron) {
+      return json({
+        success: false,
+        code: "wallet_asset_not_available",
+        error: "USDT on Tron is not available for this account region.",
+      }, 403);
     }
     if (!validAddress(chain, address))   return json({ success: false, error: "That address isn't valid for the selected network." }, 422);
 

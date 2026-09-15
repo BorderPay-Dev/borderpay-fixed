@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""P0 gate: customer wallet surfaces may fetch only USDC/EURC on Base."""
+"""P0 gate: EEA is Base-only; non-EEA may additionally use USDT/Tron."""
 
 from pathlib import Path
 
@@ -17,20 +17,27 @@ provision = read("supabase/functions/bridge-provision-stablecoins/index.ts")
 wallet_fn = read("supabase/functions/bridge-wallet/index.ts")
 provider = read("supabase/functions/_shared/providers/bridge.ts")
 migration = read("supabase/migrations/20260914170000_customer_wallet_assets_base_only.sql")
+scope = read("supabase/functions/_shared/bridge-sca-scope.ts")
+external_fn = read("supabase/functions/external-wallet/index.ts")
+transfer_fn = read("supabase/functions/bridge-transfer/index.ts")
+va_config = read("supabase/functions/_shared/providers/virtual-account-config.ts")
 
 checks = {
-    "customer wallet queries constrain Base": backend.count(".ilike('chain', 'base')") >= 3,
-    "customer wallet queries constrain assets": backend.count(".in('currency', ['USDC', 'EURC'])") >= 3,
-    "presentation emits only Base assets": "const displayAssets = ['USDC', 'EURC']" in presentation and "return canonicalRows" in presentation,
-    "wallet screen supports only USDC/EURC": "new Set(['USDC', 'EURC'])" in wallet,
-    "add-wallet contains EURC and no USDT card": "{ code: 'EURC'" in add_wallet and "{ code: 'USDT'" not in add_wallet,
-    "receive exposes only USDC/EURC": "return ['USDC', 'EURC']" in receive and "String(wallet.currency).toUpperCase() === 'USDT'" not in receive,
-    "saved payout wallets expose only USDC/EURC Base": "USDC:base" in external and "EURC:base" in external and "USDT:tron" not in external,
+    "wallet reads include the three supported assets": backend.count(".in('currency', ['USDC', 'EURC', 'USDT'])") >= 3,
+    "presentation keeps USDT separate from VA-linked Base": "USDT is a separate Tron wallet" in presentation and "allowUsdtTron" in presentation,
+    "wallet screen supports three bounded assets": "new Set(['USDC', 'EURC', 'USDT'])" in wallet,
+    "add-wallet hides USDT unless non-EEA": "{ code: 'USDT'" in add_wallet and "card.code !== 'USDT' || allowUsdtTron" in add_wallet,
+    "receive binds USDT to Tron": "sym === 'USDT' && chain === 'tron'" in receive,
+    "saved payout wallets gate USDT by scope": "USDT:tron" in external and "allowUsdtTron" in external,
     "withdrawal selector exposes no Tron route": "id: 'tron'" not in withdrawal,
-    "provisioning creates one Base chain wallet": "const DEFAULT_WALLET = { symbol: \"USDC\", chain: \"BASE\" }" in provision,
-    "manual wallet endpoint is Base-only": 'const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC"]' in wallet_fn and 'const CHAINS: readonly StablecoinChain[]  = ["BASE"]' in wallet_fn,
+    "provisioning keeps Base default and conditionally adds Tron": "const DEFAULT_WALLET = { symbol: \"USDC\", chain: \"BASE\" }" in provision and "allowUsdtTron" in provision,
+    "manual wallet endpoint is region-gated": 'const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC", "USDT"]' in wallet_fn and "wallet_asset_not_available" in wallet_fn,
     "provider create payload is chain-only": "const body = { chain: input.chain.toLowerCase() };" in provider and "currency: input.symbol.toLowerCase()" not in provider,
     "database owner reads hide Tron/USDT": "lower(coalesce(chain, '')) = 'base'" in migration and "in ('USDC', 'EURC')" in migration,
+    "authoritative EEA set contains exactly 30 states": "The 30 EEA states" in scope and "BRIDGE_EEA_SCA_COUNTRIES" in scope,
+    "external-wallet rejects EEA USDT": "asset === \"USDT\" && !allowUsdtTron" in external_fn,
+    "transfer rejects EEA USDT before provider movement": "requestsUsdt" in transfer_fn and "wallet_asset_not_available" in transfer_fn,
+    "VA destination contract has no USDT rail": 'export type VaCurrency = "USD" | "EUR" | "GBP"' in va_config and "USDT" not in va_config,
 }
 
 failed = [name for name, passed in checks.items() if not passed]

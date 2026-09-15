@@ -20,6 +20,34 @@ import { executeEnterpriseRecaptcha } from '../security/recaptchaEnterprise';
 import { getNativeAppCheckToken } from '../security/firebaseAppCheck';
 import { selectVaLinkedStablecoinWallets } from '../financial/vaLinkedWalletPresentation';
 
+export type WalletAssetScope = {
+  allow_usdt_tron: boolean;
+  country: string | null;
+  reason: string;
+};
+
+const EEA_SAFE_WALLET_SCOPE: WalletAssetScope = {
+  allow_usdt_tron: false,
+  country: null,
+  reason: 'scope_unavailable',
+};
+
+function snapshotAllowsUsdt(snapshot: any): boolean {
+  return snapshot?.data?.wallet_asset_scope?.allow_usdt_tron === true;
+}
+
+async function getWalletAssetScope(): Promise<WalletAssetScope> {
+  const response: any = await apiCall('sca-scope', { method: 'POST', body: '{}' });
+  const data = response?.data;
+  if (!response?.success || !data) return EEA_SAFE_WALLET_SCOPE;
+  const country = typeof data.country === 'string' ? data.country.toUpperCase() : null;
+  return {
+    allow_usdt_tron: data.reason === 'non_eea' && Boolean(country),
+    country,
+    reason: String(data.reason || 'scope_unavailable'),
+  };
+}
+
 function timeoutMsForEndpoint(endpoint: string): number | null {
   // Endpoints that can legitimately take longer because they trigger
   // provider-side orchestration and/or email delivery.
@@ -473,7 +501,7 @@ export const walletAPI = {
     }
     const SCALE: Record<string, number> = {
       USD: 2, EUR: 2, GBP: 2,
-      USDC: 6, EURC: 6,
+      USDC: 6, EURC: 6, USDT: 6,
     };
     const minorToMajor = (minor: unknown, currency: string): number => {
       const n = Number(minor ?? 0);
@@ -483,16 +511,17 @@ export const walletAPI = {
     };
 
     const [
+      walletAssetScope,
       { data: bridgeWallets, error: bridgeWalletErr },
       { data: bridgeVas, error: bridgeVaErr },
       { data: walletBalanceLedger, error: walletBalanceLedgerErr },
     ] = await Promise.all([
+      getWalletAssetScope(),
       supabase
         .from('bridge_wallets')
         .select('bridge_wallet_id,currency,chain,status,updated_at')
         .or(ownerOrFilter(user.id))
-        .ilike('chain', 'base')
-        .in('currency', ['USDC', 'EURC']),
+        .in('currency', ['USDC', 'EURC', 'USDT']),
       supabase
         .from('bridge_virtual_accounts')
         .select('bridge_virtual_account_id,currency,status,updated_at')
@@ -502,7 +531,7 @@ export const walletAPI = {
         .select('currency,amount_minor,direction,entity_type,created_at')
         .or(ownerOrFilter(user.id))
         .eq('entity_type', 'wallet')
-        .in('currency', ['USDC', 'EURC']),
+        .in('currency', ['USDC', 'EURC', 'USDT']),
     ]);
 
     const firstErr = bridgeWalletErr || bridgeVaErr || walletBalanceLedgerErr;
@@ -544,7 +573,13 @@ export const walletAPI = {
       const signedMinor = direction === 'debit' ? -Math.abs(rawMinor) : Math.abs(rawMinor);
       ledgerByCurrency.set(c, (ledgerByCurrency.get(c) || 0) + minorToMajor(signedMinor, c));
     }
-    for (const w of (bridgeWallets || [])) {
+    const allowedWalletRows = (bridgeWallets || []).filter((w: any) => {
+      const currency = String(w?.currency || '').toUpperCase();
+      const chain = String(w?.chain || '').toLowerCase();
+      if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
+      return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
+    });
+    for (const w of allowedWalletRows) {
       const c = String((w as any).currency || '').toUpperCase();
       const row = ensure(c);
       if (!row) continue;
@@ -567,6 +602,8 @@ export const walletAPI = {
     }
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
+      if (currency === 'USDT' && !walletAssetScope.allow_usdt_tron) continue;
+      if (!['USDC', 'EURC', 'USDT'].includes(currency)) continue;
       const row = ensure(currency);
       if (!row) continue;
       row.balance = balance;
@@ -574,7 +611,7 @@ export const walletAPI = {
 
     const wallets = Array.from(byCurrency.values())
       .sort((a, b) => String(a.currency).localeCompare(String(b.currency)));
-    return { success: true, data: { wallets } };
+    return { success: true, data: { wallets, wallet_asset_scope: walletAssetScope } };
   },
 
   async createVirtualAccount(_userId: string, currency: string) {
@@ -976,8 +1013,7 @@ export const financialReadModelAPI = (() => {
         .from('bridge_wallets')
         .select('*')
         .or(ownerOrFilter(userId))
-        .ilike('chain', 'base')
-        .in('currency', ['USDC', 'EURC'])
+        .in('currency', ['USDC', 'EURC', 'USDT'])
         .order('created_at', { ascending: false }),
       supabase
         .from('bridge_virtual_accounts')
@@ -1027,7 +1063,16 @@ export const financialReadModelAPI = (() => {
     const transactions = Array.isArray((txRes as any)?.data?.transactions) ? (txRes as any).data.transactions : [];
     const rawStablecoinWallets = Array.isArray(stableRes?.data) ? stableRes.data : [];
     const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
-    const stablecoinWallets = selectVaLinkedStablecoinWallets(rawStablecoinWallets, virtualAccounts);
+    const walletAssetScope = (walletsRes as any)?.data?.wallet_asset_scope || EEA_SAFE_WALLET_SCOPE;
+    const scopedStablecoinRows = rawStablecoinWallets.filter((row: any) => {
+      const currency = String(row?.currency || '').toUpperCase();
+      const chain = String(row?.chain || '').toLowerCase();
+      if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
+      return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
+    });
+    const stablecoinWallets = selectVaLinkedStablecoinWallets(scopedStablecoinRows, virtualAccounts, {
+      allowUsdtTron: walletAssetScope.allow_usdt_tron,
+    });
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
     const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
       ? (externalListRes as any).data.external_accounts
@@ -1076,6 +1121,7 @@ export const financialReadModelAPI = (() => {
         external_accounts: externalAccounts,
         external_account_capabilities: externalAccountCapabilities,
         external_wallets: externalWallets,
+        wallet_asset_scope: walletAssetScope,
         external_accounts_partial:
           !((externalListRes as any)?.success) || !((externalCapsRes as any)?.success),
         external_wallets_partial: !((externalWalletsRes as any)?.success),
@@ -1135,6 +1181,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               lastSnapshot.data?.stablecoin_wallets,
               lastSnapshot.data?.virtual_accounts,
+              { allowUsdtTron: snapshotAllowsUsdt(lastSnapshot) },
             ),
           },
         };
@@ -1150,6 +1197,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               lastAnySnapshot.data?.stablecoin_wallets,
               lastAnySnapshot.data?.virtual_accounts,
+              { allowUsdtTron: snapshotAllowsUsdt(lastAnySnapshot) },
             ),
           },
         };
@@ -1170,6 +1218,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               persisted.snapshot.data?.stablecoin_wallets,
               persisted.snapshot.data?.virtual_accounts,
+              { allowUsdtTron: snapshotAllowsUsdt(persisted.snapshot) },
             ),
           },
         };
@@ -1189,6 +1238,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               persistedAny.snapshot.data?.stablecoin_wallets,
               persistedAny.snapshot.data?.virtual_accounts,
+              { allowUsdtTron: snapshotAllowsUsdt(persistedAny.snapshot) },
             ),
           },
         };
@@ -1220,6 +1270,7 @@ export const financialReadModelAPI = (() => {
           const stablecoinWallets = selectVaLinkedStablecoinWallets(
             snapshot.data.stablecoin_wallets,
             virtualAccounts,
+            { allowUsdtTron: snapshotAllowsUsdt(snapshot) },
           );
           const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
             const c = String(w?.currency || '').toUpperCase();
@@ -1261,8 +1312,7 @@ export const financialReadModelAPI = (() => {
           .from('bridge_wallets')
           .select('*')
           .or(ownerOrFilter(userId))
-          .ilike('chain', 'base')
-          .in('currency', ['USDC', 'EURC'])
+          .in('currency', ['USDC', 'EURC', 'USDT'])
           .order('created_at', { ascending: false }),
         supabase
           .from('bridge_virtual_accounts')
@@ -1287,7 +1337,16 @@ export const financialReadModelAPI = (() => {
       }, {});
 
       const virtualAccounts = Array.isArray(vaRes?.data) ? vaRes.data : [];
-      const stablecoinWallets = selectVaLinkedStablecoinWallets(stableRes?.data, virtualAccounts);
+      const walletAssetScope = (walletsRes as any)?.data?.wallet_asset_scope || EEA_SAFE_WALLET_SCOPE;
+      const scopedStablecoinRows = (Array.isArray(stableRes?.data) ? stableRes.data : []).filter((row: any) => {
+        const currency = String(row?.currency || '').toUpperCase();
+        const chain = String(row?.chain || '').toLowerCase();
+        if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
+        return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
+      });
+      const stablecoinWallets = selectVaLinkedStablecoinWallets(scopedStablecoinRows, virtualAccounts, {
+        allowUsdtTron: walletAssetScope.allow_usdt_tron,
+      });
 
       return {
         success: true,
@@ -1295,6 +1354,7 @@ export const financialReadModelAPI = (() => {
           wallets,
           stablecoin_wallets: stablecoinWallets,
           virtual_accounts: virtualAccounts,
+          wallet_asset_scope: walletAssetScope,
           virtual_account_capabilities: (vaCapsRes as any)?.success ? (vaCapsRes as any).data : null,
           balance_by_currency: balanceByCurrency,
           total_balance: wallets.reduce((sum: number, w: any) => sum + Number(w?.balance || 0), 0),
@@ -2586,6 +2646,12 @@ export const bridgeAPI = {
 };
 
 export const scaAPI = {
+  scope: async () => apiCall<{
+    required: boolean;
+    status: string;
+    reason: string;
+    country: string | null;
+  }>('sca-scope', { method: 'POST', body: '{}' }),
   status: async () => apiCall<{ required: boolean; reason: string }>('sca-authorize', {
     method: 'POST',
     body: JSON.stringify({ action: 'status' }),

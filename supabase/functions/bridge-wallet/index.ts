@@ -1,7 +1,9 @@
-// bridge-wallet — ensure the customer's single Base wallet exists. The one
-// provider wallet carries the two customer-facing assets: USDC and EURC.
+// bridge-wallet — ensure the requested region-permitted wallet exists.
+// Base carries USDC and EURC; verified non-EEA customers may additionally
+// have a separate USDT wallet on Tron.
 //
 // POST body: { symbol: 'USDC'|'EURC', chain: 'BASE' }
+//         or { symbol: 'USDT', chain: 'TRON' } for verified non-EEA customers.
 //
 // Response: { success, data: { wallet_id, deposit_address, symbol, chain } }
 
@@ -17,6 +19,7 @@ import {
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -30,8 +33,8 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC"];
-const CHAINS: readonly StablecoinChain[]  = ["BASE"];
+const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC", "USDT"];
+const CHAINS: readonly StablecoinChain[]  = ["BASE", "TRON"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -50,6 +53,9 @@ Deno.serve(async (req) => {
   const chain  = String(body.chain  || "BASE").toUpperCase()  as StablecoinChain;
   if (!SYMS.includes(symbol))   return json({ success: false, error: `Unsupported symbol: ${symbol}` }, 400);
   if (!CHAINS.includes(chain))  return json({ success: false, error: `Unsupported chain: ${chain}` }, 400);
+  if ((symbol === "USDT") !== (chain === "TRON")) {
+    return json({ success: false, code: "wallet_asset_chain_mismatch", error: "Use USDC or EURC on Base, or USDT on Tron." }, 400);
+  }
 
   const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
   if (!identity.ok) {
@@ -91,6 +97,15 @@ Deno.serve(async (req) => {
   if (verificationStatus !== "approved") {
     return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
+  if (symbol === "USDT") {
+    const walletScope = await resolveBridgeScaScope(supa, user.id);
+    const allowUsdtTron = walletScope.status === "not_required"
+      && walletScope.reason === "non_eea"
+      && Boolean(walletScope.country);
+    if (!allowUsdtTron) {
+      return json({ success: false, code: "wallet_asset_not_available", error: "USDT on Tron is not available for this account region." }, 403);
+    }
+  }
 
   // Provider wallets are chain-level. Do not create a second Base wallet when
   // the caller switches between the USDC and EURC presentation chips.
@@ -98,7 +113,7 @@ Deno.serve(async (req) => {
     .from("bridge_wallets")
     .select("bridge_wallet_id,address")
     .eq("bridge_customer_id", profile.bridge_customer_id)
-    .ilike("chain", "base")
+    .ilike("chain", chain.toLowerCase())
     .eq("status", "active")
     .order("created_at", { ascending: true })
     .limit(1)
@@ -121,18 +136,18 @@ Deno.serve(async (req) => {
       ...(isBusiness ? { business_user_id: user.id } : {}),
       bridge_customer_id: profile.bridge_customer_id,
       bridge_wallet_id:   result.wallet_id,
-      currency:           "USDC",
-      chain:              "base",
+      currency:           symbol === "EURC" ? "USDC" : symbol,
+      chain:              chain.toLowerCase(),
       address:            result.deposit_address,
       status:             "active",
     });
     // Legacy mirror for balance/ledger compatibility.
     const { error: wErr } = await supa.from("wallets").upsert({
       user_id:           user.id,
-      currency:          "USDC",
+      currency:          symbol === "EURC" ? "USDC" : symbol,
       provider:          "bridge",
       asset_type:        "stablecoin",
-      stablecoin_chain:  "base",
+      stablecoin_chain:  chain.toLowerCase(),
       bridge_wallet_id:  result.wallet_id,
       virtual_account_number: result.deposit_address,  // deposit address goes here for stablecoins
       balance:           0,

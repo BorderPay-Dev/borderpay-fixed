@@ -17,6 +17,7 @@ import { authAPI } from '../../utils/supabase/client';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { financialCacheKey } from '../../utils/financial/cacheScope';
+import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 
 interface Props {
   onBack: () => void;
@@ -24,18 +25,21 @@ interface Props {
 }
 
 const CACHE_KEY = 'borderpay_external_wallets_v2';
-const EXTERNAL_WALLETS_FETCH_TIMEOUT_MS = 1400;
+const EXTERNAL_WALLETS_FETCH_TIMEOUT_MS = 8000;
 const PREFILL_KEY = 'borderpay_prefill_withdraw';   // read by SendMoneyFlow
 
-const WITHDRAWAL_ROUTES = [
+const BASE_WITHDRAWAL_ROUTES = [
   { key: 'USDC:base', asset: 'USDC', chain: 'base', label: 'USDC · Base' },
   { key: 'EURC:base', asset: 'EURC', chain: 'base', label: 'EURC · Base' },
 ] as const;
+const USDT_WITHDRAWAL_ROUTE = { key: 'USDT:tron', asset: 'USDT', chain: 'tron', label: 'USDT · Tron' } as const;
 const chainName = (c: string) => c.toLowerCase() === 'base' ? 'Base' : c.toLowerCase() === 'tron' ? 'Tron' : c;
 const walletRouteKey = (asset: string, chain: string) => `${String(asset).toUpperCase()}:${String(chain).toLowerCase()}`;
-const isSupportedWithdrawalWallet = (w: Pick<ExternalWallet, 'asset' | 'chain'>) =>
-  WITHDRAWAL_ROUTES.some(route => route.key === walletRouteKey(w.asset, w.chain));
-const filterSupportedWallets = (wallets: ExternalWallet[]) => wallets.filter(isSupportedWithdrawalWallet);
+const filterSupportedWallets = (wallets: ExternalWallet[], allowUsdtTron: boolean) => wallets.filter((wallet) => {
+  const key = walletRouteKey(wallet.asset, wallet.chain);
+  return BASE_WITHDRAWAL_ROUTES.some(route => route.key === key)
+    || (allowUsdtTron && key === USDT_WITHDRAWAL_ROUTE.key);
+});
 
 function validAddress(chain: string, a: string): boolean {
   const v = (a || '').trim();
@@ -47,7 +51,7 @@ function validAddress(chain: string, a: string): boolean {
 function readCache(cacheKey: string): ExternalWallet[] {
   try {
     const v = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-    return Array.isArray(v) ? filterSupportedWallets(v) : [];
+    return Array.isArray(v) ? filterSupportedWallets(v, false) : [];
   }
   catch { return []; }
 }
@@ -64,6 +68,10 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
   const userId = (authAPI.getStoredUser()?.id as string) || '';
+  const { allowUsdtTron } = useWalletAssetScope(userId);
+  const withdrawalRoutes = allowUsdtTron
+    ? [...BASE_WITHDRAWAL_ROUTES, USDT_WITHDRAWAL_ROUTE]
+    : [...BASE_WITHDRAWAL_ROUTES];
   const verification = useVerification(userId);
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
 
@@ -91,7 +99,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         { success: false, error: 'request_timeout' } as any
       );
       if (r?.success) {
-        const next: ExternalWallet[] = filterSupportedWallets(r.data?.wallets || []);
+        const next: ExternalWallet[] = filterSupportedWallets(r.data?.wallets || [], allowUsdtTron);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       }
@@ -121,12 +129,12 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, []);
+  /* eslint-disable-next-line */ }, [allowUsdtTron]);
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
-    if (!WITHDRAWAL_ROUTES.some(route => route.key === selectedRouteKey)) {
-      toast.error('Choose USDC or EURC on Base.');
+    if (!withdrawalRoutes.some(route => route.key === selectedRouteKey)) {
+      toast.error(allowUsdtTron ? 'Choose USDC or EURC on Base, or USDT on Tron.' : 'Choose USDC or EURC on Base.');
       return;
     }
     if (!validAddress(chain, address)) { toast.error(`That address isn't valid for ${chainName(chain)}.`); return; }
@@ -134,7 +142,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     try {
       const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() });
       if (r?.success && r.data?.wallet) {
-        const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)]);
+        const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)], allowUsdtTron);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         setAdding(false); setLabel(''); setAddress(''); setAsset('USDC'); setChain('base');
@@ -310,14 +318,14 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
                 <select
                   value={selectedRouteKey}
                   onChange={e => {
-                    const route = WITHDRAWAL_ROUTES.find(x => x.key === e.target.value) || WITHDRAWAL_ROUTES[0];
+                    const route = withdrawalRoutes.find(x => x.key === e.target.value) || withdrawalRoutes[0];
                     setAsset(route.asset);
                     setChain(route.chain);
                     setAddress('');
                   }}
                   className={`w-full ${tc.inputBg} border ${tc.cardBorder} rounded-2xl px-3 py-3 text-sm ${tc.text} focus:outline-none`}
                 >
-                  {WITHDRAWAL_ROUTES.map(route => (
+                  {withdrawalRoutes.map(route => (
                     <option key={route.key} value={route.key}>{route.label}</option>
                   ))}
                 </select>
