@@ -14,8 +14,11 @@ alter table public.bridge_balance_ledger enable row level security;
 alter table public.wallets enable row level security;
 grant select, update, insert on public.bridge_wallets, public.bridge_balance_ledger, public.wallets to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
-create function public.can_read_bridge_financial_data(p_user_id uuid) returns boolean language sql stable as $$
- select p_user_id = auth.uid() and coalesce(current_setting('test.financial_read_blocked', true), '') <> 'true'
+-- Match the production PL/pgSQL boundary rather than an inlined SQL stub.
+create function public.can_read_bridge_financial_data(p_user_id uuid) returns boolean language plpgsql stable as $$
+begin
+ return p_user_id = auth.uid() and coalesce(current_setting('test.financial_read_blocked', true), '') <> 'true';
+end;
 $$;
 create policy wallets_own on public.wallets for all to public
 using(auth.uid()=user_id and upper(coalesce(currency,'')) <> 'USDT')
