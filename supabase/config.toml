@@ -119,11 +119,6 @@ verify_jwt = false
 [functions.bridge-kyb-link]
 verify_jwt = false
 
-# Public navigation endpoint. Access is controlled by a random, short-lived
-# server-issued token and no provider URL is accepted from the request.
-[functions.verification-launch]
-verify_jwt = false
-
 # Bridge transfer — money movement; authenticated. Fail-closed on
 # BRIDGE_TRANSFERS_ENABLED. Runs verify_jwt=true (platform validates the JWT,
 # the function then re-checks customer + KYC).

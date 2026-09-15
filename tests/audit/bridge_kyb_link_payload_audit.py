@@ -35,7 +35,8 @@ def main() -> int:
         "direct creation key uses contract version": "${KYB_LINK_CONTRACT_VERSION}:${user.id}" in SOURCE,
         "shared provider key uses contract version": "${KYC_LINK_CONTRACT_VERSION}:${input.account_type}" in provider_body,
         "subscription fallback key uses contract version": "business:full-name-v2" in UPGRADE,
-        "redirect URI remains application callback": "redirect_uri:" in body and "APP_URL" in body,
+        "redirect URI remains application callback": "redirect_uri: redirectUrl" in body and "verificationRedirectUrl(body.redirect_url)" in SOURCE,
+        "native internal origin is rejected": "capacitor://localhost" in SOURCE and 'parsed.protocol === "https:"' in SOURCE,
         "existing customer resumes through customer KYB endpoint": (
             "const encodedCustomerId = encodeURIComponent(existingCustomerId)" in SOURCE
             and "/v0/customers/${encodedCustomerId}/kyc_link" in SOURCE
