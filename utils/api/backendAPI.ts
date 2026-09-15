@@ -2389,6 +2389,7 @@ export const bridgeAPI = {
   kyb: {
     startBusiness: async (opts?: {
       redirect_url?: string;
+      phase?: 'terms' | 'kyb';
       endorsements?: ('base'|'sepa'|'spei'|'crypto')[];
       precheck?: {
         employment_status?: string;
@@ -2396,7 +2397,7 @@ export const bridgeAPI = {
         explanation?: string;
       };
     }) =>
-      apiCall<{ link_id?: string | null; link_url?: string | null; tos_link_url?: string | null; tos_required?: boolean; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
+      apiCall<{ link_id?: string | null; link_url?: string | null; tos_link_url?: string | null; tos_required?: boolean; tos_accepted?: boolean; expires_at?: string; already_approved?: boolean; reused?: boolean }>(
         'bridge-kyb-link',
         { method: 'POST', body: JSON.stringify(opts ?? {}) },
       ),

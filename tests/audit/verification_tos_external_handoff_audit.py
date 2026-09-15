@@ -14,12 +14,12 @@ success_end = handler.find("if (r?.success && r.data?.tos_link_url)", success_st
 success = handler[success_start:success_end]
 
 checks = {
-    "verification starts through the canonical hosted-link request": "requestHostedLink(ctx.accountType)" in SOURCE,
+    "verification starts through the explicit Terms phase": "requestHostedLink(ctx.accountType, tosAccepted ? 'kyb' : 'terms')" in SOURCE,
     "unaccepted Terms open in the embedded ToS view": "openHostedVerificationUrl(r.data.tos_link_url" in SOURCE,
     "ToS embed cannot be dismissed as verification completion": "returnEnabled: false" in SOURCE,
     "Continue handler exists": handler_start >= 0 and handler_end > handler_start,
     "blank popup handoff is forbidden": "window.open('about:blank'" not in handler,
-    "Continue requests a fresh provider state after Terms acceptance": "requestHostedLink(ctx.accountType)" in handler,
+    "Continue requests a fresh KYB state after Terms acceptance": "requestHostedLink(ctx.accountType, 'kyb')" in handler,
     "accepted Terms produce an identity-verification link": "r.data?.link_url" in handler,
     "KYB link uses the external handoff": "openTopLevelHostedFallback(r.data.link_url)" in success,
     "identity verification is never loaded in the embedded iframe": "openHostedVerificationUrl(r.data.link_url" not in SOURCE,

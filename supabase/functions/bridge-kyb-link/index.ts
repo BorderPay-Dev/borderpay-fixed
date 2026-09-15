@@ -245,11 +245,12 @@ Deno.serve(async (req: Request) => {
     }, 409);
   }
 
-  let body: { redirect_url?: string; endorsements?: string[] } = {};
+  let body: { redirect_url?: string; endorsements?: string[]; phase?: "terms" | "kyb" } = {};
   try {
     body = await req.json();
   } catch { /* tolerant */ }
   const redirectUrl = verificationRedirectUrl(APP_URL, body.redirect_url);
+  const phase = body.phase === "terms" || body.phase === "kyb" ? body.phase : null;
 
   const { data: profile } = await supa
     .from("user_profiles")
@@ -343,6 +344,11 @@ Deno.serve(async (req: Request) => {
     const customerResult = await bridgeGet(
       `/v0/customers/${encodedCustomerId}`,
     );
+    const customer = customerResult.data?.data ?? customerResult.data;
+    const termsAccepted = customer?.has_accepted_terms_of_service === true;
+    if (customerResult.ok && phase === "terms" && termsAccepted) {
+      return json({ success: true, data: { tos_accepted: true, tos_required: false } });
+    }
     if (customerResult.ok && requiresTermsFirst) {
       // Return both hosted URLs for retryable existing businesses. Released
       // clients intentionally choose ToS first on the verification screen and
@@ -351,32 +357,33 @@ Deno.serve(async (req: Request) => {
       // mobile build or mutable server-side handoff state.
       const params = new URLSearchParams();
       params.set("redirect_uri", redirectUrl);
-      const tosResult = await bridgeGet(
+      const tosResult = phase === "kyb" && termsAccepted ? null : await bridgeGet(
         `/v0/customers/${encodedCustomerId}/tos_acceptance_link`,
       );
-      const kycResult = await bridgeGet(
+      const kycResult = phase === "terms" || !termsAccepted ? null : await bridgeGet(
         `/v0/customers/${encodedCustomerId}/kyc_link?${params.toString()}`,
       );
-      const tosPayload = tosResult.data?.data ?? tosResult.data;
+      const effectiveTosResult = tosResult || customerResult;
+      const tosPayload = effectiveTosResult.data?.data ?? effectiveTosResult.data;
       const tosUrl = typeof tosPayload?.url === "string"
         ? tosPayload.url
-        : extractLink(tosResult.data)?.tos_link_url ||
+        : extractLink(effectiveTosResult.data)?.tos_link_url ||
           extractLink(customerResult.data)?.tos_link_url || null;
-      if (!tosUrl) {
+      if (!tosUrl && !kycResult) {
         console.error(
-          `bridge-kyb-link: mandatory ToS URL missing user=${user.id} customer=${existingCustomerId} status=${tosResult.status}`,
+          `bridge-kyb-link: mandatory ToS URL missing user=${user.id} customer=${existingCustomerId} status=${effectiveTosResult.status}`,
         );
         return json({
           success: false,
           code: "terms_link_unavailable",
           error: "Could not open Terms of Service. Please try again.",
-          bridge_request_id: tosResult.request_id,
+          bridge_request_id: effectiveTosResult.request_id,
         }, 502);
       }
-      link = extractLink(kycResult.data);
+      link = kycResult ? extractLink(kycResult.data) : null;
       if (link) {
         link.customer_id ||= existingCustomerId;
-        link.tos_link_url = tosUrl || link.tos_link_url;
+        link.tos_link_url = tosUrl || null;
       } else if (tosUrl) {
         link = {
           link_url: null,
@@ -385,8 +392,8 @@ Deno.serve(async (req: Request) => {
           tos_link_url: tosUrl,
         };
       }
-      r = kycResult.ok ? kycResult : tosResult;
-      resolvedTosStatus = "pending";
+      r = kycResult?.ok ? kycResult : effectiveTosResult;
+      resolvedTosStatus = kycResult?.ok ? "approved" : "pending";
     } else {
       r = customerResult;
     }
@@ -531,7 +538,7 @@ Deno.serve(async (req: Request) => {
       link_id: link.link_id,
       // The provider-hosted identity form must open top-level. Do not wrap it
       // in a Supabase or BorderPay HTML launcher.
-      link_url: clientLinkUrl,
+      link_url: phase === "terms" ? null : clientLinkUrl,
       // Always lead an unverified business through the Terms page when the
       // hosted flow supplies it. The Continue CTA then opens KYB top-level.
       // Omit an already-accepted ToS URL so older native bundles proceed to
