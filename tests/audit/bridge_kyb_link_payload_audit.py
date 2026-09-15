@@ -23,9 +23,9 @@ def main() -> int:
     provider_end = PROVIDER.find("// ── Virtual accounts", provider_start)
     provider_body = PROVIDER[provider_start:provider_end] if provider_start >= 0 and provider_end > provider_start else ""
     checks = {
-        "business type is explicit": 'type:         "business"' in body,
-        "verified profile email is sent": "email:        profile.email" in body,
-        "legal entity name uses hosted-link full_name": "full_name:    biz.company_name" in body,
+        "business type is explicit": re.search(r'type:\s*"business"', body) is not None,
+        "verified profile email is sent": re.search(r"email:\s*profile\.email", body) is not None,
+        "legal entity name uses hosted-link full_name": re.search(r"full_name:\s*biz\.company_name", body) is not None,
         "obsolete business_legal_name is absent": "business_legal_name" not in body,
         "shared KYC-link provider uses full_name": "body.full_name = input.company_name" in provider_body,
         "shared KYC-link provider omits obsolete field": "body.business_legal_name" not in provider_body,

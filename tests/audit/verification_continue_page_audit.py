@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PAGE = (ROOT / "components/verification/VerificationContinuePage.tsx").read_text()
 EDGE = (ROOT / "supabase/functions/verification-launch/index.ts").read_text()
+KYB = (ROOT / "supabase/functions/bridge-kyb-link/index.ts").read_text()
 APP = (ROOT / "App.tsx").read_text()
 VERCEL = (ROOT / "vercel.json").read_text()
 
@@ -24,6 +25,7 @@ checks = {
     "edge validates Persona host": 'host !== "bridge.withpersona.com"' in EDGE,
     "edge response cannot be cached": '"Cache-Control": "no-store, max-age=0"' in EDGE,
     "Vercel serves the SPA for continue route": '"source": "/verification/continue"' not in VERCEL,
+    "business KYB bypasses the legacy launcher": "verification_launch_tokens" not in KYB and "verifiedHostedLink(link.link_url)" in KYB,
 }
 
 failed = [name for name, ok in checks.items() if not ok]
