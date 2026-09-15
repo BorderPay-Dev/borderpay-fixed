@@ -4,6 +4,8 @@ on:
     paths:
       - 'supabase/migrations/20260915170000_payment_sca_evidence_contract.sql'
       - 'tests/sql/payment_sca_*.sql'
+      - 'tests/sql/usdt_read_*.sql'
+      - 'supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql'
       - '.github/workflows/payment-sca-db.yml'
   workflow_dispatch:
 permissions:
@@ -38,3 +40,9 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915170000_payment_sca_evidence_contract.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915170000_payment_sca_evidence_contract.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/payment_sca_contract.sql
+      - name: Test non-EEA USDT reads and unchanged write restrictions
+        run: |
+          psql -v ON_ERROR_STOP=1 -f tests/sql/usdt_read_fixture.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/usdt_read_contract.sql
