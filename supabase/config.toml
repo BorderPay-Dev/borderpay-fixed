@@ -216,6 +216,12 @@ verify_jwt = false
 [functions.partner-application-admin]
 verify_jwt = true
 
+# Staff creation is authenticated and role-gated in-function. JWT verification
+# remains disabled at the platform layer solely to preserve a locked first-admin
+# bootstrap path when the admin_users table is empty.
+[functions.admin-signup]
+verify_jwt = false
+
 # Authenticated BorderPay identity handoff to the affiliate portal. The worker
 # also enforces verified identity, account state, and single-use token storage.
 [functions.affiliate-sso-link]
