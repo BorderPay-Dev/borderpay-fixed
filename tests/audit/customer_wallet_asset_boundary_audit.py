@@ -35,7 +35,7 @@ checks = {
     "provider create payload is chain-only": "const body = { chain: input.chain.toLowerCase() };" in provider and "currency: input.symbol.toLowerCase()" not in provider,
     "database owner reads hide Tron/USDT": "lower(coalesce(chain, '')) = 'base'" in migration and "in ('USDC', 'EURC')" in migration,
     "authoritative EEA set contains exactly 30 states": "The 30 EEA states" in scope and "BRIDGE_EEA_SCA_COUNTRIES" in scope,
-    "external-wallet rejects EEA USDT": "asset === \"USDT\" && !allowUsdtTron" in external_fn,
+    "external-wallet resolves scope only for USDT": "if (asset === \"USDT\")" in external_fn and "if (hasUsdt)" in external_fn and "wallet_asset_not_available" in external_fn,
     "transfer rejects EEA USDT before provider movement": "requestsUsdt" in transfer_fn and "wallet_asset_not_available" in transfer_fn,
     "VA destination contract has no USDT rail": 'export type VaCurrency = "USD" | "EUR" | "GBP"' in va_config and "USDT" not in va_config,
 }
