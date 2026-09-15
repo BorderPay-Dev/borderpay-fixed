@@ -31,7 +31,7 @@ jobs:
 
       - name: Test payout SCA, EURC and native verification behavior
         run: >-
-          deno test --allow-env
+          deno test --node-modules-dir=auto --allow-env
           tests/sca-payment-runtime.test.ts
           tests/sca-authorization-http.test.ts
           tests/bridge-eea-sca-scope.test.ts
