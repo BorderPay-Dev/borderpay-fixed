@@ -43,7 +43,8 @@ def main() -> int:
                    "supabase/functions/get-user-profile/index.ts must exist"))
 
     checks.append(("P2 payload returns bridge_account_status compatibility projection",
-                   "bridge_account_status: accountAccessRestricted ?" in src
+                   "bridge_account_status: clientBridgeAccountStatus" in src
+                   and "const clientBridgeAccountStatus = accountAccessRestricted" in src
                    and "profile?.bridge_account_status || null" in src,
                    "return object must include the provider-backed account status compatibility projection"))
 
@@ -61,9 +62,9 @@ def main() -> int:
                    "must fetch business_profiles.bridge_kyb_status for business accounts and return it"))
 
     checks.append(("P3b released clients receive actionable UBO compatibility state",
-                   'const clientBusinessKybStatus = ownershipDetailsRequired ? "incomplete" : bridgeKybStatus' in src
+                   'const clientBusinessKybStatus = operatorReviewRequired ? "under_review" : bridgeKybStatus' in src
                    and "bridge_kyb_status:   clientBusinessKybStatus" in src,
-                   "needs_ubos must project to incomplete for released clients so Continue Verification stays enabled"))
+                   "incomplete/needs_ubos must project to under_review so released native clients close the broken resume path"))
 
     checks.append(("P3c raw business KYB status remains available",
                    "bridge_provider_kyb_status: bridgeKybStatus" in src,

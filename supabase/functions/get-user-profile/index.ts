@@ -91,11 +91,22 @@ Deno.serve(async (req) => {
       ["awaiting_ubo", "needs_ubos"].includes(providerAccountStatus)
       || ["awaiting_ubo", "needs_ubos"].includes(normalizedBusinessKybStatus)
     );
-    // Released clients predate the needs_ubos enum. Give those clients the
-    // actionable state they already understand instead of letting a stale
-    // under_review value lock the Continue Verification action. New clients
-    // derive the exact label from bridge_account_status/provider status.
-    const clientBusinessKybStatus = ownershipDetailsRequired ? "incomplete" : bridgeKybStatus;
+    const operatorReviewRequired = accountType === "business" && (
+      ownershipDetailsRequired
+      || providerAccountStatus === "incomplete"
+      || normalizedBusinessKybStatus === "incomplete"
+    );
+    // Native hosted verification links cannot be resumed reliably after an
+    // incomplete exit. Preserve the provider truth in the dedicated raw fields,
+    // while released clients receive a closed, non-actionable review state.
+    // Operations follows up with the secure next step instead of asking the
+    // customer to repeatedly reopen a provider session.
+    const clientBusinessKybStatus = operatorReviewRequired ? "under_review" : bridgeKybStatus;
+    const clientBridgeAccountStatus = accountAccessRestricted
+      ? "paused"
+      : operatorReviewRequired
+        ? "under_review"
+        : (profile?.bridge_account_status || null);
 
     return new Response(JSON.stringify({
       success: true,
@@ -117,7 +128,7 @@ Deno.serve(async (req) => {
           // Older released clients only recognize `paused` as the shell-level
           // access hold. Preserve the raw provider state separately while
           // projecting every terminal/frozen state into that compatibility flag.
-          bridge_account_status: accountAccessRestricted ? "paused" : (profile?.bridge_account_status || null),
+          bridge_account_status: clientBridgeAccountStatus,
           bridge_provider_account_status: profile?.bridge_account_status || null,
           bridge_account_paused_at: profile?.bridge_account_paused_at || null,
           account_status: profile?.account_status || null,

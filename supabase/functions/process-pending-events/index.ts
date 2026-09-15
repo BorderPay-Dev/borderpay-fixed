@@ -153,6 +153,40 @@ async function emailKycDecisionBestEffort(
   }
 }
 
+/** One-time customer notice for a business that requires operator-led UBO follow-up. */
+async function emailOwnershipReviewBestEffort(userId: string): Promise<void> {
+  try {
+    if (!SEND_EMAIL_TOKEN) return;
+    const rcpt = await resolveEmailRecipient(userId);
+    if (!rcpt) return;
+    const { data: biz } = await supabase
+      .from("business_profiles")
+      .select("company_name")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SEND_EMAIL_TOKEN}`,
+      },
+      body: JSON.stringify({
+        template: "business.ownership_review",
+        to: rcpt.email,
+        user_id: userId,
+        idempotency_key: `wh:kyb:${userId}:ownership-review`,
+        props: { full_name: rcpt.full_name, company_name: biz?.company_name ?? null },
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.log(`webhook-email ownership-review send failed: HTTP ${res.status} ${text.slice(0, 200)}`);
+    }
+  } catch (error) {
+    console.log(`webhook-email ownership-review best-effort error: ${(error as Error).message}`);
+  }
+}
+
 function currentMonthEndDate(): string {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
@@ -1001,6 +1035,9 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
       );
     }
   }
+  if (normalized === "needs_ubos" && (isKyb || account_type === "business")) {
+    await emailOwnershipReviewBestEffort(resolved);
+  }
 
   await supabase.rpc("complete_pending_event", {
     p_event_id: ev.event_id,
@@ -1090,6 +1127,13 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
             await emailAccountMaintenanceFeeBestEffort(owner.resolved, "individual");
           }
         }
+      } catch { /* best-effort: never fail the webhook on email */ }
+    }
+
+    if (["awaiting_ubo", "needs_ubos"].includes(accountStatus)) {
+      try {
+        const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+        if (owner.account_type === "business") await emailOwnershipReviewBestEffort(owner.resolved);
       } catch { /* best-effort: never fail the webhook on email */ }
     }
 
