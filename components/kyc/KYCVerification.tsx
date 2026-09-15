@@ -217,16 +217,11 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
 
   const openTopLevelHostedFallback = useCallback((url: string | null) => {
     if (!url) return;
-    // Identity verification explicitly forbids iframe/WebView embedding. Keep
-    // Terms inside BorderPay, then hand the verification URL to a separate
-    // browsing context so iOS/Android do not strand the user on a white page.
-    const externalWindow = window.open(url, '_blank');
-    if (externalWindow) {
-      externalWindow.opener = null;
-      return;
-    }
-    // Desktop browsers can block new tabs. Falling back in the browser is
-    // preferable there; native clients normally take the branch above.
+    // Do not create a popup/blank tab after the asynchronous link request.
+    // Mobile WebViews and popup blockers can return a Window object while
+    // refusing its navigation, leaving the customer on an empty white page.
+    // A top-level provider navigation is not an embed and works for web and
+    // Capacitor's external-navigation handling.
     window.location.assign(url);
   }, []);
 

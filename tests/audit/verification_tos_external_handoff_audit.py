@@ -23,8 +23,8 @@ checks = {
     "accepted Terms produce an identity-verification link": "r.data?.link_url" in handler,
     "KYB link uses the external handoff": "openTopLevelHostedFallback(r.data.link_url)" in success,
     "identity verification is never loaded in the embedded iframe": "openHostedVerificationUrl(r.data.link_url" not in SOURCE,
-    "provider verification opens outside the application WebView": "window.open(url, '_blank')" in SOURCE,
-    "provider verification never replaces the application WebView directly": "window.location.href = url" not in SOURCE,
+    "provider verification uses direct top-level navigation": "window.location.assign(url)" in SOURCE,
+    "provider verification cannot strand a blank popup": "window.open(url, '_blank')" not in SOURCE and "window.open('about:blank'" not in SOURCE,
 }
 
 failed = [name for name, passed in checks.items() if not passed]
