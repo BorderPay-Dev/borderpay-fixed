@@ -253,7 +253,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("id, email, account_type, country, bridge_customer_id")
+    .select("id, email, account_type, country, bridge_customer_id, bridge_account_status")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile) {
@@ -305,6 +305,14 @@ Deno.serve(async (req: Request) => {
   }
   const existingCustomerId = biz.bridge_customer_id ||
     profile.bridge_customer_id;
+  const providerAccountStatus = String(profile.bridge_account_status || "")
+    .trim().toLowerCase();
+  const providerKybStatus = String(biz.bridge_kyb_status || "").trim()
+    .toLowerCase();
+  const restartableBusinessVerification = [
+    providerAccountStatus,
+    providerKybStatus,
+  ].some((status) => ["incomplete", "awaiting_ubo", "needs_ubos"].includes(status));
 
   // Bridge has separate contracts for new and existing customers:
   //   - POST /kyc_links creates a new customer/link and does NOT accept customer_id.
@@ -325,7 +333,39 @@ Deno.serve(async (req: Request) => {
     );
     const customer = customerResult.data?.data ?? customerResult.data;
 
-    if (customerResult.ok && customer?.has_accepted_terms_of_service !== true) {
+    if (customerResult.ok && restartableBusinessVerification) {
+      // Return both hosted URLs for retryable existing businesses. Released
+      // clients intentionally choose ToS first on the verification screen and
+      // choose the external KYB URL from the Continue CTA inside that screen.
+      // This keeps Persona out of the native WebView without requiring a new
+      // mobile build or mutable server-side handoff state.
+      const params = new URLSearchParams();
+      params.set("redirect_uri", redirectUrl);
+      const tosResult = await bridgeGet(
+        `/v0/customers/${encodedCustomerId}/tos_acceptance_link`,
+      );
+      const kycResult = await bridgeGet(
+        `/v0/customers/${encodedCustomerId}/kyc_link?${params.toString()}`,
+      );
+      const tosPayload = tosResult.data?.data ?? tosResult.data;
+      const tosUrl = typeof tosPayload?.url === "string"
+        ? tosPayload.url
+        : extractLink(tosResult.data)?.tos_link_url || null;
+      link = extractLink(kycResult.data);
+      if (link) {
+        link.customer_id ||= existingCustomerId;
+        link.tos_link_url = tosUrl || link.tos_link_url;
+      } else if (tosUrl) {
+        link = {
+          link_url: null,
+          link_id: null,
+          customer_id: existingCustomerId,
+          tos_link_url: tosUrl,
+        };
+      }
+      r = kycResult.ok ? kycResult : tosResult;
+      resolvedTosStatus = "pending";
+    } else if (customerResult.ok && customer?.has_accepted_terms_of_service !== true) {
       r = await bridgeGet(
         `/v0/customers/${encodedCustomerId}/tos_acceptance_link`,
       );

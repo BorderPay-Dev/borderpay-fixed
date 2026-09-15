@@ -61,10 +61,10 @@ def main() -> int:
                    p3,
                    "must fetch business_profiles.bridge_kyb_status for business accounts and return it"))
 
-    checks.append(("P3b released clients receive actionable UBO compatibility state",
-                   'const clientBusinessKybStatus = operatorReviewRequired ? "under_review" : bridgeKybStatus' in src
+    checks.append(("P3b released clients receive restartable UBO compatibility state",
+                   'const clientBusinessKybStatus = restartableBusinessVerification ? "not_started" : bridgeKybStatus' in src
                    and "bridge_kyb_status:   clientBusinessKybStatus" in src,
-                   "incomplete/needs_ubos must project to under_review so released native clients close the broken resume path"))
+                   "incomplete/needs_ubos must project to not_started so released native clients restart through ToS"))
 
     checks.append(("P3c raw business KYB status remains available",
                    "bridge_provider_kyb_status: bridgeKybStatus" in src,

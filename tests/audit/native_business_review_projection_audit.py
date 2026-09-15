@@ -7,20 +7,20 @@ worker = (root / "supabase/functions/process-pending-events/index.ts").read_text
 registry = (root / "supabase/functions/_shared/email-templates/index.ts").read_text()
 
 checks = {
-    "profile API projects incomplete business KYB into review":
+    "profile API projects incomplete business KYB into restart":
         'normalizedBusinessKybStatus === "incomplete"' in profile
-        and 'clientBusinessKybStatus = operatorReviewRequired ? "under_review"' in profile,
-    "account-level UBO state cannot reopen the native CTA":
+        and 'clientBusinessKybStatus = restartableBusinessVerification ? "not_started"' in profile,
+    "account-level UBO state restarts the native ToS path":
         'clientBridgeAccountStatus' in profile
-        and ': operatorReviewRequired\n        ? "under_review"' in profile,
+        and ': restartableBusinessVerification\n        ? "not_started"' in profile,
     "raw provider KYB and account states remain available":
         "bridge_provider_kyb_status: bridgeKybStatus" in profile
         and "bridge_provider_account_status: profile?.bridge_account_status" in profile,
     "status API uses the same business-only projection":
-        "const operatorReviewRequired = isBusiness" in status
-        and "if (operatorReviewRequired) status = 'under_review'" in status,
+        "const restartableBusinessVerification = isBusiness" in status
+        and "if (restartableBusinessVerification) status = 'draft'" in status,
     "individual verification logic remains outside the projection":
-        "const operatorReviewRequired = isBusiness" in status,
+        "const restartableBusinessVerification = isBusiness" in status,
     "UBO follow-up email is idempotent":
         'idempotency_key: `wh:kyb:${userId}:ownership-review`' in worker,
     "both KYB-link and customer-status events can trigger the notice":

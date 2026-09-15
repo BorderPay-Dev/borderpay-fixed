@@ -91,21 +91,20 @@ Deno.serve(async (req) => {
       ["awaiting_ubo", "needs_ubos"].includes(providerAccountStatus)
       || ["awaiting_ubo", "needs_ubos"].includes(normalizedBusinessKybStatus)
     );
-    const operatorReviewRequired = accountType === "business" && (
+    const restartableBusinessVerification = accountType === "business" && (
       ownershipDetailsRequired
       || providerAccountStatus === "incomplete"
       || normalizedBusinessKybStatus === "incomplete"
     );
-    // Native hosted verification links cannot be resumed reliably after an
-    // incomplete exit. Preserve the provider truth in the dedicated raw fields,
-    // while released clients receive a closed, non-actionable review state.
-    // Operations follows up with the secure next step instead of asking the
-    // customer to repeatedly reopen a provider session.
-    const clientBusinessKybStatus = operatorReviewRequired ? "under_review" : bridgeKybStatus;
+    // Existing native clients reliably restart from their ToS screen, but can
+    // fail when an incomplete/ownership-required Persona URL is opened directly.
+    // Preserve provider truth in the dedicated raw fields while presenting the
+    // retryable flow as not_started until Bridge reaches a terminal/review state.
+    const clientBusinessKybStatus = restartableBusinessVerification ? "not_started" : bridgeKybStatus;
     const clientBridgeAccountStatus = accountAccessRestricted
       ? "paused"
-      : operatorReviewRequired
-        ? "under_review"
+      : restartableBusinessVerification
+        ? "not_started"
         : (profile?.bridge_account_status || null);
 
     return new Response(JSON.stringify({
