@@ -27,6 +27,34 @@ const normalizeEmail = (value: unknown) => clean(value, 254).toLowerCase();
 const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const ilikeLiteral = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 const FLUTTERWAVE_SECRET_KEY = Deno.env.get("FLUTTERWAVE_SECRET_KEY") || "";
+const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") || "";
+
+const isExistingUserError = (error: unknown) => {
+  const message = String((error as { message?: unknown })?.message || error || "").toLowerCase();
+  return message.includes("already been registered") || message.includes("already registered") || message.includes("already exists");
+};
+
+async function createPartnerAccessLink(db: any, email: string) {
+  const passwordSetupRedirect = "https://portal.borderpayafrica.com/auth/callback?setup=password";
+  const existingAccountRedirect = "https://portal.borderpayafrica.com/auth/callback";
+  const invited = await db.auth.admin.generateLink({
+    type: "invite",
+    email,
+    options: { redirectTo: passwordSetupRedirect },
+  });
+  if (!invited.error && invited.data?.properties?.action_link) {
+    return { actionLink: invited.data.properties.action_link as string, userId: invited.data.user?.id || null, existingAccount: false };
+  }
+  if (!isExistingUserError(invited.error)) throw invited.error || new Error("Invite link generation failed");
+
+  const existing = await db.auth.admin.generateLink({
+    type: "magiclink",
+    email,
+    options: { redirectTo: existingAccountRedirect },
+  });
+  if (existing.error || !existing.data?.properties?.action_link) throw existing.error || new Error("Existing-user access link generation failed");
+  return { actionLink: existing.data.properties.action_link as string, userId: existing.data.user?.id || null, existingAccount: true };
+}
 
 const sha256 = async (value: string) => Array.from(new Uint8Array(
   await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
@@ -79,6 +107,28 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
   const action = clean(body?.action, 60);
+  const deliverPartnerAccessInvite = async (email: string, requestId: number) => {
+    if (!SEND_EMAIL_TOKEN) throw new Error("Partner invitation email is not configured");
+    const access = await createPartnerAccessLink(db, email);
+    const sendResponse = await fetch(`${url}/functions/v1/send-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SEND_EMAIL_TOKEN}` },
+      body: JSON.stringify({
+        template: "partner.access_invite",
+        to: email,
+        user_id: access.userId,
+        idempotency_key: `partner-access-invite:${requestId}:${crypto.randomUUID()}`,
+        props: { existing_account: access.existingAccount },
+        sensitive_props: { invite_url: access.actionLink },
+      }),
+    });
+    const sendResult = await sendResponse.json().catch(() => ({}));
+    const deliveryStatus = clean(sendResult?.data?.status, 40).toLowerCase();
+    if (!sendResponse.ok || sendResult?.success !== true || deliveryStatus !== "sent") {
+      throw new Error(clean(sendResult?.error, 300) || `Partner invitation delivery failed (${sendResponse.status})`);
+    }
+    return { access, sendResult };
+  };
   const sendPartnerInvoiceEmail = async (invoice: any, recipient: string, partnerName: string, idempotencyKey: string) => {
     const internalToken = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") || "";
     if (!internalToken) return { sent: false, error: "Email dispatcher is not configured" };
@@ -146,10 +196,11 @@ Deno.serve(async (req) => {
         requestId = Number(created.id);
       }
 
-      const redirectTo = "https://portal.borderpayafrica.com/auth/callback?setup=password";
-      const { error: sendError } = await db.auth.admin.inviteUserByEmail(email, { redirectTo });
-      if (sendError) {
-        console.error("partner_direct_invite_delivery_failed", { request_id: requestId, email, message: sendError.message });
+      let delivery;
+      try {
+        delivery = await deliverPartnerAccessInvite(email, requestId);
+      } catch (sendError) {
+        console.error("partner_direct_invite_delivery_failed", { request_id: requestId, email, message: String((sendError as Error)?.message || sendError) });
         return json(req, { success: false, error: "Invitation delivery failed. The request remains pending and can be retried." }, 502);
       }
 
@@ -160,7 +211,12 @@ Deno.serve(async (req) => {
         .select("id,email,status,requested_at,approved_at,invited_at,accepted_at").single();
       if (updateError) throw updateError;
       console.info("partner_direct_invite_sent", { request_id: requestId, email, operator_id: authData.user.id });
-      return json(req, { success: true, invitation });
+      return json(req, {
+        success: true,
+        invitation,
+        existing_account: delivery.access.existingAccount,
+        delivery_provider: delivery.sendResult?.data?.provider || null,
+      });
     }
 
     if (action === "approve_invite") {
@@ -171,13 +227,22 @@ Deno.serve(async (req) => {
         .select("id,email,status").eq("id", requestId).single();
       if (inviteError || !invite) return json(req, { success: false, error: "Invite request not found" }, 404);
       if (invite.status !== "pending") return json(req, { success: false, error: "Invite request is no longer pending" }, 409);
-      const redirectTo = "https://portal.borderpayafrica.com/auth/callback?setup=password";
-      const { error: sendError } = await db.auth.admin.inviteUserByEmail(invite.email, { redirectTo });
-      if (sendError) throw sendError;
+      let delivery;
+      try {
+        delivery = await deliverPartnerAccessInvite(invite.email, requestId);
+      } catch (sendError) {
+        console.error("partner_invite_delivery_failed", { request_id: requestId, email: invite.email, message: String((sendError as Error)?.message || sendError) });
+        return json(req, { success: false, error: "Invitation delivery failed. The request remains pending and can be retried." }, 502);
+      }
       const now = new Date().toISOString();
       const { error } = await db.from("partner_access_invite_requests").update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now }).eq("id", requestId).eq("status", "pending");
       if (error) throw error;
-      return json(req, { success: true, status: "invited" });
+      return json(req, {
+        success: true,
+        status: "invited",
+        existing_account: delivery.access.existingAccount,
+        delivery_provider: delivery.sendResult?.data?.provider || null,
+      });
     }
 
     if (action === "reject_invite") {

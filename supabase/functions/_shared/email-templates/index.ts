@@ -59,6 +59,7 @@ import { render as businessOnboardingLifecycle } from "./business/onboarding-lif
 import { render as businessPartnerInvoice } from "./business/partner-invoice.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 import { render as adminSupportHandoff }                from "./admin/support-handoff.ts";
+import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
 
 export type TemplateName =
   | "individual.email_verification"
@@ -107,7 +108,8 @@ export type TemplateName =
   | "business.onboarding_lifecycle"
   | "business.partner_invoice"
   | "admin.incident_alert"
-  | "admin.support_handoff";
+  | "admin.support_handoff"
+  | "partner.access_invite";
 
 type Renderer = (props: any) => RenderedEmail;
 
@@ -159,6 +161,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.partner_invoice":          businessPartnerInvoice,
   "admin.incident_alert":                adminIncidentAlert,
   "admin.support_handoff":               adminSupportHandoff,
+  "partner.access_invite":               partnerAccessInvite,
 };
 
 export function renderTemplate(name: TemplateName, props: any): RenderedEmail {
