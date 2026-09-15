@@ -10,7 +10,7 @@ status_api = (ROOT / "supabase/functions/kyc-status/index.ts").read_text()
 backfill = (ROOT / "supabase/migrations/20260914151000_sync_actionable_business_verification_status.sql").read_text()
 
 checks = {
-    "existing customer ToS truth comes from Bridge customer": "/v0/customers/${encodedCustomerId}`" in kyb and "has_accepted_terms_of_service" in kyb,
+    "existing customer context comes from Bridge customer": "/v0/customers/${encodedCustomerId}`" in kyb and "customerResult" in kyb,
     "unaccepted existing customer receives documented ToS URL": "/v0/customers/${encodedCustomerId}/tos_acceptance_link" in kyb,
     "stored KYC fallback cannot overwrite a valid ToS URL": "(!link?.link_url && !link?.tos_link_url)" in kyb,
     "accepted existing customer resumes through documented KYC GET": "/v0/customers/${encodedCustomerId}/kyc_link" in kyb,

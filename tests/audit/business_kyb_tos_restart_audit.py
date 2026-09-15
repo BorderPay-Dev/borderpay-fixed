@@ -15,6 +15,8 @@ checks = {
     "existing retry fetches ToS": "/tos_acceptance_link`" in kyb,
     "existing retry fetches current KYB": "/kyc_link?${params.toString()}`" in kyb,
     "retry response carries both URLs": "link.tos_link_url = tosUrl || link.tos_link_url" in kyb,
+    "all nonterminal existing businesses require ToS first": "requiresTermsFirst" in kyb and "mandatory ToS URL missing" in kyb,
+    "paused rejected offboarded cannot restart": "terminalBusinessVerification" in kyb and "verification_not_restartable" in kyb,
     "verification screen prioritizes ToS": screen.find("if (r?.success && r.data?.tos_link_url)") < screen.find("if (r?.success && r.data?.link_url)"),
     "ToS CTA prioritizes external KYB": screen.find("const continueFromEmbeddedTos") < screen.find("if (r?.success && r.data?.link_url)", screen.find("const continueFromEmbeddedTos")) < screen.find("if (r?.success && r.data?.tos_link_url)", screen.find("const continueFromEmbeddedTos")),
     "approved remains terminal": "already_approved: true" in kyb,

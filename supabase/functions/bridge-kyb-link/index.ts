@@ -313,6 +313,18 @@ Deno.serve(async (req: Request) => {
     providerAccountStatus,
     providerKybStatus,
   ].some((status) => ["incomplete", "awaiting_ubo", "needs_ubos"].includes(status));
+  const terminalBusinessVerification = [providerAccountStatus, providerKybStatus]
+    .some((status) => ["rejected", "paused", "offboarded"].includes(status));
+  const requiresTermsFirst = restartableBusinessVerification ||
+    !terminalBusinessVerification;
+
+  if (terminalBusinessVerification) {
+    return json({
+      success: false,
+      code: "verification_not_restartable",
+      error: "Business verification cannot be restarted. Contact support.",
+    }, 409);
+  }
 
   // Bridge has separate contracts for new and existing customers:
   //   - POST /kyc_links creates a new customer/link and does NOT accept customer_id.
@@ -331,9 +343,7 @@ Deno.serve(async (req: Request) => {
     const customerResult = await bridgeGet(
       `/v0/customers/${encodedCustomerId}`,
     );
-    const customer = customerResult.data?.data ?? customerResult.data;
-
-    if (customerResult.ok && restartableBusinessVerification) {
+    if (customerResult.ok && requiresTermsFirst) {
       // Return both hosted URLs for retryable existing businesses. Released
       // clients intentionally choose ToS first on the verification screen and
       // choose the external KYB URL from the Continue CTA inside that screen.
@@ -350,7 +360,19 @@ Deno.serve(async (req: Request) => {
       const tosPayload = tosResult.data?.data ?? tosResult.data;
       const tosUrl = typeof tosPayload?.url === "string"
         ? tosPayload.url
-        : extractLink(tosResult.data)?.tos_link_url || null;
+        : extractLink(tosResult.data)?.tos_link_url ||
+          extractLink(customerResult.data)?.tos_link_url || null;
+      if (!tosUrl) {
+        console.error(
+          `bridge-kyb-link: mandatory ToS URL missing user=${user.id} customer=${existingCustomerId} status=${tosResult.status}`,
+        );
+        return json({
+          success: false,
+          code: "terms_link_unavailable",
+          error: "Could not open Terms of Service. Please try again.",
+          bridge_request_id: tosResult.request_id,
+        }, 502);
+      }
       link = extractLink(kycResult.data);
       if (link) {
         link.customer_id ||= existingCustomerId;
@@ -365,35 +387,6 @@ Deno.serve(async (req: Request) => {
       }
       r = kycResult.ok ? kycResult : tosResult;
       resolvedTosStatus = "pending";
-    } else if (customerResult.ok && customer?.has_accepted_terms_of_service !== true) {
-      r = await bridgeGet(
-        `/v0/customers/${encodedCustomerId}/tos_acceptance_link`,
-      );
-      const tosPayload = r.data?.data ?? r.data;
-      const tosUrl = typeof tosPayload?.url === "string"
-        ? tosPayload.url
-        : null;
-      link = tosUrl
-        ? {
-          link_url: null,
-          link_id: null,
-          customer_id: existingCustomerId,
-          tos_link_url: tosUrl,
-        }
-        : null;
-      resolvedTosStatus = "pending";
-    } else if (customerResult.ok) {
-      const params = new URLSearchParams();
-      params.set(
-        "redirect_uri",
-        redirectUrl,
-      );
-      r = await bridgeGet(
-        `/v0/customers/${encodedCustomerId}/kyc_link?${params.toString()}`,
-      );
-      link = extractLink(r.data);
-      if (link) link.customer_id ||= existingCustomerId;
-      resolvedTosStatus = "approved";
     } else {
       r = customerResult;
     }
