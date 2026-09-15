@@ -113,17 +113,16 @@ export async function resolveBridgeScaScope(supabase: SupaLike, userId: string):
   if (!customerId) return { required: false, status: "unknown", reason: "no_bridge_customer", country: null, verified, has_custodial_wallet: null };
 
   try {
-    const customer = await bridgeProvider.getCustomerProfile(customerId);
-    const country = bridgeCustomerScaCountry(customer, identity.context.account_type);
-    // Bridge customer responses have used more than one envelope/field shape.
-    // The local business country is collected as the incorporation country at
-    // signup, so it is the only permitted fallback for a business. Never use
-    // an operating address to decide SCA scope.
-    const resolvedCountry = country ?? (
-      identity.context.account_type === "business"
-        ? normalizeBridgeScaCountry(identity.context.country)
-        : null
-    );
+    // For businesses, `business_profiles.country` is the mandatory country of
+    // incorporation collected at signup. It is the scope source of truth; an
+    // operating address and a changing provider response shape must never
+    // change the business's EEA classification.
+    const resolvedCountry = identity.context.account_type === "business"
+      ? normalizeBridgeScaCountry(identity.context.country)
+      : bridgeCustomerScaCountry(
+          await bridgeProvider.getCustomerProfile(customerId),
+          "individual",
+        );
     if (!resolvedCountry) {
       return {
         required: false,
