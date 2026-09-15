@@ -24,6 +24,11 @@ checks = {
         registry.count('"partner.access_invite"') >= 2,
     "legacy duplicate-user invite API is absent":
         "inviteUserByEmail" not in partner,
+    "partner invite failures expose a safe stage instead of a generic 500":
+        "Partner invitation failed while ${inviteStage}" in partner
+        and 'code: "partner_invite_runtime_error"' in partner,
+    "successful delivery update does not depend on stale pending state":
+        '.eq("id", requestId)\n        .select("id,email,status' in partner,
 }
 
 failed = [name for name, passed in checks.items() if not passed]

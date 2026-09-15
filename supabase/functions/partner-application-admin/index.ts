@@ -107,6 +107,7 @@ Deno.serve(async (req) => {
   let body: any;
   try { body = await req.json(); } catch { return json(req, { success: false, error: "Invalid JSON" }, 400); }
   const action = clean(body?.action, 60);
+  let inviteStage = "initializing invitation";
   const deliverPartnerAccessInvite = async (email: string, requestId: number) => {
     if (!SEND_EMAIL_TOKEN) throw new Error("Partner invitation email is not configured");
     const access = await createPartnerAccessLink(db, email);
@@ -168,11 +169,13 @@ Deno.serve(async (req) => {
       if (!validEmail(email)) return json(req, { success: false, error: "Enter a valid business email address" }, 400);
       const emailPattern = ilikeLiteral(email);
 
+      inviteStage = "checking existing partner access";
       const { data: organization, error: organizationError } = await db.from("partner_organizations")
         .select("id,status").ilike("primary_email", emailPattern).limit(1).maybeSingle();
       if (organizationError) throw organizationError;
       if (organization) return json(req, { success: false, error: "This email already belongs to a partner organization" }, 409);
 
+      inviteStage = "checking existing invitation";
       const { data: existing, error: existingError } = await db.from("partner_access_invite_requests")
         .select("id,email,status,requested_at,invited_at,accepted_at")
         .ilike("email", emailPattern).order("requested_at", { ascending: false }).limit(1).maybeSingle();
@@ -182,6 +185,7 @@ Deno.serve(async (req) => {
 
       let requestId = Number(existing?.id || 0);
       const requestedAt = new Date().toISOString();
+      inviteStage = requestId ? "resetting the pending invitation" : "creating the pending invitation";
       if (requestId) {
         const { error } = await db.from("partner_access_invite_requests").update({
           email, status: "pending", approved_by: null, approved_at: null,
@@ -196,6 +200,7 @@ Deno.serve(async (req) => {
         requestId = Number(created.id);
       }
 
+      inviteStage = "creating and delivering the secure access link";
       let delivery;
       try {
         delivery = await deliverPartnerAccessInvite(email, requestId);
@@ -205,11 +210,13 @@ Deno.serve(async (req) => {
       }
 
       const now = new Date().toISOString();
+      inviteStage = "recording successful delivery";
       const { data: invitation, error: updateError } = await db.from("partner_access_invite_requests")
         .update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now })
-        .eq("id", requestId).eq("status", "pending")
-        .select("id,email,status,requested_at,approved_at,invited_at,accepted_at").single();
+        .eq("id", requestId)
+        .select("id,email,status,requested_at,approved_at,invited_at,accepted_at").maybeSingle();
       if (updateError) throw updateError;
+      if (!invitation) throw new Error("Invitation row was not available after delivery");
       console.info("partner_direct_invite_sent", { request_id: requestId, email, operator_id: authData.user.id });
       return json(req, {
         success: true,
@@ -223,10 +230,12 @@ Deno.serve(async (req) => {
       if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
       const requestId = Number(body?.request_id);
       if (!Number.isInteger(requestId) || requestId <= 0) return json(req, { success: false, error: "request_id required" }, 400);
+      inviteStage = "loading the pending invitation";
       const { data: invite, error: inviteError } = await db.from("partner_access_invite_requests")
         .select("id,email,status").eq("id", requestId).single();
       if (inviteError || !invite) return json(req, { success: false, error: "Invite request not found" }, 404);
       if (invite.status !== "pending") return json(req, { success: false, error: "Invite request is no longer pending" }, 409);
+      inviteStage = "creating and delivering the secure access link";
       let delivery;
       try {
         delivery = await deliverPartnerAccessInvite(invite.email, requestId);
@@ -235,8 +244,14 @@ Deno.serve(async (req) => {
         return json(req, { success: false, error: "Invitation delivery failed. The request remains pending and can be retried." }, 502);
       }
       const now = new Date().toISOString();
-      const { error } = await db.from("partner_access_invite_requests").update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now }).eq("id", requestId).eq("status", "pending");
+      inviteStage = "recording successful delivery";
+      const { data: updated, error } = await db.from("partner_access_invite_requests")
+        .update({ status: "invited", approved_by: authData.user.id, approved_at: now, invited_at: now })
+        .eq("id", requestId)
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      if (!updated) throw new Error("Invitation row was not available after delivery");
       return json(req, {
         success: true,
         status: "invited",
@@ -709,7 +724,20 @@ Deno.serve(async (req) => {
     }
     return json(req, { success: false, error: "Unknown action" }, 400);
   } catch (error) {
-    console.error("partner-application-admin", error);
+    const diagnosticCode = clean((error as { code?: unknown })?.code, 40) || "runtime_error";
+    console.error("partner-application-admin", {
+      action,
+      invite_stage: action === "send_direct_invite" || action === "approve_invite" ? inviteStage : null,
+      code: diagnosticCode,
+      message: clean((error as { message?: unknown })?.message || error, 500),
+    });
+    if (action === "send_direct_invite" || action === "approve_invite") {
+      return json(req, {
+        success: false,
+        error: `Partner invitation failed while ${inviteStage}. Reference: ${diagnosticCode}`,
+        code: "partner_invite_runtime_error",
+      }, 500);
+    }
     return json(req, { success: false, error: "Partner administration request failed" }, 500);
   }
 });
