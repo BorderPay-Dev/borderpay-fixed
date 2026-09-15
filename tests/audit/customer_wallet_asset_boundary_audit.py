@@ -23,8 +23,9 @@ transfer_fn = read("supabase/functions/bridge-transfer/index.ts")
 va_config = read("supabase/functions/_shared/providers/virtual-account-config.ts")
 
 checks = {
-    "non-EEA wallet presentation excludes EURC": "options.allowUsdtTron ? ['USDC'] : ['USDC', 'EURC']" in presentation,
+    "non-EEA wallet presentation excludes EURC": "options.allowUsdtTron && !options.includeWithdrawalAssets ? ['USDC'] : ['USDC', 'EURC']" in presentation,
     "external selector displays USDT but disables it for EEA": "disabled={route.asset === 'USDT' && !allowUsdtTron}" in external,
+    "withdrawal funding retains hidden assets": "walletAPI.getWallets({ includeWithdrawalAssets: true })" in backend,
     "wallet reads include the three supported assets": backend.count(".in('currency', ['USDC', 'EURC', 'USDT'])") >= 3,
     "presentation keeps USDT separate from VA-linked Base": "USDT is a separate Tron wallet" in presentation and "allowUsdtTron" in presentation,
     "wallet cache restores Tron after regional scope resolves": "walletScopeResolved" in wallet and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron })" in wallet,

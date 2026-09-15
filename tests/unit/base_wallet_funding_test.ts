@@ -15,6 +15,9 @@ Deno.test('USDC-labelled Base resource exposes EURC funding with its VA-linked p
     assert(funding.some(w => w.currency === 'USDT') === allowUsdtTron, 'USDT region boundary must remain');
     assert(!funding.some(w => w.bridge_wallet_id === 'duplicate'), 'duplicate resource must not become funding source');
   }
+  const withdrawalFunding = selectVaLinkedStablecoinWallets(rows, vas, { allowUsdtTron: true, includeWithdrawalAssets: true });
+  assert(withdrawalFunding.find(w => w.currency === 'EURC')?.bridge_wallet_id === 'funded', 'non-EEA EURC withdrawal must retain its owned Base funding ID even though wallet presentation hides it');
+  assert(withdrawalFunding.map(w => w.currency).join(',') === 'USDC,EURC,USDT', 'withdrawal funding must retain all three owned assets');
   const noActiveWallet = selectVaLinkedStablecoinWallets(rows.map(w => ({ ...w, status: 'closed' })), vas);
   assert(noActiveWallet.length === 0, 'closed wallets must not be synthesized as active assets');
 });

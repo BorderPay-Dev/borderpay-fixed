@@ -494,7 +494,7 @@ export const userAPI = {
 // current account backend. Other currencies (NGN/KES/GHS/...) are future-state
 // and return rails_future_state until BorderPay enables local rails.
 export const walletAPI = {
-  async getWallets() {
+  async getWallets(options: { includeWithdrawalAssets?: boolean } = {}) {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
       return { success: false, error: userErr?.message || 'Not signed in' };
@@ -582,6 +582,7 @@ export const walletAPI = {
     // Resolve both Base assets to the VA-linked wallet; balances remain asset-specific.
     const fundingWalletRows = selectVaLinkedStablecoinWallets(allowedWalletRows, bridgeVas, {
       allowUsdtTron: walletAssetScope.allow_usdt_tron,
+      includeWithdrawalAssets: options.includeWithdrawalAssets,
     });
     for (const w of fundingWalletRows) {
       const c = String((w as any).currency || '').toUpperCase();
@@ -607,7 +608,7 @@ export const walletAPI = {
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
       if (currency === 'USDT' && !walletAssetScope.allow_usdt_tron) continue;
-      if (currency === 'EURC' && walletAssetScope.allow_usdt_tron) continue;
+      if (currency === 'EURC' && walletAssetScope.allow_usdt_tron && !options.includeWithdrawalAssets) continue;
       if (!['USDC', 'EURC', 'USDT'].includes(currency)) continue;
       const row = ensure(currency);
       if (!row) continue;
@@ -615,7 +616,7 @@ export const walletAPI = {
     }
 
     const wallets = Array.from(byCurrency.values())
-      .filter(row => row.currency !== 'EURC' || !walletAssetScope.allow_usdt_tron)
+      .filter(row => row.currency !== 'EURC' || !walletAssetScope.allow_usdt_tron || options.includeWithdrawalAssets)
       .sort((a, b) => String(a.currency).localeCompare(String(b.currency)));
     return { success: true, data: { wallets, wallet_asset_scope: walletAssetScope } };
   },
@@ -1385,15 +1386,9 @@ export const financialReadModelAPI = (() => {
     },
 
     async getSendRouteData() {
-      let walletsRes: any = null;
-      try {
-        const snapshotRes: any = await financialReadModelAPI.getSnapshot(20);
-        const snapshotWallets = Array.isArray(snapshotRes?.data?.wallets) ? snapshotRes.data.wallets : [];
-        if (snapshotRes?.success && snapshotWallets.length > 0) {
-          walletsRes = { success: true, data: { wallets: snapshotWallets } };
-        }
-      } catch { /* fall through to direct wallet read */ }
-      if (!walletsRes) walletsRes = await walletAPI.getWallets();
+      // Withdrawal funding must retain all owned assets, even when regional
+      // wallet presentation hides EURC. A display snapshot is not a funding list.
+      const walletsRes = await walletAPI.getWallets({ includeWithdrawalAssets: true });
       if (!walletsRes?.success) return walletsRes as any;
       const [capsRes, externalListRes]: any[] = await Promise.all([
         withTimeout(
