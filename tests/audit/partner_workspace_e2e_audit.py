@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+import re
 
 root = Path(__file__).resolve().parents[2]
 migration = (root / "supabase/migrations/20260905110000_partner_workspace_projects_resources.sql").read_text()
@@ -7,6 +8,8 @@ portal = (root / "supabase/functions/partner-onboarding/index.ts").read_text()
 admin = (root / "supabase/functions/partner-application-admin/index.ts").read_text()
 gateway = (root / "supabase/functions/public-api-gateway/index.ts").read_text()
 worker = (root / "supabase/functions/process-pending-events/index.ts").read_text()
+registrations = re.findall(r"registerTenantResource\(supa, \{(.*?)\n    \}\);", gateway, re.S)
+registration_source = "\n".join(registrations)
 activation = admin.split('if (action === "activate_sandbox")', 1)[1].split('if (action === "set_pricing")', 1)[0]
 
 checks = {
@@ -30,11 +33,11 @@ checks = {
     "operator detail returns tenant and approval state": "pricing: pricing || [], tenant, approval" in admin,
     "project selection is ownership bounded": 'project.id === requestedProjectId' in portal,
     "workspace resource read is tenant bounded": '.eq("tenant_id", tenantId)' in portal,
-    "gateway records customers": 'resource_type: "customer"' in gateway,
-    "gateway records wallets": 'resource_type: "wallet"' in gateway,
-    "gateway records virtual accounts": 'resource_type: "virtual_account"' in gateway,
+    "gateway records customers": 'resourceType: "customer"' in registration_source,
+    "gateway records wallets": 'resourceType: "wallet"' in registration_source,
+    "gateway records virtual accounts": 'resourceType: "virtual_account"' in registration_source,
     "gateway records payments": 'routeKey === "POST /v1/payouts" ? "payout" : "transfer"' in gateway,
-    "gateway stores only masked bank identifiers": "result.account_number?.slice(-4)" in gateway and "result.iban?.slice(-4)" in gateway,
+    "gateway resource records exclude bank account identifiers": bool(registrations) and "account_number" not in registration_source and "iban" not in registration_source,
     "verified webhooks update existing partner resources": "updatePartnerResourceState" in worker and '.eq("provider_resource_id", providerResourceId)' in worker,
     "webhooks cannot create or move partner resources": '.from("api_tenant_resources")\n    .update(' in worker and '.insert(' not in worker[worker.index('async function updatePartnerResourceState'):worker.index('// ── Top-level router')],
     "Bridge match is exact and confirmed": 'VERIFY BRIDGE KYB' in admin and "identity_checks" in admin,
