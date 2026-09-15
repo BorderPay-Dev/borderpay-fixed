@@ -25,7 +25,7 @@ checks = {
     "wallet screen supports only USDC/EURC": "new Set(['USDC', 'EURC'])" in wallet,
     "add-wallet contains EURC and no USDT card": "{ code: 'EURC'" in add_wallet and "{ code: 'USDT'" not in add_wallet,
     "receive exposes only USDC/EURC": "return ['USDC', 'EURC']" in receive and "String(wallet.currency).toUpperCase() === 'USDT'" not in receive,
-    "saved payout wallets expose only USDC Base": "USDC:base" in external and "USDT:tron" not in external,
+    "saved payout wallets expose only USDC/EURC Base": "USDC:base" in external and "EURC:base" in external and "USDT:tron" not in external,
     "withdrawal selector exposes no Tron route": "id: 'tron'" not in withdrawal,
     "provisioning creates one Base chain wallet": "const DEFAULT_WALLET = { symbol: \"USDC\", chain: \"BASE\" }" in provision,
     "manual wallet endpoint is Base-only": 'const SYMS:   readonly StablecoinSymbol[] = ["USDC", "EURC"]' in wallet_fn and 'const CHAINS: readonly StablecoinChain[]  = ["BASE"]' in wallet_fn,

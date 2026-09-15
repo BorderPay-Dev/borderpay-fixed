@@ -56,7 +56,7 @@ if "getSendRouteData" in api_src and "financialReadModelAPI.getSnapshot(20)" not
 edge_src = (ROOT / "supabase/functions/bridge-transfer/index.ts").read_text()
 if 'code: "source_wallet_required"' not in edge_src:
     failures.append("bridge-transfer must reject crypto payouts without source.bridge_wallet_id before calling Bridge.")
-if '.select("id, address")' not in edge_src:
+if '.select("id, address, asset, chain")' not in edge_src:
     failures.append("bridge-transfer must resolve the saved external-wallet address server-side.")
 if "address: cryptoFinalAddress" not in edge_src or "to_address: cryptoFinalAddress" not in edge_src:
     failures.append("bridge-transfer must send directly to the saved external-wallet address.")

@@ -415,7 +415,7 @@ Deno.serve(async (req) => {
   }
 
   // Crypto payout guard (BridgePayoutValidator):
-  //   - only USDC/base and USDT/tron are allowed
+  //   - only USDC/base, EURC/base, and USDT/tron are allowed
   //   - a saved external wallet is required before money moves
   //   - the saved address is sent directly as destination.to_address through
   //     the provider's crypto-to-crypto Transfers API
@@ -428,7 +428,7 @@ Deno.serve(async (req) => {
         source_payment_rail: "bridge_wallet";
         destination_payment_rail: "base" | "tron";
         chain: "BASE" | "TRON";
-        currency: "USDC" | "USDT";
+        currency: "USDC" | "EURC" | "USDT";
         gross_amount: string;
         developer_fee: string;
         bridge_developer_fee: string | null;
@@ -457,14 +457,17 @@ Deno.serve(async (req) => {
     const requestedExternalWalletId = String(body?.destination?.external_wallet_id || "").trim();
     const { data: savedWallet } = await supa
       .from("external_wallets")
-      .select("id, address")
+      .select("id, address, asset, chain")
       .eq("user_id", user.id)
       .eq("status", "active")
-      .eq("asset", destinationCurrency)
       .eq("chain", destinationChain)
       .eq("address", destinationAddress)
       .maybeSingle();
-    if (!savedWallet) {
+    const savedAsset = String(savedWallet?.asset || "").toUpperCase();
+    const compatibleSavedDestination = destinationChain === "base"
+      ? savedAsset === "USDC" || savedAsset === "EURC"
+      : savedAsset === destinationCurrency;
+    if (!savedWallet || !compatibleSavedDestination) {
       return await failAfterAuth({
         success: false,
         code: "saved_external_wallet_required",

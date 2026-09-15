@@ -31,7 +31,7 @@ def main() -> int:
     add_account = read("components/payouts/AddExternalAccountScreen.tsx")
 
     require("WITHDRAWAL_ROUTES" in wallets, "Withdrawal wallet routes must be explicit")
-    require("'USDC:base'" in wallets and "'USDT:tron'" not in wallets, "Only USDC/Base may be exposed")
+    require("'USDC:base'" in wallets and "'EURC:base'" in wallets and "'USDT:tron'" not in wallets, "Only USDC/Base and EURC/Base may be exposed")
     for forbidden in ["ethereum", "polygon", "arbitrum", "optimism", "solana"]:
         require(forbidden not in wallets.lower(), f"Unsupported withdrawal route leaked: {forbidden}")
     require("filterSupportedWallets" in wallets, "External wallet rows must be filtered before rendering/cache")

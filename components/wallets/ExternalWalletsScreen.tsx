@@ -29,6 +29,7 @@ const PREFILL_KEY = 'borderpay_prefill_withdraw';   // read by SendMoneyFlow
 
 const WITHDRAWAL_ROUTES = [
   { key: 'USDC:base', asset: 'USDC', chain: 'base', label: 'USDC · Base' },
+  { key: 'EURC:base', asset: 'EURC', chain: 'base', label: 'EURC · Base' },
 ] as const;
 const chainName = (c: string) => c.toLowerCase() === 'base' ? 'Base' : c.toLowerCase() === 'tron' ? 'Tron' : c;
 const walletRouteKey = (asset: string, chain: string) => `${String(asset).toUpperCase()}:${String(chain).toLowerCase()}`;
@@ -125,7 +126,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
     if (!WITHDRAWAL_ROUTES.some(route => route.key === selectedRouteKey)) {
-      toast.error('Choose USDC on Base.');
+      toast.error('Choose USDC or EURC on Base.');
       return;
     }
     if (!validAddress(chain, address)) { toast.error(`That address isn't valid for ${chainName(chain)}.`); return; }

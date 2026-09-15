@@ -1889,7 +1889,7 @@ export const addressAPI = {
 export const stablecoinAPI = {
   async logTransaction(data: {
     type: 'deposit' | 'send' | 'receive' | 'swap';
-    currency: 'USDC' | 'USDT' | 'PYUSD' | 'USDB';
+    currency: 'USDC' | 'USDT' | 'EURC' | 'PYUSD' | 'USDB';
     amount?: number;
     network?: string;
     address?: string;
@@ -1915,7 +1915,7 @@ export const stablecoinAPI = {
     reason?: string;
     address: string;
     chain: 'base' | 'ethereum' | 'optimism' | 'solana' | 'polygon' | 'tron' | 'arbitrum';
-    coin: 'usdc' | 'usdt';
+    coin: 'usdc' | 'usdt' | 'eurc';
     bridge_wallet_id?: string | null;
     external_wallet_id?: string | null;
     bridge_payment_route_id?: string | null;
