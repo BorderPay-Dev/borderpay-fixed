@@ -11,10 +11,11 @@ checks = {
     "individual template registered": '"individual.account_maintenance_fee"' in REGISTRY,
     "business template registered": '"business.account_maintenance_fee"' in REGISTRY,
     "individual fee is $5 only": "$5" in INDIVIDUAL and "$15" not in INDIVIDUAL,
-    "business fee is $15 only": "$15" in BUSINESS and "$5" not in BUSINESS,
+    "business fee is $29.99 only": "$29.99" in BUSINESS and "$15" not in BUSINESS and "$5" not in BUSINESS,
     "separate approval helper": "emailAccountMaintenanceFeeBestEffort" in WORKER,
     "approval-only send": 'if (normalized === "approved")' in WORKER,
-    "dedupe key": "wh:account-maintenance-approved:${userId}:v1" in WORKER,
+    "active VA required": '.from("bridge_virtual_accounts")' in WORKER and 'if (!activeVa?.id) return' in WORKER,
+    "period-scoped dedupe key": "subscription:active_va_maintenance:${billingStartDate}:${userId}" in WORKER,
     "month-end billing date": "currentMonthEndDate()" in WORKER,
 }
 

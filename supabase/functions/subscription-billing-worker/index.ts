@@ -54,7 +54,7 @@ function currentMonthEnd(): string {
 
 async function prepareApprovedBusinessBilling(dryRun = false, queueBeforeDue = false) {
   const billingPeriod = currentMonthEnd();
-  const { data: sync, error: syncError } = await db.rpc("sync_approved_business_maintenance_subscriptions", {
+  const { data: sync, error: syncError } = await db.rpc("sync_active_va_maintenance_subscriptions", {
     p_billing_period: billingPeriod,
     p_dry_run: dryRun,
   });
@@ -110,6 +110,14 @@ async function prepareApprovedBusinessBilling(dryRun = false, queueBeforeDue = f
     });
   }
   return { billing_period: billingPeriod, sync, eligible: eligible.length, blocked, queued: results.filter((r) => !r.error).length, results };
+}
+
+async function runBusinessOnboardingLifecycle(dryRun = false) {
+  const { data, error } = await db.rpc("run_business_onboarding_lifecycle", {
+    p_dry_run: dryRun,
+  });
+  if (error) throw error;
+  return data;
 }
 
 function equal(a: string, b: string): boolean {
@@ -423,6 +431,12 @@ Deno.serve(async (req) => {
     if (mode === "prepare_dry_run") {
       out.business_maintenance = await prepareApprovedBusinessBilling(true, false);
     }
+    if (mode === "onboarding_dry_run") {
+      out.onboarding = await runBusinessOnboardingLifecycle(true);
+    }
+    if (["bill_due", "drain", "onboarding"].includes(mode)) {
+      out.onboarding = await runBusinessOnboardingLifecycle(false);
+    }
     if (["bill_due", "drain"].includes(mode)) {
       out.billing = await billDue();
       out.external_invoices = await drainExternalInvoices();
@@ -436,7 +450,7 @@ Deno.serve(async (req) => {
     if (mode === "access_dry_run") out.access = await reconcileSubscriptionAccess(true);
     if (mode === "access") out.access = await reconcileSubscriptionAccess(false);
     if (mode === "announcement") out.announcement = await queueAnnouncement();
-    if (["emails", "drain", "announcement"].includes(mode)) {
+    if (["emails", "drain", "announcement", "onboarding"].includes(mode)) {
       out.emails = await sendEmails();
       out.restrictions = await finalizeRestrictionsAfterEmailDelivery();
       out.access = await reconcileSubscriptionAccess(false);
