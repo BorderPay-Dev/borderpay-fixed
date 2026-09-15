@@ -2748,11 +2748,30 @@ async function handleBridgeExternalAccount(ev: PendingEvent): Promise<void> {
   });
 }
 
-async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
+function bridgeTransferCustomerId(payload: any): string | null {
+  const uniqueIds = (values: unknown[]): string[] => {
+    const ids: string[] = [];
+    for (const value of values) {
+      if (value == null || value === "") continue;
+      if (typeof value !== "string") throw new Error("reconciliation_required:malformed_customer_id");
+      if (value.trim()) ids.push(value.trim());
+    }
+    return [...new Set(ids)];
+  };
+  // Bridge's Transfer schema identifies the initiating customer with
+  // on_behalf_of. Endpoint customers may describe a different counterparty.
+  const primary = uniqueIds([payload?.on_behalf_of, payload?.customer_id, payload?.customer?.id]);
+  const candidates = primary.length ? primary
+    : uniqueIds([payload?.source?.customer_id, payload?.destination?.customer_id]);
+  if (candidates.length > 1) throw new Error("reconciliation_required:conflicting_customer_ids");
+  return candidates[0] ?? null;
+}
+
+export async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the transfer; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const transferId = d?.transfer_id ?? d?.id ?? ev.payload?.event_object_id;
-  const customer   = d?.customer_id ?? d?.customer?.id ?? d?.source?.customer_id ?? d?.destination?.customer_id;
+  const customer   = bridgeTransferCustomerId(d);
   if (!transferId) throw new Error("bridge transfer event missing id");
 
   const providerState = String(d?.state ?? d?.status ?? "").toLowerCase();
@@ -2775,6 +2794,15 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
       reconciliationReason = `owner_unmapped_for_customer:${String(customer)}`;
       console.error(`bridge transfer reconciliation required for transfer=${transferId}: ${(e as Error).message}`);
     }
+  }
+
+  // Do not call the projection RPC with two null owners: the ownership
+  // constraint rejects it before the useful reconciliation error is surfaced.
+  if (reconciliationReason) {
+    await supabase.from("bridge_webhook_events")
+      .update({ target_entity_type: "transfer", target_entity_id: String(transferId) })
+      .eq("event_id", ev.event_id);
+    throw new Error(`reconciliation_required:${reconciliationReason}`);
   }
 
   const normSource = normalizeBridgeEndpointType(d?.source?.type ?? d?.source?.payment_rail ?? "external_bank");
@@ -2821,13 +2849,6 @@ async function handleBridgeTransfer(ev: PendingEvent): Promise<void> {
   });
   if (btErr) {
     throw new Error(`upsert_bridge_transfer_projection failed: ${btErr.message}`);
-  }
-
-  if (reconciliationReason) {
-    await supabase.from("bridge_webhook_events")
-      .update({ target_entity_type: "transfer", target_entity_id: String(transferId) })
-      .eq("event_id", ev.event_id);
-    throw new Error(`reconciliation_required:${reconciliationReason}`);
   }
 
   // 2. Mirror into public.transactions so existing readers (TransactionsScreen,
@@ -3151,17 +3172,21 @@ async function syncCountryFromBridgeCustomer(
 }
 
 async function resolveOwnerFromBridgeCustomer(bridgeCustomerId: string): Promise<{ resolved: string; account_type: "individual" | "business" }> {
-  const { data: bizRows } = await supabase
+  const { data: bizRows, error: bizOwnerError } = await supabase
     .from("business_profiles")
     .select("user_id")
     .eq("bridge_customer_id", String(bridgeCustomerId))
     .limit(2);
 
-  const { data: userRows } = await supabase
+  const { data: userRows, error: userOwnerError } = await supabase
     .from("user_profiles")
     .select("id, account_type")
     .eq("bridge_customer_id", String(bridgeCustomerId))
     .limit(2);
+
+  if (bizOwnerError || userOwnerError) {
+    throw new Error("bridge customer ownership lookup failed");
+  }
 
   const ownerMap = new Map<string, "individual" | "business">();
   for (const row of (Array.isArray(userRows) ? userRows : [])) {
