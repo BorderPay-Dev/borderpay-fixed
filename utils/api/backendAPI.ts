@@ -889,7 +889,7 @@ export const financialReadModelAPI = (() => {
   }
 
   function persistKey(snapshotKey: string): string {
-    return `borderpay_snapshot_cache_v2:${snapshotKey}`;
+    return `borderpay_snapshot_cache_v3:${snapshotKey}`;
   }
 
   function anySnapshotKey(userId: string): string {
@@ -1018,7 +1018,7 @@ export const financialReadModelAPI = (() => {
     }
 
     try {
-      const snapshotPrefix = `borderpay_snapshot_cache_v2:${userId}:`;
+      const snapshotPrefix = `borderpay_snapshot_cache_v3:${userId}:`;
       const financialSuffix = `:financial-v2:${userId}`;
       const remove: string[] = [];
       for (let i = 0; i < localStorage.length; i += 1) {

@@ -1,3 +1,4 @@
+import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 /**
  * BusinessDashboard — minimal MVP for business accounts.
  *
@@ -152,6 +153,7 @@ function prefetchScreen(screen: string): void {
 }
 
 export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDashboardProps) {
+  const { allowUsdtTron, allowEurcBase } = useWalletAssetScope(userId);
   const tc = useThemeClasses();
   const navigate = React.useCallback((screen: string) => {
     try {
@@ -253,8 +255,8 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
     [wallets],
   );
   const spendableWallets = useMemo(
-    () => wallets.filter(isSpendableBusinessWallet),
-    [wallets],
+    () => wallets.filter(isSpendableBusinessWallet).filter(wallet => wallet.currency === 'USDC' || (wallet.currency === 'EURC' && allowEurcBase) || (wallet.currency === 'USDT' && allowUsdtTron)),
+    [wallets, allowUsdtTron, allowEurcBase],
   );
   const accountChipCount = spendableWallets.length + virtualAccounts.length;
 

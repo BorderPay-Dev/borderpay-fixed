@@ -1,3 +1,4 @@
+import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 /**
  * BorderPay Africa - Dashboard
  * Fully wired to backend API:
@@ -76,11 +77,11 @@ function writeJSON(key: string, value: unknown): void {
 }
 function readPersistedFinancialSnapshot(userId: string, limit = 5): any | null {
   const keys = [
-    `borderpay_snapshot_cache_v2:${userId}:any`,
-    `borderpay_snapshot_cache_v2:${userId}:${Math.max(1, Number(limit) || 5)}`,
-    `borderpay_snapshot_cache_v2:${userId}:20`,
-    `borderpay_snapshot_cache_v2:${userId}:50`,
-    `borderpay_snapshot_cache_v2:${userId}:100`,
+    `borderpay_snapshot_cache_v3:${userId}:any`,
+    `borderpay_snapshot_cache_v3:${userId}:${Math.max(1, Number(limit) || 5)}`,
+    `borderpay_snapshot_cache_v3:${userId}:20`,
+    `borderpay_snapshot_cache_v3:${userId}:50`,
+    `borderpay_snapshot_cache_v3:${userId}:100`,
   ];
   for (const key of keys) {
     try {
@@ -238,6 +239,7 @@ function formatDashboardWalletBalance(row: { currency: string; balance: number }
 }
 
 export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentScreen }: DashboardProps) {
+  const { allowUsdtTron, allowEurcBase } = useWalletAssetScope(userId);
   // Synchronous read — no flicker between "unconfirmed/starter" and the real
   // status. If we have a cached profile, derive everything at first render.
   const cachedProfile = useMemo(() => readCachedProfile(), []);
@@ -328,8 +330,8 @@ export function Dashboard({ userId, onLogout, onNavigate, currentScreen: parentS
     ws.reduce((s, w) => s + Number(w.balance || 0), 0);
   const [wallets, setWallets]             = useState(cachedWallets);
   const spendableWallets = useMemo(
-    () => wallets.filter(isSpendableDashboardWallet),
-    [wallets],
+    () => wallets.filter(isSpendableDashboardWallet).filter(wallet => wallet.currency === 'USDC' || (wallet.currency === 'EURC' && allowEurcBase) || (wallet.currency === 'USDT' && allowUsdtTron)),
+    [wallets, allowUsdtTron, allowEurcBase],
   );
   const [virtualAccounts, setVirtualAccounts] = useState<DashboardVaRow[]>(cachedVirtualAccounts);
   const [selectedVa, setSelectedVa] = useState<DashboardVaRow | null>(null);
