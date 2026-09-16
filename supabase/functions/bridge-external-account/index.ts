@@ -20,17 +20,20 @@
 // This function is SOURCE ONLY in this PR — not deployed. It requires the
 // BRIDGE_API_KEY function secret (consumed by ../_shared/providers/
 // bridge-client.ts) and the public.bridge_external_accounts table from
-// 20260529_bridge_external_accounts.sql before it can run.
+// 20260529010000_bridge_external_accounts.sql before it can run.
 //
 // Deploy (later, operator):
 //   supabase functions deploy bridge-external-account --project-ref orwrcpwsffjlvzuraxjc
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
+import { normalizeBridgeExternalAccounts } from "../_shared/providers/bridge-external-account-list.ts";
+import { consumeScaAuthorization } from "../_shared/sca.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -79,6 +82,25 @@ type CreateInput = UsAccountInput | IbanAccountInput | GbAccountInput;
 
 const last4 = (s: string) => (s || "").replace(/\s+/g, "").slice(-4);
 
+// Bridge's external-account contract requires ISO-3166 alpha-3 country
+// codes. The customer UI accepts either alpha-2 or alpha-3 so older native
+// clients remain compatible, but the provider payload is always normalized.
+const COUNTRY_ALPHA3: Readonly<Record<string, string>> = Object.freeze({
+  AD: "AND", AT: "AUT", BE: "BEL", BG: "BGR", CH: "CHE", CY: "CYP",
+  CZ: "CZE", DE: "DEU", DK: "DNK", EE: "EST", ES: "ESP", FI: "FIN",
+  FR: "FRA", GB: "GBR", GR: "GRC", HR: "HRV", HU: "HUN", IE: "IRL",
+  IS: "ISL", IT: "ITA", LI: "LIE", LT: "LTU", LU: "LUX", LV: "LVA",
+  MC: "MCO", MT: "MLT", NL: "NLD", NO: "NOR", PL: "POL", PT: "PRT",
+  RO: "ROU", SE: "SWE", SI: "SVN", SK: "SVK", SM: "SMR", US: "USA",
+  VA: "VAT",
+});
+
+function bridgeCountryAlpha3(value: string | null | undefined): string | null {
+  const code = String(value || "").trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(code)) return code;
+  return COUNTRY_ALPHA3[code] ?? null;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
@@ -90,7 +112,7 @@ Deno.serve(async (req) => {
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
-  let body: { action?: string; account?: CreateInput; external_account_id?: string };
+  let body: { action?: string; account?: CreateInput; external_account_id?: string; sca_authorization_id?: string };
   try { body = await req.json(); } catch { return json({ success: false, error: "Invalid JSON" }, 400); }
   const action = String(body.action || "create");
 
@@ -122,6 +144,15 @@ Deno.serve(async (req) => {
       .eq("bridge_external_account_id", extId)
       .maybeSingle();
     if (!owned) return json({ success: false, error: "not found", code: "not_found" }, 404);
+    const sca = await consumeScaAuthorization({
+      supabase: supa,
+      authorizationId: body.sca_authorization_id,
+      userId: user.id,
+      operation: "beneficiary_change",
+      resource: "bridge_external_account",
+      request: body,
+    });
+    if (!sca.ok) return json(sca.body, sca.status);
     const r = await bridgeFetch({
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}/deactivate`,
@@ -134,14 +165,59 @@ Deno.serve(async (req) => {
     return json({ success: true, data: { deleted: true, external_account_id: extId } });
   }
 
-  // ── list (passthrough; dashboard normally reads the local mirror) ──────
+  // ── list ───────────────────────────────────────────────────────────────
   if (action === "list") {
-    const r = await bridgeFetch({
-      method: "GET",
-      path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
+    // Retain the local descriptor projection as a fallback, but reconcile from
+    // Bridge even when it is nonempty: a partial mirror must not hide accounts.
+    const { data: projected, error: projectionError } = await supa
+      .from("bridge_external_accounts")
+      .select("id,bridge_external_account_id,account_type,currency,account_owner_name,account_owner_type,bank_name,last_4,rail,status,active,created_at,updated_at")
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .order("updated_at", { ascending: false });
+    let providerAccounts: Record<string, unknown>[];
+    try {
+      providerAccounts = normalizeBridgeExternalAccounts(await bridgeProvider.listExternalAccounts(customerId));
+    } catch {
+      if (!projectionError && Array.isArray(projected) && projected.length > 0) {
+        return json({ success: true, data: { external_accounts: projected, source: "projection", partial: true } });
+      }
+      return json({ success: false, error: "Saved payout accounts could not be refreshed. Please retry." }, 503);
+    }
+    const activeAccounts = providerAccounts.filter((row) => ![
+      "deleted", "deactivated", "inactive", "disabled", "closed",
+    ].includes(String(row.status || "active").toLowerCase()));
+    if (activeAccounts.length > 0) {
+      const rows = activeAccounts.map((row) => ({
+        user_id: user.id,
+        bridge_external_account_id: row.bridge_external_account_id,
+        bridge_customer_id: customerId,
+        account_type: row.account_type,
+        currency: row.currency,
+        account_owner_name: row.account_owner_name,
+        bank_name: row.bank_name,
+        last_4: row.last_4,
+        rail: row.rail,
+        status: row.status || "active",
+        active: true,
+        metadata: { reconciled_from_provider: true },
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: reconcileError } = await supa
+        .from("bridge_external_accounts")
+        .upsert(rows, { onConflict: "bridge_external_account_id" });
+      if (reconcileError) {
+        console.error("bridge_external_account_list_reconciliation_failed", {
+          user_id: user.id,
+          count: rows.length,
+          code: reconcileError.code,
+        });
+      }
+    }
+    return json({
+      success: true,
+      data: { external_accounts: activeAccounts, source: "provider" },
     });
-    if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
-    return json({ success: true, data: (r.data as any)?.data ?? r.data });
   }
 
   // ── capabilities ──────────────────────────────────────────────────────
@@ -187,8 +263,9 @@ Deno.serve(async (req) => {
     if (!a.account_number || !a.routing_number) {
       return json({ success: false, error: "account_number and routing_number required for US accounts" }, 400);
     }
-    if (!a.address?.street_line_1 || !a.address?.city || !a.address?.postal_code || !a.address?.country) {
-      return json({ success: false, error: "full address required for US accounts" }, 400);
+    const addressCountry = bridgeCountryAlpha3(a.address?.country);
+    if (!a.address?.street_line_1 || !a.address?.city || !a.address?.state || !a.address?.postal_code || !addressCountry) {
+      return json({ success: false, error: "Full address, state, and a valid country are required for US accounts." }, 400);
     }
     currency = "USD";
     railLabel = "ach";
@@ -206,14 +283,15 @@ Deno.serve(async (req) => {
       address: {
         street_line_1: a.address.street_line_1,
         city:          a.address.city,
-        ...(a.address.state ? { state: a.address.state } : {}),
+        state:          a.address.state.trim().toUpperCase(),
         postal_code:   a.address.postal_code,
-        country:       a.address.country,
+        country:       addressCountry,
       },
     };
   } else if (acct.account_type === "iban") {
     const a = acct as IbanAccountInput;
-    if (!a.iban_number || !a.bic_swift || !a.iban_country) {
+    const ibanCountry = bridgeCountryAlpha3(a.iban_country);
+    if (!a.iban_number || !a.bic_swift || !ibanCountry) {
       return json({ success: false, error: "iban_number, bic_swift, and iban_country required for IBAN accounts" }, 400);
     }
     if (a.account_owner_type !== "individual" && a.account_owner_type !== "business") {
@@ -237,7 +315,7 @@ Deno.serve(async (req) => {
       ...(a.account_owner_type === "individual"
         ? { first_name: a.first_name, last_name: a.last_name }
         : { business_name: a.business_name }),
-      iban: { account_number: a.iban_number, bic: a.bic_swift, country: a.iban_country },
+      iban: { account_number: a.iban_number, bic: a.bic_swift, country: ibanCountry },
     };
   } else if (acct.account_type === "gb") {
     const a = acct as GbAccountInput;
@@ -274,6 +352,16 @@ Deno.serve(async (req) => {
     return json({ success: false, error: "unsupported external account type" }, 400);
   }
 
+  const sca = await consumeScaAuthorization({
+    supabase: supa,
+    authorizationId: body.sca_authorization_id,
+    userId: user.id,
+    operation: "beneficiary_change",
+    resource: "bridge_external_account",
+    request: body,
+  });
+  if (!sca.ok) return json(sca.body, sca.status);
+
   const r = await bridgeFetch({
     method:         "POST",
     path:           `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
@@ -282,12 +370,16 @@ Deno.serve(async (req) => {
   });
   if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
 
-  const data = (r.data as any)?.data ?? r.data;
+  const responseEnvelope = r.data as any;
+  const data = responseEnvelope?.data?.external_account ??
+    responseEnvelope?.external_account ??
+    responseEnvelope?.data ??
+    responseEnvelope;
   const extId = String(data?.id ?? data?.external_account_id ?? "");
   if (!extId) return json({ success: false, error: "Bridge response missing external account id" }, 502);
 
   // Mirror locally — descriptors only, never full account / routing / IBAN.
-  await supa.from("bridge_external_accounts").upsert({
+  const { error: mirrorError } = await supa.from("bridge_external_accounts").upsert({
     user_id:                    user.id,
     bridge_external_account_id: extId,
     bridge_customer_id:         customerId,
@@ -306,6 +398,15 @@ Deno.serve(async (req) => {
     metadata:                   { validated: data?.account_validation != null },
     updated_at:                 new Date().toISOString(),
   }, { onConflict: "bridge_external_account_id" });
+  // The provider operation has already succeeded, so do not invite a duplicate
+  // retry. Surface the projection failure to logs for reconciliation instead.
+  if (mirrorError) {
+    console.error("bridge_external_account_mirror_failed", {
+      user_id: user.id,
+      external_account_id: extId,
+      code: mirrorError.code,
+    });
+  }
 
   return json({
     success: true,

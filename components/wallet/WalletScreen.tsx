@@ -129,7 +129,7 @@ function intersectVaCapabilities(
 export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNavigate }: WalletScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const { allowUsdtTron, resolved: walletScopeResolved } = useWalletAssetScope(userId);
+  const { allowUsdtTron, allowEurcBase, resolved: walletScopeResolved } = useWalletAssetScope(userId);
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -184,7 +184,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
     try {
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
       const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron }));
+      return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase }));
     } catch { return []; }
   });
   const [vas, setVas] = useState<VaRow[]>(() => {
@@ -221,9 +221,9 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
       if (!Array.isArray(scoped) || scoped.length === 0) return;
       const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-      setStables(normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron })));
+      setStables(normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase })));
     } catch { /* fresh route data will replace an unreadable cache */ }
-  }, [walletScopeResolved, allowUsdtTron, stableWalletsCacheKey, vaCacheKey]);
+  }, [walletScopeResolved, allowUsdtTron, allowEurcBase, stableWalletsCacheKey, vaCacheKey]);
 
   useEffect(() => {
     if (preselectConsumedRef.current) return;
@@ -275,7 +275,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       try {
         const scoped = JSON.parse(localStorage.getItem(stableWalletsCacheKey) || '[]');
         const cachedVas = JSON.parse(localStorage.getItem(vaCacheKey) || '[]');
-        return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron }));
+        return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase }));
       } catch { return []; }
     })();
     const seededVas = vasRef.current.length > 0 ? vasRef.current : (() => {
@@ -292,6 +292,7 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
         return;
       }
       const routeData: any = await backendAPI.financial.getWalletRouteData();
+      if (!routeData?.success) return;
       const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets) ? routeData.data.stablecoin_wallets : [];
       const rawVas = Array.isArray(routeData?.data?.virtual_accounts) ? routeData.data.virtual_accounts : [];
       const sList = normalizeStableRows(rawStables);
@@ -319,10 +320,11 @@ export function WalletScreen({ userId, onBack, isVerified: isVerifiedProp, onNav
       // Provider provisioning/sync is background-only; never block first paint.
       if (shouldRunProviderSync()) {
         void Promise.allSettled([
-          backendAPI.bridge.syncAccounts(),
+          (isVerified ? backendAPI.bridge.provisionStablecoins() : Promise.resolve()).then(() => backendAPI.bridge.syncAccounts()),
         ]).then(async () => {
           try {
             const next: any = await backendAPI.financial.getWalletRouteData();
+            if (!next?.success) return;
             const rawNextStables = Array.isArray(next?.data?.stablecoin_wallets) ? next.data.stablecoin_wallets : [];
             const rawNextVas = Array.isArray(next?.data?.virtual_accounts) ? next.data.virtual_accounts : [];
             const nextStables = normalizeStableRows(rawNextStables);

@@ -23,13 +23,13 @@ transfer_fn = read("supabase/functions/bridge-transfer/index.ts")
 va_config = read("supabase/functions/_shared/providers/virtual-account-config.ts")
 
 checks = {
-    "non-EEA wallet presentation excludes EURC": "options.allowUsdtTron && !options.includeWithdrawalAssets ? ['USDC'] : ['USDC', 'EURC']" in presentation,
-    "external selector displays USDT but disables it for EEA": "disabled={route.asset === 'USDT' && !allowUsdtTron}" in external,
-    "withdrawal funding retains hidden assets": "walletAPI.getWallets({ includeWithdrawalAssets: true })" in backend,
+    "non-EEA wallet presentation excludes EURC": "options.allowEurcBase ? ['USDC', 'EURC'] : ['USDC']" in presentation,
+    "external selector excludes USDT for EEA": "route.asset === 'USDT' && allowUsdtTron" in external,
+    "withdrawal funding uses the regional wallet reader": "walletAPI.getWallets({ includeWithdrawalAssets: true })" in backend,
     "wallet reads include the three supported assets": backend.count(".in('currency', ['USDC', 'EURC', 'USDT'])") >= 3,
     "presentation keeps USDT separate from VA-linked Base": "USDT is a separate Tron wallet" in presentation and "allowUsdtTron" in presentation,
-    "wallet cache restores Tron after regional scope resolves": "walletScopeResolved" in wallet and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron })" in wallet,
-    "receive cache restores Tron after regional scope resolves": "walletScopeResolved" in receive and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron })" in receive,
+    "wallet cache restores Tron after regional scope resolves": "walletScopeResolved" in wallet and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase })" in wallet,
+    "receive cache restores Tron after regional scope resolves": "walletScopeResolved" in receive and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase })" in receive,
     "wallet screen supports three bounded assets": "new Set(['USDC', 'EURC', 'USDT'])" in wallet,
     "add-wallet hides USDT unless non-EEA": "{ code: 'USDT'" in add_wallet and "card.code !== 'USDT' || allowUsdtTron" in add_wallet,
     "receive binds USDT to Tron": "sym === 'USDT' && chain === 'tron'" in receive,
@@ -41,7 +41,7 @@ checks = {
     "database restores region-gated Tron owner reads": "can_read_borderpay_usdt(auth.uid())" in migration and "lower(coalesce(chain, '')) = 'tron'" in migration,
     "legacy USDT restore grants SELECT only": "wallets_usdt_owner_read on public.wallets for select to authenticated" in migration,
     "authoritative EEA set contains exactly 30 states": "The 30 EEA states" in scope and "BRIDGE_EEA_SCA_COUNTRIES" in scope,
-    "external-wallet resolves scope only for USDT": "if (asset === \"USDT\")" in external_fn and "if (hasUsdt)" in external_fn and "wallet_asset_not_available" in external_fn,
+    "external-wallet resolves both regional assets": "if (asset === \"USDT\")" in external_fn and "walletScope.allow_eurc_base" in external_fn and "wallet_asset_not_available" in external_fn,
     "transfer rejects EEA USDT before provider movement": "requestsUsdt" in transfer_fn and "wallet_asset_not_available" in transfer_fn,
     "VA destination contract has no USDT rail": 'export type VaCurrency = "USD" | "EUR" | "GBP"' in va_config and "USDT" not in va_config,
 }

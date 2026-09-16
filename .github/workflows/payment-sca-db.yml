@@ -5,6 +5,8 @@ on:
       - 'supabase/migrations/20260915170000_payment_sca_evidence_contract.sql'
       - 'tests/sql/payment_sca_*.sql'
       - 'tests/sql/usdt_read_*.sql'
+      - 'tests/sql/regional_wallet_read_contract.sql'
+      - 'supabase/migrations/20260916090000_regional_wallet_asset_reads.sql'
       - 'supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql'
       - '.github/workflows/payment-sca-db.yml'
   workflow_dispatch:
@@ -46,3 +48,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/usdt_read_contract.sql
+      - name: Test EEA EURC and non-EEA USDT isolation
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916090000_regional_wallet_asset_reads.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916090000_regional_wallet_asset_reads.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/regional_wallet_read_contract.sql

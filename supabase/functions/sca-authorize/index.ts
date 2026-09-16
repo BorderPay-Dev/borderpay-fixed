@@ -88,7 +88,9 @@ Deno.serve(async (req: Request) => {
 
   // Released mobile clients send operation/resource directly. Newer clients
   // also include action=authorize. Accept both signed contracts.
-  if ((body.action && body.action !== "authorize") || body.operation !== "payment" || body.resource !== "bridge_transfer") {
+  const payment = body.operation === "payment" && body.resource === "bridge_transfer";
+  const beneficiary = body.operation === "beneficiary_change" && body.resource === "bridge_external_account";
+  if ((body.action && body.action !== "authorize") || (!payment && !beneficiary)) {
     return json({ success: false, code: "invalid_sca_request", error: "Invalid strong-authentication request." }, 400);
   }
   if (!/^\d{6}$/.test(String(body.pin || "")) || !/^\d{6}$/.test(String(body.totp || ""))) {
@@ -97,6 +99,9 @@ Deno.serve(async (req: Request) => {
   if (!body.request || typeof body.request !== "object" || Array.isArray(body.request)) {
     return json({ success: false, code: "invalid_sca_payload", error: "The payout authorization details are invalid." }, 400);
   }
+
+  const operation = payment ? "payment" : "beneficiary_change";
+  const resource = payment ? "bridge_transfer" : "bridge_external_account";
 
   const recentCutoff = new Date(Date.now() - 15 * 60_000).toISOString();
   const { count, error: rateError } = await supabase.from("sca_audit_events")
@@ -110,26 +115,26 @@ Deno.serve(async (req: Request) => {
   const pin = await verifyFactor("verify-pin", authorization, { pin: String(body.pin) });
   if (!pin.ok) {
     await supabase.from("sca_audit_events").insert({
-      user_id: user.id, event_type: "authorization_failed", operation: "payment", resource: "bridge_transfer", reason: "pin_rejected",
+      user_id: user.id, event_type: "authorization_failed", operation, resource, reason: "pin_rejected",
     });
     return json({ success: false, code: "pin_verification_failed", error: pin.payload?.error || "Invalid transaction PIN." }, pin.status === 429 ? 429 : 401);
   }
   const totp = await verifyFactor("verify-2fa", authorization, { token: String(body.totp), purpose: "sca_payment" });
   if (!totp.ok) {
     await supabase.from("sca_audit_events").insert({
-      user_id: user.id, event_type: "authorization_failed", operation: "payment", resource: "bridge_transfer", reason: "totp_rejected",
+      user_id: user.id, event_type: "authorization_failed", operation, resource, reason: "totp_rejected",
     });
     return json({ success: false, code: "totp_verification_failed", error: totp.payload?.error || "Invalid authenticator code." }, totp.status >= 500 ? 503 : 401);
   }
 
-  const payloadHash = await scaPayloadHash("bridge_transfer", body.request);
+  const payloadHash = await scaPayloadHash(resource, body.request);
   const expiresAt = new Date(Date.now() + 4 * 60 * 1000).toISOString();
   const { data: authorizationRow, error: insertError } = await supabase
     .from("sca_authorizations")
     .insert({
       user_id: user.id,
-      operation: "payment",
-      resource: "bridge_transfer",
+      operation,
+      resource,
       payload_hash: payloadHash,
       verified_factors: ["pin", "totp"],
       expires_at: expiresAt,
@@ -145,8 +150,8 @@ Deno.serve(async (req: Request) => {
     user_id: user.id,
     authorization_id: authorizationRow.id,
     event_type: "authorization_succeeded",
-    operation: "payment",
-    resource: "bridge_transfer",
+    operation,
+    resource,
     payload_hash: payloadHash,
   });
 

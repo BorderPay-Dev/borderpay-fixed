@@ -1,3 +1,4 @@
+import { useBeneficiaryAuthorization } from '../security/useBeneficiaryAuthorization';
 /**
  * ExternalAccountsScreen — list & manage fiat payout (offramp) destinations.
  *
@@ -104,6 +105,7 @@ function isRequestTimeout(value: unknown): boolean {
 
 export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreenProps) {
   const tc = useThemeClasses();
+  const beneficiaryAuthorization = useBeneficiaryAuthorization();
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const [isVerified, setIsVerified] = useState<boolean>(() => readCachedVerified());
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
@@ -142,9 +144,12 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
       if (!force && !isColdStart && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
-      const r: any = await backendAPI.financial.getSnapshot(50);
+      const r: any = await backendAPI.bridge.externalAccount.list();
       if (r?.success) {
-        const next = normalizeExternalAccounts({ external_accounts: r?.data?.external_accounts || [] });
+        const incoming = normalizeExternalAccounts(r?.data);
+        const next = r?.data?.partial
+          ? Array.from(new Map([...seededRows, ...incoming].map(row => [row.bridge_external_account_id, row])).values())
+          : incoming;
         setRows(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         try { localStorage.setItem(refreshTsKey, String(Date.now())); } catch { /* noop */ }
@@ -202,7 +207,9 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   const remove = async (extId: string) => {
     setRemoving(extId);
     try {
-      const r: any = await backendAPI.bridge.externalAccount.remove(extId);
+      const authorizationId = await beneficiaryAuthorization.authorize({ action: 'delete', external_account_id: extId });
+      if (authorizationId === null) return;
+      const r: any = await backendAPI.bridge.externalAccount.remove(extId, authorizationId);
       if (r?.success) {
         toast.success('Payout account removed.');
         setRows(prev => {
@@ -236,6 +243,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
   if (!isVerified) {
     return (
       <div className={`min-h-screen ${tc.bg}`}>
+        {beneficiaryAuthorization.dialog}
         <FloatingBackButton onBack={onBack} />
         <div className="max-w-2xl mx-auto px-5 pt-floating-back pb-10">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted} mb-4`}>
@@ -257,6 +265,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      {beneficiaryAuthorization.dialog}
       <FloatingBackButton onBack={onBack} />
       <header
         className="flex items-center justify-between pl-16 pr-5 sm:pr-6 pb-3"

@@ -77,7 +77,7 @@ import type { BridgePaymentRail } from "../_shared/providers/types.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
 import { consumeScaAuthorization, scaPayloadHash } from "../_shared/sca.ts";
 import { transferInitiation, withdrawalInitiationChannel, type WalletInitiationRequirement } from "../_shared/bridge-transfer-initiation.ts";
-import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
+import { resolveBridgeScaScope, resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -373,6 +373,11 @@ Deno.serve(async (req) => {
   // USDT/Tron is a separate non-EEA wallet rail. It is never a VA settlement
   // destination, and EEA or unresolved customer scope must fail closed before
   // any provider-side money movement.
+  if (srcCcy === "EURC" || dstCcy === "EURC") {
+    const scope = await resolveBridgeWalletAssetScope(supa, user.id);
+    if (!scope.allow_eurc_base) return await failAfterAuth({ success: false,
+      code: "wallet_asset_not_available", error: "EURC is only available for EEA accounts." }, 403, profile.account_type);
+  }
   const requestsUsdt = srcCcy === "USDT" || dstCcy === "USDT"
     || srcRail === "tron" || dstRail === "tron";
   if (requestsUsdt) {

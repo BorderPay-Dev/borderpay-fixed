@@ -19,7 +19,7 @@ import {
 } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
-import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
+import { resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -97,14 +97,10 @@ Deno.serve(async (req) => {
   if (verificationStatus !== "approved") {
     return json({ success: false, error: isBusiness ? "KYB not approved yet" : "KYC not approved yet", code: "kyc_not_approved" }, 409);
   }
-  if (symbol === "USDT") {
-    const walletScope = await resolveBridgeScaScope(supa, user.id);
-    const allowUsdtTron = walletScope.status === "not_required"
-      && walletScope.reason === "non_eea"
-      && Boolean(walletScope.country);
-    if (!allowUsdtTron) {
-      return json({ success: false, code: "wallet_asset_not_available", error: "USDT on Tron is not available for this account region." }, 403);
-    }
+  const walletScope = await resolveBridgeWalletAssetScope(supa, user.id);
+  if (walletScope.region === "unknown") return json({ success: false, code: "wallet_scope_unavailable", error: "Wallet region could not be verified." }, 503);
+  if ((symbol === "USDT" && !walletScope.allow_usdt_tron) || (symbol === "EURC" && !walletScope.allow_eurc_base)) {
+    return json({ success: false, code: "wallet_asset_not_available", error: `${symbol} is not available for this account region.` }, 403);
   }
 
   // Provider wallets are chain-level. Do not create a second Base wallet when
@@ -131,7 +127,7 @@ Deno.serve(async (req) => {
     // Write the table the dashboard reads (bridge_wallets) — this is what
     // BridgeWalletsCard lists. Previously we only wrote `wallets`, so created
     // wallets never appeared in the UI.
-    const { error: bwErr } = await supa.from("bridge_wallets").insert({
+    const { error: bwErr } = await supa.from("bridge_wallets").upsert({
       user_id:            user.id,
       ...(isBusiness ? { business_user_id: user.id } : {}),
       bridge_customer_id: profile.bridge_customer_id,
@@ -140,7 +136,7 @@ Deno.serve(async (req) => {
       chain:              chain.toLowerCase(),
       address:            result.deposit_address,
       status:             "active",
-    });
+    }, { onConflict: "bridge_wallet_id" });
     // Legacy mirror for balance/ledger compatibility.
     const { error: wErr } = await supa.from("wallets").upsert({
       user_id:           user.id,
@@ -150,7 +146,6 @@ Deno.serve(async (req) => {
       stablecoin_chain:  chain.toLowerCase(),
       bridge_wallet_id:  result.wallet_id,
       virtual_account_number: result.deposit_address,  // deposit address goes here for stablecoins
-      balance:           0,
       status:            "active",
     });
     if (bwErr || wErr) {

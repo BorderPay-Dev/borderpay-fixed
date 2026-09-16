@@ -1,3 +1,4 @@
+import { ISO2_COUNTRIES, ISO3_TO_ISO2 } from "./iso-country-codes.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "./bridge-identity-invariant.ts";
 import { bridgeProvider } from "./providers/bridge.ts";
 
@@ -15,22 +16,6 @@ const EEA_ISO3_TO_ISO2: Readonly<Record<string, string>> = {
   LTU: "LT", LUX: "LU", MLT: "MT", NLD: "NL", NOR: "NO", POL: "PL",
   PRT: "PT", ROU: "RO", SVK: "SK", SVN: "SI", ESP: "ES", SWE: "SE",
 };
-
-const NON_EEA_ISO3_TO_ISO2: Readonly<Record<string, string>> = {
-  GBR: "GB", UKR: "UA", CHE: "CH", USA: "US", CAN: "CA", AUS: "AU",
-  NZL: "NZ", KEN: "KE", ZAF: "ZA", NGA: "NG", GHA: "GH",
-};
-
-// ISO 3166-1 alpha-2 codes. A syntactically plausible typo (ZZ/XXX) must
-// never classify an EEA business as non-EEA. Signup stores alpha-2 codes.
-const ISO2_COUNTRIES = new Set(
-  ("AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ " +
-   "CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR " +
-   "GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP " +
-   "KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ " +
-   "NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ " +
-   "TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW").split(" "),
-);
 
 type SupaLike = { from: (table: string) => any };
 
@@ -56,7 +41,7 @@ export function normalizeBridgeScaCountry(value: unknown): string | null {
   const code = String(value ?? "").trim().toUpperCase();
   if (ISO2_COUNTRIES.has(code)) return code;
   return EEA_ISO3_TO_ISO2[code]
-    ?? NON_EEA_ISO3_TO_ISO2[code]
+    ?? ISO3_TO_ISO2[code]
     ?? null;
 }
 
@@ -117,6 +102,14 @@ export async function resolveBridgeScaScope(
   supabase: SupaLike, userId: string, purpose: "access" | "payment" = "access",
 ): Promise<BridgeScaScope> {
   const identity = await loadAndAssertBridgeIdentityInvariant(supabase, userId);
+  return resolveScopeForIdentity(identity, purpose, userId);
+}
+
+async function resolveScopeForIdentity(
+  identity: Awaited<ReturnType<typeof loadAndAssertBridgeIdentityInvariant>>,
+  purpose: "access" | "payment",
+  userId: string,
+): Promise<BridgeScaScope> {
   if (!identity.ok) {
     return { required: false, status: "unknown", reason: "identity_invariant_violation", country: null, verified: false, has_custodial_wallet: null };
   }
@@ -167,4 +160,36 @@ export async function resolveBridgeScaScope(
     console.error("bridge_sca_scope_resolution_failed", { user_id: userId, error: error instanceof Error ? error.message : "unknown" });
     return { required: false, status: "unknown", reason: "bridge_scope_unavailable", country: null, verified, has_custodial_wallet: null };
   }
+}
+
+/** Product eligibility is independent of wallet inventory and SCA enrollment. */
+export async function resolveBridgeWalletAssetScope(supabase: SupaLike, userId: string) {
+  const identity = await loadAndAssertBridgeIdentityInvariant(supabase, userId);
+  const scope = await resolveScopeForIdentity(identity, "payment", userId);
+  const known = scope.status !== "unknown" && scope.verified && Boolean(scope.country);
+  const eea = known && isBridgeEeaScaCountry(scope.country);
+  const nonEea = known && scope.reason === "non_eea";
+  if (known) {
+    if (!identity.ok) return { region: "unknown" as const, allow_eurc_base: false, allow_usdt_tron: false, country: null, reason: "identity_invariant_violation" };
+    if (identity.context.account_type === "individual") {
+      // RLS reads the same provider-confirmed residence. Publish this fresh
+      // observation before the client reads wallets/ledger, never after them.
+      const now = new Date();
+      const { error } = await supabase.from("sca_customer_scopes").upsert({
+        user_id: userId, bridge_customer_id: identity.context.bridge_customer_id,
+        provider_country: scope.country, sca_required: eea, source: "bridge_customer_api",
+        checked_at: now.toISOString(), expires_at: new Date(now.getTime() + 60 * 60_000).toISOString(),
+        updated_at: now.toISOString(),
+      }, { onConflict: "user_id" });
+      if (error) return { region: "unknown" as const, allow_eurc_base: false, allow_usdt_tron: false, country: null, reason: "scope_cache_unavailable" };
+    }
+  }
+
+  return {
+    region: eea ? "eea" as const : nonEea ? "non_eea" as const : "unknown" as const,
+    allow_eurc_base: eea,
+    allow_usdt_tron: nonEea,
+    country: scope.country,
+    reason: scope.reason,
+  };
 }

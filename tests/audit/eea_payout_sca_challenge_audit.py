@@ -14,7 +14,7 @@ checks = {
     "SCA kill switch is respected": "bridgeEeaScaEnforcementEnabled()" in authorize,
     "non-EEA bypasses challenge": 'required: false, reason: scope.reason' in authorize,
     "PIN is verified before TOTP": authorize.find('verifyFactor("verify-pin"') < authorize.find('verifyFactor("verify-2fa"'),
-    "authorization is bound to exact payload": 'scaPayloadHash("bridge_transfer", body.request)' in authorize,
+    "authorization is bound to exact payload": 'scaPayloadHash(resource, body.request)' in authorize and 'const resource = payment ? "bridge_transfer" : "bridge_external_account"' in authorize,
     "two factors are recorded": 'verified_factors: ["pin", "totp"]' in authorize,
     "authorization expires": "expires_at: expiresAt" in authorize,
     "client uses separate PIN and TOTP steps": "| 'pin' | 'totp' |" in send and "step === 'totp'" in send,

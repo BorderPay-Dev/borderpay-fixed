@@ -14,7 +14,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
-import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
+import { resolveBridgeScaScope, resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -121,28 +121,22 @@ Deno.serve(async (req) => {
   if (accessBlock) return json({ success: false, ...accessBlock }, 423);
 
   if (action === "list") {
-    const { data } = await supa
+    const { data, error } = await supa
       .from("external_wallets")
       .select("id, label, chain, asset, address, bridge_payment_route_id, bridge_payment_route_status, bridge_payment_route_raw, created_at")
       .eq("user_id", user.id)
       .eq("status", "active")
       .order("created_at", { ascending: false });
+    if (error) return json({ success: false, error: "Saved withdrawal wallets could not be loaded." }, 503);
     const rows = data ?? [];
-    const hasUsdt = rows.some((wallet) => String(wallet?.asset || "").toUpperCase() === "USDT");
-    let allowUsdtTron = false;
-    if (hasUsdt) {
-      // Only USDT needs a provider-backed regional decision. Keep ordinary
-      // Base-wallet list reads local and fast for released mobile clients.
-      const walletScope = await resolveBridgeScaScope(supa, user.id);
-      allowUsdtTron = walletScope.status === "not_required"
-        && walletScope.reason === "non_eea"
-        && Boolean(walletScope.country);
-    }
+    const walletScope = await resolveBridgeWalletAssetScope(supa, user.id);
+    if (walletScope.region === "unknown") return json({ success: false, code: "wallet_scope_unavailable", error: "Wallet region could not be verified." }, 503);
+    const allowUsdtTron = walletScope.allow_usdt_tron;
     const visible = rows.filter((wallet) => {
       const asset = String(wallet?.asset || "").toUpperCase();
       const chain = String(wallet?.chain || "").toLowerCase();
       if (asset === "USDT") return allowUsdtTron && chain === "tron";
-      return (asset === "USDC" || asset === "EURC") && chain === "base";
+      return (asset === "USDC" || (asset === "EURC" && walletScope.allow_eurc_base)) && chain === "base";
     });
     return json({ success: true, data: { wallets: visible.map((wallet) => withDirectTransferCompatibility(wallet)) } });
   }
@@ -169,19 +163,6 @@ Deno.serve(async (req) => {
     if (((asset === "USDC" || asset === "EURC") && chain !== "base") || (asset === "USDT" && chain !== "tron")) {
       return json({ success: false, error: "Use USDC or EURC on Base, or USDT on Tron." }, 400);
     }
-    if (asset === "USDT") {
-      const walletScope = await resolveBridgeScaScope(supa, user.id);
-      const allowUsdtTron = walletScope.status === "not_required"
-        && walletScope.reason === "non_eea"
-        && Boolean(walletScope.country);
-      if (!allowUsdtTron) {
-        return json({
-          success: false,
-          code: "wallet_asset_not_available",
-          error: "USDT on Tron is not available for this account region.",
-        }, 403);
-      }
-    }
     if (!validAddress(chain, address))   return json({ success: false, error: "That address isn't valid for the selected network." }, 422);
 
     const identity = await loadAndAssertBridgeIdentityInvariant(supa, user.id);
@@ -196,6 +177,23 @@ Deno.serve(async (req) => {
         code: "kyc_not_approved",
         error: profile.account_type === "business" ? "KYB must be approved before saving withdrawal wallets." : "KYC must be approved before saving withdrawal wallets.",
       }, 409);
+    }
+    if (asset === "EURC") {
+      const scope = await resolveBridgeWalletAssetScope(supa, user.id);
+      if (!scope.allow_eurc_base) return json({ success: false, code: "wallet_asset_not_available", error: "EURC is only available for EEA accounts." }, 403);
+    }
+    if (asset === "USDT") {
+      const walletScope = await resolveBridgeScaScope(supa, user.id);
+      const allowUsdtTron = walletScope.status === "not_required"
+        && walletScope.reason === "non_eea"
+        && Boolean(walletScope.country);
+      if (!allowUsdtTron) {
+        return json({
+          success: false,
+          code: "wallet_asset_not_available",
+          error: "USDT on Tron is not available for this account region.",
+        }, 403);
+      }
     }
     const sourceBridgeWalletId = await findCurrentBridgeWallet(user.id, asset, chain);
     if (!sourceBridgeWalletId) {

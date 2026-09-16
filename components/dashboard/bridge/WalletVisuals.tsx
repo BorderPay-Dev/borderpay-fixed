@@ -1,3 +1,4 @@
+import { receivingAccountHolder, receivingAccountInstructions } from "../../../utils/financial/receivingAccountDetails";
 /**
  * WalletVisuals — premium presentational pieces for the wallet surface:
  *   • AssetBadge        — brand-coloured coin / currency badge
@@ -413,7 +414,7 @@ export function WalletDetailSheet({ open, onClose, wallet }: {
 }
 
 // ── Virtual-account "letter" sheet ──────────────────────────────────────────
-function pickDeposit(details: any) {
+function pickDeposit(details: any, currency: string) {
   const root = details?.account_details ?? details ?? {};
   const srcDep = root?.source_deposit_instructions ?? root?.deposit_instructions ?? {};
   const bridgeRaw = root?.bridge_response ?? {};
@@ -463,7 +464,7 @@ function pickDeposit(details: any) {
     pickUrlDeep(d, [/account.*letter/, /bank.*letter/, /proof.*account/]) ||
     null;
   return {
-    holder:   d.bank_beneficiary_name || d.account_holder_name || d.beneficiary_name || d.account_holder,
+    holder:   receivingAccountHolder(currency, d),
     bank:     d.bank_name,
     bankAddr: d.bank_address,
     account:  d.bank_account_number || d.account_number,
@@ -496,7 +497,7 @@ export function AccountDetailSheet({ open, onClose, va }: {
   const tc = useThemeClasses();
   if (!va) return <Sheet open={open} onClose={onClose}><div /></Sheet>;
   const cur = String(va.currency).toUpperCase();
-  const d = pickDeposit(va.account_details);
+  const d = pickDeposit(va.account_details, cur);
   const paymentInstructionsUrl = normalizeHttpsUrl(d.paymentInstructionsUrl);
   const accountLetterUrl = normalizeHttpsUrl(d.accountLetterUrl);
   const railLabel = cur === 'EUR' ? 'SEPA' : cur === 'GBP' ? 'Faster Payments' : 'ACH / Wire';
@@ -507,8 +508,7 @@ export function AccountDetailSheet({ open, onClose, va }: {
         <div className={`rounded-2xl ${tc.bgAlt} border ${tc.cardBorder} p-3 flex items-start gap-2 mb-3`}>
           <Info className="w-4 h-4 text-[#C7FF00] mt-0.5 flex-shrink-0" />
           <p className={`text-xs ${tc.textSecondary}`}>
-            Share these details to receive {cur} by bank transfer. The account holder shown is
-            our regulated provider — that’s expected; funds are credited to your BorderPay wallet automatically.
+            {receivingAccountInstructions(cur)}
           </p>
         </div>
 

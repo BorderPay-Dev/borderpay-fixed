@@ -43,7 +43,7 @@ export async function consumeScaAuthorization(params: {
   country: string | null;
   scope_reason: string;
 } | { ok: false; status: number; body: Record<string, unknown> }> {
-  const scope = await resolveBridgeScaScope(params.supabase, params.userId, params.operation === "payment" ? "payment" : "access");
+  const scope = await resolveBridgeScaScope(params.supabase, params.userId, (params.operation === "payment" || params.operation === "beneficiary_change") ? "payment" : "access");
   if (scope.status === "not_required") {
     return { ok: true, required: false, country: scope.country, scope_reason: scope.reason };
   }

@@ -28,7 +28,7 @@ function destinationFor(virtualAccount: any): Record<string, unknown> | null {
 export function selectVaLinkedStablecoinWallets(
   walletRows: unknown,
   virtualAccountRows: unknown,
-  options: { allowUsdtTron?: boolean; includeWithdrawalAssets?: boolean } = {},
+  options: { allowUsdtTron?: boolean; allowEurcBase?: boolean; includeWithdrawalAssets?: boolean } = {},
 ): any[] {
   const wallets = Array.isArray(walletRows) ? walletRows : [];
   const virtualAccounts = Array.isArray(virtualAccountRows) ? virtualAccountRows : [];
@@ -65,7 +65,7 @@ export function selectVaLinkedStablecoinWallets(
 
     // One Base resource supports both assets. Show EURC for EEA accounts;
     // non-EEA wallets show USDC here and their separate USDT/Tron wallet below.
-    return (options.allowUsdtTron && !options.includeWithdrawalAssets ? ['USDC'] : ['USDC', 'EURC']).map((asset) => ({
+    return (options.allowEurcBase ? ['USDC', 'EURC'] : ['USDC']).map((asset) => ({
       ...authoritative,
       currency: asset,
       presentation_id: `${authoritativeWalletId}:${asset}`,

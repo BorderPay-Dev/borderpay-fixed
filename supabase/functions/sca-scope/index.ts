@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeEeaScaEnforcementEnabled, resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
+import { bridgeEeaScaEnforcementEnabled, resolveBridgeScaScope, resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -27,6 +27,15 @@ Deno.serve(async (req: Request) => {
   );
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return json({ success: false, error: "Unauthorized" }, 401);
+
+  const body = await req.json().catch(() => ({}));
+  // Refresh the RLS country observation for installed clients as well as the
+  // new inventory-independent product endpoint.
+  const assets = await resolveBridgeWalletAssetScope(supabase, user.id);
+  if (body?.action === "wallet_assets") {
+    return json({ success: assets.region !== "unknown", data: assets,
+      ...(assets.region === "unknown" ? { code: "wallet_scope_unavailable", error: "Wallet region could not be verified." } : {}) }, assets.region === "unknown" ? 503 : 200);
+  }
 
   const scope = await resolveBridgeScaScope(supabase, user.id);
   if (!bridgeEeaScaEnforcementEnabled() && scope.status !== "not_required") {
