@@ -63,7 +63,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { bridgeProvider } from "../_shared/providers/bridge.ts";
+import { bridgeProvider, BridgeProviderError } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
@@ -874,6 +874,10 @@ Deno.serve(async (req) => {
     if (isBridgeInsufficientWalletBalance(e)) {
       return json({ success: false, code: "insufficient_balance",
         error: "Insufficient balance for this payout. Reduce the amount or add funds before trying again." }, 402);
+    }
+    if (e instanceof BridgeProviderError && (e.status === 0 || e.status === 408 || (e.status ?? 0) >= 500)) {
+      return json({ success: false, code: "response_unconfirmed",
+        error: "We could not confirm this transfer yet. Check Activity before sending again." }, 503);
     }
     return json({
       success: false,
