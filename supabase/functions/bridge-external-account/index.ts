@@ -132,37 +132,52 @@ Deno.serve(async (req) => {
   }
   const customerId = profile.bridge_customer_id;
 
-  // ── delete/deactivate ─────────────────────────────────────────────────
+  // ── delete ────────────────────────────────────────────────────────────
   if (action === "delete") {
-    const extId = String(body.external_account_id || "");
+    const extId = String(body.external_account_id || "").trim();
     if (!extId) return json({ success: false, error: "external_account_id required" }, 400);
-    // Confirm ownership against the local mirror before touching Bridge.
-    const { data: owned } = await supa
+    const { data: owned, error: ownerError } = await supa
       .from("bridge_external_accounts")
       .select("id")
       .eq("user_id", user.id)
+      .eq("bridge_customer_id", customerId)
       .eq("bridge_external_account_id", extId)
       .maybeSingle();
-    if (!owned) return json({ success: false, error: "not found", code: "not_found" }, 404);
-    const sca = await consumeScaAuthorization({
-      supabase: supa,
-      authorizationId: body.sca_authorization_id,
-      userId: user.id,
-      operation: "beneficiary_change",
-      resource: "bridge_external_account",
-      request: body,
-    });
-    if (!sca.ok) return json(sca.body, sca.status);
-    const r = await bridgeFetch({
-      method: "POST",
-      path:   `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(extId)}/deactivate`,
-    });
-    if (!r.ok) return json({ success: false, error: r.error || `HTTP ${r.status}` }, 502);
-    await supa.from("bridge_external_accounts")
+    if (ownerError) return json({ success: false, code: "account_lookup_unavailable", error: "Saved payout accounts are temporarily unavailable." }, 503);
+
+    // A provider-listed account may have no local row after a failed mirror.
+    // Confirm it under the authenticated customer's Bridge resource first.
+    const lookup = await bridgeProvider.getExternalAccount(customerId, extId);
+    const alreadyAbsent = lookup.status === 404 && Boolean(owned);
+    if (!lookup.ok && !alreadyAbsent) {
+      return json({ success: false, code: lookup.status === 404 ? "not_found" : "provider_lookup_failed",
+        error: lookup.status === 404 ? "Payout account not found." : "Could not confirm this payout account with Bridge. Please try again." }, lookup.status === 404 ? 404 : 502);
+    }
+    if (lookup.ok) {
+      const account = (lookup.data as any)?.data ?? lookup.data;
+      if (account?.id !== extId || (account?.customer_id != null && account.customer_id !== customerId)) {
+        return json({ success: false, code: "account_identity_mismatch", error: "Payout account does not match this customer." }, 409);
+      }
+      const sca = await consumeScaAuthorization({
+        supabase: supa, authorizationId: body.sca_authorization_id, userId: user.id,
+        operation: "beneficiary_change", resource: "bridge_external_account", request: body,
+      });
+      if (!sca.ok) return json(sca.body, sca.status);
+      const removed = await bridgeProvider.deleteExternalAccount(customerId, extId);
+      if (!removed.ok && removed.status !== 404) {
+        return json({ success: false, code: "provider_delete_failed",
+          error: "Bridge could not confirm removal of this payout account. Refresh your saved accounts before trying again." }, 502);
+      }
+    }
+    // Mirror only after Bridge confirms deletion/absence. An already completed
+    // deletion is safe to retry without consuming another authorization.
+    const saved = await supa.from("bridge_external_accounts")
       .update({ active: false, status: "deleted", updated_at: new Date().toISOString() })
       .eq("user_id", user.id)
+      .eq("bridge_customer_id", customerId)
       .eq("bridge_external_account_id", extId);
-    return json({ success: true, data: { deleted: true, external_account_id: extId } });
+    return json({ success: true, data: { deleted: true, external_account_id: extId,
+      reconciliation_pending: Boolean(saved.error) } });
   }
 
   // ── list ───────────────────────────────────────────────────────────────

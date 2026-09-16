@@ -28,6 +28,7 @@ import {
 } from '../ui/input-otp';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { retainSavedExternalWallets } from '../../utils/financial/savedExternalWallets';
 import { bridgeTransferUiState, isBridgeTransferUnconfirmed } from '../../utils/financial/bridgeTransferOutcome';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
@@ -415,7 +416,7 @@ function providerFromPolicy(row: AfricanPolicyRow | null | undefined) {
 }
 
 function walletRouteKey(asset: string, chain: string) {
-  return `${String(asset || '').toUpperCase()}:${String(chain || '').toLowerCase()}`;
+  return `${String(asset || '').trim().toUpperCase()}:${String(chain || '').trim().toLowerCase()}`;
 }
 
 function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>, allowUsdtTron = false, allowEurcBase = false) {
@@ -516,10 +517,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       return [];
     }
   }, [externalAccountsCacheKey]);
+  // Retain saved routes while regional scope loads; filter only the visible list.
   const cachedExternalWallets = useMemo(() => {
     try {
       const raw = JSON.parse(localStorage.getItem(externalWalletsCacheKey) || '[]');
-      return Array.isArray(raw) ? raw.filter((wallet) => isSupportedExternalWallet(wallet, false)) : [];
+      return retainSavedExternalWallets<ExternalWallet>(raw);
     } catch {
       return [];
     }
@@ -672,9 +674,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     try {
       const response: any = await backendAPI.externalWallets.list();
       if (!response?.success) throw new Error(response?.error || 'Could not load withdrawal wallets.');
-      const next = Array.isArray(response?.data?.wallets)
-        ? response.data.wallets.filter((wallet: ExternalWallet) => isSupportedExternalWallet(wallet, allowUsdtTron, allowEurcBase))
-        : [];
+      // Do not erase saved USDT/EURC when this request started before scope loaded.
+      const next = retainSavedExternalWallets<ExternalWallet>(response?.data?.wallets);
       setExternalWallets(next);
       try { localStorage.setItem(externalWalletsCacheKey, JSON.stringify(next)); } catch { /* cache best effort */ }
     } catch (error: any) {
@@ -1914,14 +1915,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     void loadExternalWallets();
                   }}
                   className={`group flex w-full items-center gap-3 rounded-2xl border ${tc.cardBorder} ${tc.card} p-4 text-left transition-colors ${tc.hoverBg}`}
-                  aria-label="External digital dollar"
+                  aria-label="External Wallet address"
                 >
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-500/12">
                     <Coins className="h-5 w-5 text-cyan-400" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`truncate text-sm font-semibold ${tc.text}`}>External digital dollar</p>
-                    <p className="mt-1 truncate text-xs font-semibold text-cyan-400">USDC on Base or USDT on TRON</p>
+                    <p className={`truncate text-sm font-semibold ${tc.text}`}>External Wallet address</p>
+                    <p className="mt-1 truncate text-xs font-semibold text-cyan-400">USDC, USDT and EURC</p>
                     <p className="mt-1 truncate text-xs text-white/40">Send to an external wallet address</p>
                   </div>
                   <ArrowRight size={18} className={tc.textMuted} />
@@ -1935,8 +1936,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     <Coins className="h-5 w-5 text-cyan-400" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`truncate text-sm font-semibold ${tc.text}`}>External digital dollar</p>
-                    <p className="mt-1 truncate text-xs font-semibold text-cyan-400">USDC on Base or USDT on TRON</p>
+                    <p className={`truncate text-sm font-semibold ${tc.text}`}>External Wallet address</p>
+                    <p className="mt-1 truncate text-xs font-semibold text-cyan-400">USDC, USDT and EURC</p>
                     <p className="mt-1 truncate text-xs text-white/40">Pending sandbox evidence sign-off</p>
                   </div>
                   <span className="rounded-full bg-amber-400/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-amber-300">

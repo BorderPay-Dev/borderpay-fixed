@@ -48,7 +48,7 @@ export function normalizeBridgeExternalAccounts(payload: unknown): Record<string
       rail: typeof row.rail === "string"
         ? row.rail
         : accountType === "gb" ? "faster_payments" : accountType === "iban" ? "sepa" : "ach",
-      status: typeof row.status === "string" ? row.status : "active",
+      status: row.active === false ? "inactive" : typeof row.status === "string" ? row.status : "active",
     };
   }).filter((row) => Boolean(row.bridge_external_account_id && row.account_type && row.currency));
 }

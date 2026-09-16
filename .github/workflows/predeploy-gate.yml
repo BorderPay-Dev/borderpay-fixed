@@ -36,6 +36,7 @@ jobs:
           tests/regional-wallet-provision-http.test.ts
           tests/wallet-scope-refresh-http.test.ts
           tests/external-account-list-http.test.ts
+          tests/external-account-delete-http.test.ts
           tests/bridge-initiation-http.test.ts
           tests/bridge-transfer-webhook-owner.test.ts
           tests/va-settlement-receipt.test.ts
@@ -47,6 +48,7 @@ jobs:
           tests/bridge-approved-account-status.test.ts
           tests/hosted-verification-resume-http.test.ts
           tests/external-wallet-eurc-http.test.ts
+          tests/saved-external-wallets.test.ts
           tests/bridge-va-wallet-sync-http.test.ts
           tests/unit/base_wallet_funding_test.ts
           tests/unit/crypto_address_test.ts

@@ -852,6 +852,20 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Money movement ────────────────────────────────────────────────────────
+  async getExternalAccount(customerId: string, externalAccountId: string) {
+    return await bridgeFetch({
+      method: "GET",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(externalAccountId)}`,
+    });
+  }
+
+  async deleteExternalAccount(customerId: string, externalAccountId: string) {
+    return await bridgeFetch({
+      method: "DELETE",
+      path: `/v0/customers/${encodeURIComponent(customerId)}/external_accounts/${encodeURIComponent(externalAccountId)}`,
+    });
+  }
+
   async listExternalAccounts(customerId: string): Promise<Array<Record<string, any>>> {
     return await this.fetchBridgeListPaginated<Record<string, any>>({
       path: `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,

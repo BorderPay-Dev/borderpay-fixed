@@ -10,6 +10,7 @@ import React, { useEffect, useState } from 'react';
 import { Plus, Wallet, Trash2, ArrowUpRight, Shield, X, Loader2, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { backendAPI, type ExternalWallet } from '../../utils/api/backendAPI';
+import { retainSavedExternalWallets } from '../../utils/financial/savedExternalWallets';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { useVerification } from '../../utils/verification/useVerification';
@@ -51,7 +52,7 @@ function validAddress(chain: string, a: string): boolean {
 function readCache(cacheKey: string): ExternalWallet[] {
   try {
     const v = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-    return Array.isArray(v) ? v : [];
+    return retainSavedExternalWallets<ExternalWallet>(v);
   }
   catch { return []; }
 }
@@ -97,7 +98,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         { success: false, error: 'request_timeout' } as any
       );
       if (r?.success) {
-        const next: ExternalWallet[] = Array.isArray(r.data?.wallets) ? r.data.wallets : [];
+        const next = retainSavedExternalWallets<ExternalWallet>(r.data?.wallets);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       }
@@ -140,7 +141,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     try {
       const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() });
       if (r?.success && r.data?.wallet) {
-        const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)], allowUsdtTron, allowEurcBase);
+        const next = retainSavedExternalWallets<ExternalWallet>([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)]);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         setAdding(false); setLabel(''); setAddress(''); setAsset('USDC'); setChain('base');
