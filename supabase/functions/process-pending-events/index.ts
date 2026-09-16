@@ -2999,7 +2999,7 @@ async function ensureStablecoinWalletsProvisioned(input: {
   const statusValue = (profile as Record<string, unknown> | null)?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
 
-  const walletScope = await resolveBridgeWalletAssetScope(supabase, input.userId);
+  const walletScope = await resolveBridgeWalletAssetScope(supabase, input.userId, { forceRefresh: true });
   if (walletScope.region === "unknown") throw new Error("wallet_scope_unavailable");
   const targets = [DEFAULT_STABLECOIN_WALLET] as Array<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }>;
   if (walletScope.allow_usdt_tron) {
