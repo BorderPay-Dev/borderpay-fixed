@@ -1,6 +1,6 @@
 import { ISO2_COUNTRIES, ISO3_TO_ISO2 } from "./iso-country-codes.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "./bridge-identity-invariant.ts";
-import { bridgeProvider } from "./providers/bridge.ts";
+import { bridgeProvider, BridgeProviderError } from "./providers/bridge.ts";
 
 /** The 30 EEA states. The UK and Switzerland are deliberately excluded. */
 export const BRIDGE_EEA_SCA_COUNTRIES: ReadonlySet<string> = new Set([
@@ -32,6 +32,7 @@ export type BridgeScaScope = {
     | "identity_invariant_violation"
     | "bridge_scope_unavailable"
     | "business_incorporation_country_unavailable";
+  diagnostic_code?: string;
   country: string | null;
   verified: boolean;
   has_custodial_wallet: boolean | null;
@@ -111,7 +112,7 @@ async function resolveScopeForIdentity(
   userId: string,
 ): Promise<BridgeScaScope> {
   if (!identity.ok) {
-    return { required: false, status: "unknown", reason: "identity_invariant_violation", country: null, verified: false, has_custodial_wallet: null };
+    return { required: false, status: "unknown", reason: "identity_invariant_violation", diagnostic_code: identity.failure.reason, country: null, verified: false, has_custodial_wallet: null };
   }
 
   const { bridge_customer_id: customerId, verification_status: verificationStatus } = identity.context;
@@ -137,6 +138,7 @@ async function resolveScopeForIdentity(
         reason: identity.context.account_type === "business"
           ? "business_incorporation_country_unavailable"
           : "bridge_scope_unavailable",
+        diagnostic_code: "authoritative_country_missing",
         country: null,
         verified,
         has_custodial_wallet: null,
@@ -158,7 +160,11 @@ async function resolveScopeForIdentity(
     return { required: true, status: "required", reason: "verified_eea_custodial_wallet", country: resolvedCountry, verified, has_custodial_wallet: true };
   } catch (error) {
     console.error("bridge_sca_scope_resolution_failed", { user_id: userId, error: error instanceof Error ? error.message : "unknown" });
-    return { required: false, status: "unknown", reason: "bridge_scope_unavailable", country: null, verified, has_custodial_wallet: null };
+    return { required: false, status: "unknown", reason: "bridge_scope_unavailable",
+      diagnostic_code: error instanceof BridgeProviderError
+        ? (error.status ? `bridge_http_${error.status}` : "bridge_transport_or_configuration_error")
+        : "scope_resolution_internal_error",
+      country: null, verified, has_custodial_wallet: null };
   }
 }
 
@@ -191,5 +197,6 @@ export async function resolveBridgeWalletAssetScope(supabase: SupaLike, userId: 
     allow_usdt_tron: nonEea,
     country: scope.country,
     reason: scope.reason,
+    ...(scope.diagnostic_code ? { diagnostic_code: scope.diagnostic_code } : {}),
   };
 }
