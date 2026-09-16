@@ -48,7 +48,7 @@ export async function consumeScaAuthorization(params: {
     return { ok: true, required: false, country: scope.country, scope_reason: scope.reason };
   }
   if (scope.status === "unknown") {
-    return { ok: false, status: 503, body: { success: false, code: "sca_scope_unavailable", error: "Strong authentication could not be verified. Nothing was changed." } };
+    return { ok: false, status: 503, body: { success: false, code: "sca_scope_unavailable", error: "Payment authentication is temporarily unavailable. Please try again shortly." } };
   }
 
   // Disabling the service pauses protected payouts; it never exempts EEA users.
@@ -71,7 +71,7 @@ export async function consumeScaAuthorization(params: {
   });
   if (error) {
     console.error("sca_consume_lookup_failed", { code: error.code, operation: params.operation, resource: params.resource });
-    return { ok: false, status: 503, body: { success: false, code: "sca_unavailable", error: "Strong authentication could not be verified. Nothing was changed." } };
+    return { ok: false, status: 503, body: { success: false, code: "sca_unavailable", error: "Payment authentication is temporarily unavailable. Please try again shortly." } };
   }
   if (data !== true) {
     return { ok: false, status: 403, body: { success: false, code: "sca_invalid", error: "Strong authentication expired, was already used, or does not match this action." } };

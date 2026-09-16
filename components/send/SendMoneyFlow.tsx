@@ -28,6 +28,7 @@ import {
 } from '../ui/input-otp';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
+import { bridgeTransferUiState } from '../../utils/financial/bridgeTransferOutcome';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
@@ -1571,6 +1572,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         throw new Error('Unsupported transfer method.');
       }
 
+      if (result.success && !isAfricanPayout && bridgeTransferUiState(result.data) === 'failed') {
+        result = { ...result, success: false, code: 'transfer_failed',
+          error: 'This transfer did not complete. Check its status in Activity before sending again.' };
+      }
       if (result.success) {
         verifiedScaPinRef.current = '';
         // The provider webhook owns the balance mutation. Drop every derived
@@ -1596,7 +1601,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         setNewBalance(result.data?.new_balance ?? null);
         const providerState = String(result.data?.transaction?.provider_status || result.data?.transaction?.status || '').toLowerCase();
         const pendingConfirmation = (result as any)?.code === 'provider_confirmation_pending' ||
-          ['confirmation_pending', 'created', 'process', 'processing', 'pending', 'submitted'].includes(providerState);
+          (isAfricanPayout
+            ? ['confirmation_pending', 'created', 'process', 'processing', 'pending', 'submitted'].includes(providerState)
+            : bridgeTransferUiState(result.data) === 'pending');
         setTransactionPending(pendingConfirmation);
         setStep('success');
         if (isAfricanPayout) {

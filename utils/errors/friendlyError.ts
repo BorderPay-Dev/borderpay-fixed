@@ -26,7 +26,9 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /invalid.*password|wrong.*password|incorrect.*password/i, message: 'Incorrect password. Please try again.' },
   { pattern: /password.*short|password.*least/i, message: 'Password is too short. Use at least 12 characters.' },
   { pattern: /insufficient.*funds|insufficient.*balance/i, message: 'Insufficient balance for this transaction.' },
-  { pattern: /kyc.*required|verification.*required|not.*verified|not_verified/i, message: 'Identity verification required. Verify your ID to continue.' },
+  { pattern: /strong authentication.*(could not|unavailable)|sca_scope_unavailable|sca_unavailable/i, message: 'Payment authentication is temporarily unavailable. Please try again shortly.' },
+  { pattern: /could not verify your wallet balance/i, message: 'We could not check your available balance. Please try again shortly.' },
+  { pattern: /\bkyc.*required|\bidentity verification.*required|\b(identity|account|kyc) (?:is )?not verified\b|^not_verified$/i, message: 'Identity verification required. Verify your ID to continue.' },
   // Provisioning/onboarding gaps — phrased for the user, partner-free.
   { pattern: /no .*customer|customer .*(not|n't) (found|exist|provision)|customer_id|not_started|onboarding/i, message: 'Finish verifying your identity to use this feature.' },
   { pattern: /endorsement|not .*available .*region|unsupported.*region|nexus/i, message: 'This service isn\'t available for your region yet.' },
@@ -47,6 +49,15 @@ const FORBIDDEN = /\b(bridge|yellow\s*card|yellowcard|stripe|youverify|persona|p
  * otherwise assume the string is already user-safe copy.
  */
 export function friendlyError(error: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  const code = typeof error === 'object' && error !== null ? String((error as any).code || '') : '';
+  if (['sca_scope_unavailable', 'sca_unavailable', 'sca_enforcement_unavailable'].includes(code)) {
+    return 'Payment authentication is temporarily unavailable. Please try again shortly.';
+  }
+  if (code === 'sca_required') return 'Authorize this payment with your PIN and authenticator code.';
+  if (code === 'sca_invalid') return 'Payment authorization expired or was already used. Check Activity before authorizing again.';
+  if (code === 'balance_check_unavailable') return 'We could not check your available balance. Please try again shortly.';
+  if (code === 'insufficient_balance') return 'Insufficient balance for this payout. Reduce the amount or add funds before trying again.';
+  if (code === 'kyc_not_approved') return 'Identity verification required. Verify your ID to continue.';
   const raw = typeof error === 'string'
     ? error
     : error instanceof Error
@@ -54,6 +65,7 @@ export function friendlyError(error: unknown, fallback = 'Something went wrong. 
       : (error as any)?.error || (error as any)?.message || '';
 
   if (!raw) return fallback;
+  if (/^We could not confirm this transfer yet\./.test(raw)) return raw;
 
   // 1. Known, mappable technical errors → friendly copy.
   for (const { pattern, message } of ERROR_MAP) {

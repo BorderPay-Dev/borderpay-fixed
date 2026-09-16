@@ -19,6 +19,7 @@ import { friendlyError } from '../errors/friendlyError';
 import { executeEnterpriseRecaptcha } from '../security/recaptchaEnterprise';
 import { getNativeAppCheckToken } from '../security/firebaseAppCheck';
 import { selectVaLinkedStablecoinWallets } from '../financial/vaLinkedWalletPresentation';
+import { normalizeLegacyBridgeAcceptance } from '../financial/bridgeTransferOutcome';
 
 export type WalletAssetScope = {
   allow_usdt_tron: boolean;
@@ -78,6 +79,7 @@ async function getWalletAssetScope(explicitUserId?: string): Promise<WalletAsset
 }
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
+  if (endpoint === 'bridge-transfer') return 60000;
   // Endpoints that can legitimately take longer because they trigger
   // provider-side orchestration and/or email delivery.
   if (endpoint === 'auth-signup') return 45000;
@@ -98,7 +100,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
 }
 
 // ── Sanitize error messages to prevent info leakage ──────────────────────────
-function sanitizeError(raw: string | undefined): string {
+function sanitizeError(raw: unknown): string {
   return friendlyError(raw, 'Something went wrong. Please try again.');
 }
 
@@ -160,6 +162,13 @@ async function apiCall<T = any>(
       }
     }
 
+    if (endpoint === 'bridge-transfer') {
+      const normalized = normalizeLegacyBridgeAcceptance(data);
+      if (normalized !== data) {
+        navPerfTrackApi(endpoint, 'end', true);
+        return normalized;
+      }
+    }
     // Legacy funding_required responses are no longer shown as an unlock UI.
     // Customer access is governed by verification/KYC/KYB.
     if (
@@ -193,7 +202,10 @@ async function apiCall<T = any>(
       navPerfTrackApi(endpoint, 'end', false);
       return {
         success: false,
-        error: sanitizeError(data.error || data.message),
+        error: sanitizeError(data),
+        ...(endpoint === 'bridge-transfer' && data?.bridge_transfer_id ? {
+          bridge_transfer_id: data.bridge_transfer_id, data: data.data,
+        } : {}),
         ...(data?.code ? { code: data.code } : {}),
         ...(data?.upgrade_to ? { upgrade_to: data.upgrade_to } : {}),
       } as any;
@@ -201,7 +213,7 @@ async function apiCall<T = any>(
 
     // If the edge function already returns { success, data }, pass through
     if (data && typeof data === 'object' && 'success' in data) {
-      if (!data.success) data.error = sanitizeError(data.error);
+      if (!data.success) data.error = sanitizeError(data);
       navPerfTrackApi(endpoint, 'end', !!data.success);
       return data;
     }
@@ -211,6 +223,8 @@ async function apiCall<T = any>(
   } catch (error: any) {
     navPerfTrackApi(endpoint, 'end', false);
     if (error?.name === 'AbortError') {
+      if (endpoint === 'bridge-transfer') return { success: false, code: 'response_unconfirmed',
+        error: 'We could not confirm this transfer yet. Check Activity before sending again.' } as any;
       return { success: false, code: 'response_unconfirmed', error: 'We could not confirm the response. Please try again.' } as any;
     }
     // Retry once on network failure for critical calls

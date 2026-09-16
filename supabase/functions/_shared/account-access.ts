@@ -37,7 +37,7 @@ export async function getFinancialAccessBlock(
   if (error) {
     return {
       code: "account_frozen",
-      error: "Account access could not be verified. Financial actions are temporarily unavailable.",
+      error: "Account access is temporarily unavailable. Please try again shortly.",
       account_status: "access_check_failed",
       frozen_at: null,
     };
