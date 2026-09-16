@@ -1,3 +1,4 @@
+import { render as mobileAppUpdate } from "./mobile-app-update.ts";
 /**
  * Email template registry — single source of truth for every transactional
  * email BorderPay sends. Each template exports a `render(props)` function
@@ -83,6 +84,7 @@ export type TemplateName =
   | "individual.affiliate_program"
   | "individual.stablecoin_free_announcement"
   | "individual.app_store_announcement"
+  | "individual.mobile_app_update"
   | "individual.account_maintenance_fee"
   | "business.email_verification"
   | "business.pin_reset_link"
@@ -105,6 +107,7 @@ export type TemplateName =
   | "business.affiliate_program"
   | "business.stablecoin_free_announcement"
   | "business.app_store_announcement"
+  | "business.mobile_app_update"
   | "business.account_maintenance_fee"
   | "business.onboarding_lifecycle"
   | "business.partner_invoice"
@@ -135,6 +138,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "individual.bulk_payment_invite":      individualBulkPaymentInvite,
   "individual.affiliate_program":        individualAffiliateProgram,
   "individual.stablecoin_free_announcement": individualStablecoinFreeAnnouncement,
+  "individual.mobile_app_update": mobileAppUpdate,
   "individual.app_store_announcement": individualAppStoreAnnouncement,
   "individual.account_maintenance_fee": individualAccountMaintenanceFee,
   "business.email_verification":        businessEmailVerification,
@@ -157,6 +161,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.team_invite":                businessTeamInvite,
   "business.affiliate_program":          businessAffiliateProgram,
   "business.stablecoin_free_announcement": businessStablecoinFreeAnnouncement,
+  "business.mobile_app_update": mobileAppUpdate,
   "business.app_store_announcement": businessAppStoreAnnouncement,
   "business.account_maintenance_fee": businessAccountMaintenanceFee,
   "business.onboarding_lifecycle": businessOnboardingLifecycle,
