@@ -78,9 +78,20 @@ Deno.serve(async (req) => {
 
   let providerVas: Awaited<ReturnType<typeof bridgeProvider.listVirtualAccounts>> | null = null;
 
+  // Resolve both live resources before persisting routing. Older clients read
+  // destination IDs but did not fetch wallet addresses.
+  const [vaRead, walletRead] = await Promise.allSettled([
+    bridgeProvider.listVirtualAccounts(customerId),
+    bridgeProvider.listWallets(customerId),
+  ]);
+  const liveCanonicalBase = vaRead.status === "fulfilled" && walletRead.status === "fulfilled"
+    ? selectVaLinkedBaseWallet(walletRead.value.map(w => ({ ...w, status: w.status || "active" })), vaRead.value)
+    : null;
+
   // ── Virtual accounts ───────────────────────────────────────────────────────
   try {
-    const bva = await bridgeProvider.listVirtualAccounts(customerId);
+    if (vaRead.status === "rejected") throw vaRead.reason;
+    const bva = vaRead.value;
     providerVas = bva;
     for (const v of bva) {
       if (!v.virtual_account_id) continue;
@@ -94,6 +105,17 @@ Deno.serve(async (req) => {
         : {};
       // The latest API destination is authoritative, including an explicit null.
       const providerDestination = providerDetails.destination ?? null;
+      const destination = providerDestination && typeof providerDestination === "object"
+        ? providerDestination as Record<string, unknown> : null;
+      const addressMatches = destination && liveCanonicalBase &&
+        String(destination.address || "").trim().toLowerCase() === String(liveCanonicalBase.address || "").trim().toLowerCase() &&
+        String(destination.address || "").trim() !== "";
+      const derivedId = destination && !destination.bridge_wallet_id && addressMatches &&
+        String(destination.payment_rail || "").toLowerCase() === "base" &&
+        ["usdc", "eurc"].includes(String(destination.currency || "").toLowerCase())
+        ? liveCanonicalBase.wallet_id : null;
+      const normalizedDestination = derivedId
+        ? { ...destination, bridge_wallet_id: derivedId } : providerDestination;
       const row = {
         ...ownerCols,
         bridge_customer_id:        customerId,
@@ -107,8 +129,15 @@ Deno.serve(async (req) => {
         account_details:           {
           ...existingDetails,
           ...providerDetails,
-          destination: providerDestination,
-          bridge_sync_raw: providerDetails,
+          destination: normalizedDestination,
+          // Keep the exact API response separate from legacy normalized routing.
+          bridge_provider_raw: providerDetails,
+          bridge_sync_raw: { ...providerDetails, destination: normalizedDestination },
+          wallet_binding: derivedId ? {
+            source: "provider_wallet_address_match",
+            bridge_wallet_id: derivedId,
+            bridge_customer_id: customerId,
+          } : null,
         },
         updated_at:                new Date().toISOString(),
       };
@@ -124,7 +153,8 @@ Deno.serve(async (req) => {
 
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
-    const bw = await bridgeProvider.listWallets(customerId);
+    if (walletRead.status === "rejected") throw walletRead.reason;
+    const bw = walletRead.value;
     const canonicalBase = providerVas === null ? null : selectVaLinkedBaseWallet(
       bw.map(w => ({ ...w, status: w.status || "active" })), providerVas,
     );

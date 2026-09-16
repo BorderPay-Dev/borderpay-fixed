@@ -68,13 +68,15 @@ Deno.serve(async (req) => {
     // come from user_profiles above; bridge_kyb_status from here).
     const accountType = profile?.account_type || userData?.account_type || "individual";
     let bridgeKybStatus: string | null = null;
+    let businessIncorporationCountry: string | null = null;
     if (accountType === "business") {
       const { data: biz } = await supabase
         .from("business_profiles")
-        .select("bridge_kyb_status")
+        .select("bridge_kyb_status,country")
         .eq("user_id", user.id)
         .maybeSingle();
       bridgeKybStatus = biz?.bridge_kyb_status ?? null;
+      businessIncorporationCountry = biz?.country ?? null;
     }
 
     // The single source of truth for email-confirmed state is
@@ -119,6 +121,7 @@ Deno.serve(async (req) => {
           phone:               profile?.phone || userData?.phone || null,
           country:             profile?.country || userData?.country || null,
           account_type:        accountType,
+          business_incorporation_country: businessIncorporationCountry,
           kyc_status:          profile?.kyc_status || userData?.kyc_status || "unverified",
           kyc_level:           profile?.kyc_level || 0,
           wallet_activated:    userData?.wallet_activated || false,

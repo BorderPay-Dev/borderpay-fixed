@@ -31,7 +31,11 @@ checks = {
     "wallet cache restores Tron after regional scope resolves": "walletScopeResolved" in wallet and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase })" in wallet,
     "receive cache restores Tron after regional scope resolves": "walletScopeResolved" in receive and "selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase })" in receive,
     "wallet screen supports three bounded assets": "new Set(['USDC', 'EURC', 'USDT'])" in wallet,
-    "add-wallet hides USDT unless non-EEA": "{ code: 'USDT'" in add_wallet and "card.code !== 'USDT' || allowUsdtTron" in add_wallet,
+    "add-wallet separates regional preview from approved wallet permission": all(marker in add_wallet for marker in [
+        "previewWalletAssets(scopedCountry || (!verified ? country : null))",
+        "verified && scopedCountry", "card.code === 'USDT' && allowUsdtTron",
+        "card.code === 'EURC' && allowEurcBase", "previewAssets.includes(card.code)",
+    ]),
     "receive binds USDT to Tron": "sym === 'USDT' && chain === 'tron'" in receive,
     "saved payout wallets gate USDT by scope": "USDT:tron" in external and "allowUsdtTron" in external,
     "address validation is independent of the Base-only form selector": "../../utils/financial/cryptoAddress" in withdrawal,
