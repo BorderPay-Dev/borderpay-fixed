@@ -1,3 +1,4 @@
+import { requestReviewAfterPayment } from '../../utils/reviews/appReview';
 import { reconcileSavedBankAccounts } from '../../utils/financial/savedBankAccounts';
 /**
  * BorderPay Africa - Send Money Flow (provider-backed payout rails)
@@ -3479,7 +3480,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 Download receipt
               </button>
               <button
-                onClick={onComplete}
+                onClick={() => {
+                  // Only the completed receipt's Done action may request review.
+                  // Submitted/pending payouts and sandbox rails are excluded.
+                  void requestReviewAfterPayment(userId,
+                    !transactionPending && Boolean(transactionId) && !isAfricanPayout
+                    && !verificationChecking && !verificationReadFailed && isFullEnrollment(kycStatus));
+                  onComplete();
+                }}
                 className={`w-full py-3 rounded-full text-sm font-semibold ${tc.textMuted} ${tc.hoverBg}`}
               >
                 {t('common.done')}

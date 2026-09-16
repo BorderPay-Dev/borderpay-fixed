@@ -1,3 +1,4 @@
+import { recordNativeReviewVisit } from '../../utils/reviews/appReview';
 /**
  * BorderPay Africa - Main App Container
  * Handles navigation between all app screens after authentication.
@@ -424,6 +425,13 @@ type StablecoinConfirmData = {
 };
 
 export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismissNewDevice, onTrustDevice }: MainAppProps) {
+  useEffect(() => {
+    const recordVisit = () => recordNativeReviewVisit(userId);
+    recordVisit();
+    document.addEventListener('visibilitychange', recordVisit);
+    return () => document.removeEventListener('visibilitychange', recordVisit);
+  }, [userId]);
+
   const africanRailsTester = canUseAfricanRails({
     id: userId,
     email: (authAPI.getStoredUser() as any)?.email,
