@@ -2684,11 +2684,17 @@ export const bridgeAPI = {
         { method: 'POST', body: JSON.stringify({ action: 'create', account, ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}) }) },
       ),
 
-    remove: async (externalAccountId: string, scaAuthorizationId?: string) =>
-      apiCall<{ deleted: boolean; external_account_id: string }>(
+    remove: async (externalAccountId: string, scaAuthorizationId?: string) => {
+      const userId = String(authAPI.getStoredUser()?.id || '');
+      const result = await apiCall<{ deleted: boolean; external_account_id: string }>(
         'bridge-external-account',
         { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId, ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}) }) },
-      ),
+      );
+      if (result.success && userId && authAPI.getStoredUser()?.id === userId) {
+        financialReadModelAPI.invalidateForUser(userId);
+      }
+      return result;
+    },
 
     /** Read payout destinations from Bridge (source of truth). */
     list: async () => {
