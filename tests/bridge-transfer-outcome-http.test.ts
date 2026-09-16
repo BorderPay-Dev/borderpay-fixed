@@ -8,7 +8,7 @@ let handler: Handler;
 const serve = Deno.serve;
 Deno.serve = ((fn: Handler) => { handler = fn; return {}; }) as typeof Deno.serve;
 try { await import('../supabase/functions/bridge-transfer/index.ts'); } finally { Deno.serve = serve; }
-const { bridgeProvider } = await import('../supabase/functions/_shared/providers/bridge.ts');
+const { bridgeProvider, BridgeProviderError } = await import('../supabase/functions/_shared/providers/bridge.ts');
 
 Deno.test('accepted EEA transfer survives persistence failure, replays without SCA reuse, and reports real rejections', async () => {
   const originalFetch = globalThis.fetch, originalCreate = bridgeProvider.createTransfer, originalLog = console.log;
@@ -110,6 +110,10 @@ Deno.test('accepted EEA transfer survives persistence failure, replays without S
     assertEquals(result.body.success, true); assertEquals(result.body.data.transfer_id, id);
     assertEquals(result.body.data.reconciliation_pending, true);
     console.log = originalLog;
+    accepted = null; prepared = null;
+    bridgeProvider.createTransfer = async () => { throw new BridgeProviderError('response lost', { status: 0 }); };
+    assertEquals((await call()).body.code, 'response_unconfirmed');
+    bridgeProvider.createTransfer = originalCreate;
     accountStatus = 'frozen';
     assertEquals((await call()).body.code, 'account_frozen');
   } finally { globalThis.fetch = originalFetch; bridgeProvider.createTransfer = originalCreate; console.log = originalLog; }

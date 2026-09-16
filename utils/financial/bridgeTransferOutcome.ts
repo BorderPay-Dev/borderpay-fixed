@@ -18,3 +18,7 @@ export function bridgeTransferUiState(data: any): 'pending' | 'completed' | 'fai
   if (['failed', 'undeliverable', 'returned', 'missing_return_policy', 'refunded', 'refund_failed', 'canceled', 'error'].includes(state)) return 'failed';
   return 'pending';
 }
+
+export function isBridgeTransferUnconfirmed(result: any): boolean {
+  return result?.success === false && ['response_unconfirmed', 'transfer_status_unavailable'].includes(result.code);
+}

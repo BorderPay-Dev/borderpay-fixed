@@ -28,7 +28,7 @@ import {
 } from '../ui/input-otp';
 import { isFullEnrollment, deriveKycStatus } from '../../utils/config/environment';
 import { friendlyError } from '../../utils/errors/friendlyError';
-import { bridgeTransferUiState } from '../../utils/financial/bridgeTransferOutcome';
+import { bridgeTransferUiState, isBridgeTransferUnconfirmed } from '../../utils/financial/bridgeTransferOutcome';
 import { FloatingBackButton } from '../common/FloatingBackButton';
 import { validateTransferAmount } from '../../utils/fees';
 import { computePayoutFee } from '../../utils/fees/engine';
@@ -1030,6 +1030,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const [transactionId, setTransactionId] = useState('');
   const [transactionRef, setTransactionRef] = useState('');
   const [transactionPending, setTransactionPending] = useState(false);
+  const [transactionUnconfirmed, setTransactionUnconfirmed] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [newBalance, setNewBalance] = useState<number | null>(null);
   const institutionsCacheKey = useMemo(
@@ -1456,6 +1457,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   const processTransaction = async (scaAuthorizationId?: string) => {
     setTransactionPending(false);
+    setTransactionUnconfirmed(false);
     // Never retain a transaction PIN while a request is in flight or after a
     // route transition. Non-stablecoin flows have already verified it locally.
     setPin('');
@@ -1614,6 +1616,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       } else {
         // Map structured server codes to friendly user-facing messages.
         const code = (result as any)?.code;
+        setTransactionUnconfirmed(!isAfricanPayout && isBridgeTransferUnconfirmed(result));
         if (code === 'sca_required' && (method === 'stablecoin' || method === 'us_ach_wire')) {
           // The transfer boundary is authoritative. Recover from a stale scope
           // preflight by completing TOTP, never by exposing a terminal error.
@@ -1637,7 +1640,10 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
         setErrorMessage(friendly || t('send.txFailed'));
         setStep('error');
-        if (friendly) toast.error(friendlyError(friendly, t('send.txFailed')));
+        if (friendly) {
+          if (!isAfricanPayout && isBridgeTransferUnconfirmed(result)) toast.info(friendly);
+          else toast.error(friendlyError(friendly, t('send.txFailed')));
+        }
       }
     } catch (error: any) {
       const fallback = friendlyError(error?.message, t('send.txFailed'));
@@ -1749,7 +1755,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'totp': return 'Authenticator verification';
       case 'processing': return t('send.processingTx');
       case 'success': return transactionPending ? 'Confirmation pending' : t('send.txSuccessful');
-      case 'error': return t('send.txFailed');
+      case 'error': return transactionUnconfirmed ? 'Status not confirmed' : t('send.txFailed');
       default: return t('send.title');
     }
   };
@@ -3387,7 +3393,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             </div>
 
             <div className="space-y-3">
-              <button
+              {!transactionPending && <button
                 onClick={() => {
                   if (isAfricanPayout) yellowCardSequenceRef.current = null;
                   setAmount('');
@@ -3402,7 +3408,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
               >
                 Send again
-              </button>
+              </button>}
               <button
                 onClick={downloadReceiptPdf}
                 className={`w-full ${tc.card} border ${tc.borderLight} py-4 rounded-full font-bold ${tc.text} ${tc.hoverBg} transition-all active:scale-[0.98]`}
@@ -3429,18 +3435,18 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             animate={{ opacity: 1, scale: 1 }}
             className="px-5 py-10 text-center"
           >
-            <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6">
-              <XCircle className="w-12 h-12 text-red-500" />
+            <div className={`w-20 h-20 rounded-full ${transactionUnconfirmed ? 'bg-amber-500/20' : 'bg-red-500/20'} flex items-center justify-center mx-auto mb-6`}>
+              {transactionUnconfirmed ? <Info className="w-12 h-12 text-amber-500" /> : <XCircle className="w-12 h-12 text-red-500" />}
             </div>
-            <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{t('send.txFailed')}</h2>
+            <h2 className={`text-xl font-bold mb-2 ${tc.text}`}>{transactionUnconfirmed ? 'Status not confirmed' : t('send.txFailed')}</h2>
             <p className={`text-sm ${tc.textMuted} mb-8 max-w-xs mx-auto`}>{errorMessage}</p>
 
             <div className="space-y-3">
               <button
-                onClick={() => { setPin(''); setStep('pin'); }}
+                onClick={() => { if (transactionUnconfirmed) { onComplete(); return; } setPin(''); setStep('pin'); }}
                 className="w-full bg-[#C7FF00] text-black py-4 rounded-full font-bold hover:bg-[#B8F000] transition-all active:scale-[0.98]"
               >
-                {t('send.tryAgain')}
+                {transactionUnconfirmed ? t('common.done') : t('send.tryAgain')}
               </button>
               <button
                 onClick={onBack}

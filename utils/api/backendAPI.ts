@@ -231,10 +231,9 @@ async function apiCall<T = any>(
     if (retries < 1 && !options.signal?.aborted) {
       return apiCall<T>(endpoint, options, retries + 1);
     }
-    return {
-      success: false,
-      error: 'Connection error. Please check your internet and try again.',
-    };
+    if (endpoint === 'bridge-transfer') return { success: false, code: 'response_unconfirmed',
+      error: 'We could not confirm this transfer yet. Check Activity before sending again.' } as any;
+    return { success: false, error: 'Connection error. Please check your internet and try again.' };
   }
 }
 
