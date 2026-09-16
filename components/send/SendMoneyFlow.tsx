@@ -1067,10 +1067,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
+    let bankListLoaded = false;
     const hydrateOnce = async (force = false) => {
       if (inFlight) return;
       try {
-        const hasCached = walletsRef.current.length > 0 || externalAccountsRef.current.length > 0;
+        const hasCached = bankListLoaded;
         const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
         if (!force && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
         inFlight = true;
@@ -1134,6 +1135,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
         if (!res.data.external_accounts_partial) {
+          bankListLoaded = true;
           try { localStorage.setItem(sendRefreshTsKey, String(Date.now())); } catch { /* noop */ }
         }
       } catch (error: any) {
