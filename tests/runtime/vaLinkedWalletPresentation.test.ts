@@ -31,11 +31,9 @@ const ambiguous = selectVaLinkedStablecoinWallets(wallets, [
   ...virtualAccounts,
   { currency: 'EUR', status: 'active', account_details: { destination: { bridge_wallet_id: duplicateId, currency: 'EURC', payment_rail: 'base' } } },
 ], { allowEurcBase: true });
-assert.deepEqual(ambiguous.map(row => row.currency), ['USDC', 'EURC']);
-assert.equal(ambiguous.every(row => row.bridge_wallet_id === duplicateId), true);
+assert.deepEqual(ambiguous, []);
 
 const inactive = selectVaLinkedStablecoinWallets(wallets, virtualAccounts.map((row) => ({ ...row, status: 'closed' })), { allowEurcBase: true });
-assert.deepEqual(inactive.map(row => row.currency), ['USDC', 'EURC']);
-assert.equal(inactive.every(row => row.bridge_wallet_id === duplicateId), true);
+assert.deepEqual(inactive, []);
 
 console.log('PASS: VA-linked Base wallet runtime fixtures');

@@ -22,7 +22,7 @@ receive = RECEIVE.read_text()
 
 for marker in [
     "const activeBaseWallets = wallets.filter",
-    "return ['USDC', 'EURC'].map",
+    "options.allowEurcBase ? ['USDC', 'EURC'] : ['USDC']",
     "presentation_id: `${authoritativeWalletId}:${asset}`",
     "USDT is a separate Tron wallet",
     "return canonicalRows",
@@ -35,8 +35,8 @@ if "delete" in helper.lower() or ".update(" in helper:
 require(api, "allowUsdtTron: walletAssetScope.allow_usdt_tron", "financial snapshot scope")
 require(wallet, "new Set(['USDC', 'EURC', 'USDT'])", "wallet supported assets")
 require(wallet, "presentation_id", "stablecoin row key")
-require(wallet, "selectVaLinkedStablecoinWallets(scoped, cachedVas)", "wallet cache")
-require(receive, "selectVaLinkedStablecoinWallets(scoped, cachedVas)", "receive cache")
+require(wallet, "selectVaLinkedStablecoinWallets(scoped, cachedVas,", "wallet cache")
+require(receive, "selectVaLinkedStablecoinWallets(scoped, cachedVas,", "receive cache")
 
 print("PASS: one authoritative Base wallet is presented")
 print("PASS: unlinked Base duplicates are hidden without provider/database mutation")
