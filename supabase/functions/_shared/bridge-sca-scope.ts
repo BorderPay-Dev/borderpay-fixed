@@ -169,8 +169,30 @@ async function resolveScopeForIdentity(
 }
 
 /** Product eligibility is independent of wallet inventory and SCA enrollment. */
-export async function resolveBridgeWalletAssetScope(supabase: SupaLike, userId: string) {
+export async function resolveBridgeWalletAssetScope(supabase: SupaLike, userId: string, options: { forceRefresh?: boolean } = {}) {
   const identity = await loadAndAssertBridgeIdentityInvariant(supabase, userId);
+  // Read-only asset visibility uses the same unexpired provider observation as
+  // RLS. Payment SCA continues to resolve independently on every authorization.
+  if (!options.forceRefresh && identity.ok && identity.context.account_type === "individual"
+    && identity.context.verification_status === "approved" && identity.context.bridge_customer_id) {
+    const { data: cached, error } = await supabase.from("sca_customer_scopes")
+      .select("bridge_customer_id,provider_country,source,checked_at,expires_at")
+      .eq("user_id", userId)
+      .eq("bridge_customer_id", identity.context.bridge_customer_id)
+      .eq("source", "bridge_customer_api")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    const country = normalizeBridgeScaCountry(cached?.provider_country);
+    const now = Date.now();
+    if (!error && country && cached?.bridge_customer_id === identity.context.bridge_customer_id
+      && cached?.source === "bridge_customer_api" && Date.parse(cached?.checked_at) <= now
+      && Date.parse(cached?.expires_at) > now) {
+      const eea = isBridgeEeaScaCountry(country);
+      return { region: eea ? "eea" as const : "non_eea" as const,
+        allow_eurc_base: eea, allow_usdt_tron: !eea, country,
+        reason: eea ? "eea_asset_scope" : "non_eea" };
+    }
+  }
   const scope = await resolveScopeForIdentity(identity, "payment", userId);
   const known = scope.status !== "unknown" && scope.verified && Boolean(scope.country);
   const eea = known && isBridgeEeaScaCountry(scope.country);

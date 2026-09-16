@@ -1,3 +1,4 @@
+import { reconcileSavedBankAccounts } from '../../utils/financial/savedBankAccounts';
 /**
  * BorderPay Africa - Send Money Flow (provider-backed payout rails)
  * Active transfer methods:
@@ -627,6 +628,9 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // External bank payout state (Bridge external accounts)
   const [externalAccounts, setExternalAccounts] = useState<ExternalAccountOption[]>(cachedExternalAccounts);
+  const [externalAccountsLoading, setExternalAccountsLoading] = useState(cachedExternalAccounts.length === 0);
+  const [externalAccountsError, setExternalAccountsError] = useState('');
+  const refreshExternalAccountsRef = useRef<() => void>(() => {});
   const externalAccountsRef = useRef<ExternalAccountOption[]>(cachedExternalAccounts);
   const [selectedExternalAccountId, setSelectedExternalAccountId] = useState<string>(
     String(cachedExternalAccounts?.[0]?.bridge_external_account_id || ''),
@@ -1070,13 +1074,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   // ---------------------------------------------------------------------------
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
     const hydrateOnce = async (force = false) => {
+      if (inFlight) return;
       try {
         const hasCached = walletsRef.current.length > 0 || externalAccountsRef.current.length > 0;
         const last = Number(localStorage.getItem(sendRefreshTsKey) || '0');
         if (!force && hasCached && Number.isFinite(last) && Date.now() - last < 45_000) return;
+        inFlight = true;
+        setExternalAccountsLoading(externalAccountsRef.current.length === 0);
+        setExternalAccountsError('');
         const res: any = await backendAPI.financial.getSendRouteData();
-        if (cancelled || !res?.success || !res?.data) return;
+        if (cancelled) return;
+        if (!res?.success || !res?.data) throw new Error(res?.error || 'Could not load saved bank accounts. Please retry.');
         const list = ((res.data as any).wallets || []).map((w: any) => ({
           id: w.id,
           currency: w.currency,
@@ -1091,7 +1101,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           ? res.data.external_accounts.map((row: any, idx: number) => {
               const rawType = String(row?.account_type || '').toLowerCase();
               const accountType: ExternalAccountOption['account_type'] =
-                rawType === 'iban' || rawType === 'gb' ? rawType : 'us';
+                rawType === 'iban' || rawType === 'gb' || rawType === 'us' ? rawType : '' as ExternalAccountOption['account_type'];
               const rawCurrency = String(row?.currency || '');
               const currency = rawCurrency
                 ? rawCurrency.toUpperCase()
@@ -1115,20 +1125,36 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             )
           : [];
         setWallets(list);
-        setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb'));
-        setExternalAccounts(ext);
-        try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(ext)); } catch { /* noop */ }
+        if (!res.data.external_capabilities_partial) {
+          setExternalAccountTypes(types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb'));
+          try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
+        }
+        const nextAccounts = reconcileSavedBankAccounts<ExternalAccountOption>(
+          externalAccountsRef.current, ext, !res.data.external_accounts_partial,
+        );
+        setExternalAccounts(nextAccounts);
+        if (!res.data.external_accounts_partial || ext.length > 0) {
+          try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(nextAccounts)); } catch { /* noop */ }
+        }
+        if (res.data.external_accounts_partial) {
+          setExternalAccountsError('Saved bank accounts could not be refreshed. Please retry.');
+        }
         if (!selectedExternalAccountId && ext.length > 0) {
           setSelectedExternalAccountId(ext[0].bridge_external_account_id);
           if (ext[0]?.currency) setSelectedCurrency(ext[0].currency);
         }
         try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(list)); } catch { /* noop */ }
-        try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(types)); } catch { /* noop */ }
-        try { localStorage.setItem(sendRefreshTsKey, String(Date.now())); } catch { /* noop */ }
-      } catch {
-        // best effort: keep cached values
+        if (!res.data.external_accounts_partial) {
+          try { localStorage.setItem(sendRefreshTsKey, String(Date.now())); } catch { /* noop */ }
+        }
+      } catch (error: any) {
+        if (!cancelled) setExternalAccountsError(friendlyError(error?.message, 'Could not load saved bank accounts. Please retry.'));
+      } finally {
+        inFlight = false;
+        if (!cancelled) setExternalAccountsLoading(false);
       }
     };
+    refreshExternalAccountsRef.current = () => { void hydrateOnce(true); };
     hydrateOnce();
     // Revalidate with throttle on app focus/visibility so quick route hops
     // do not trigger duplicate route-data fetches.
@@ -1503,7 +1529,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           throw new Error('Select an external account');
         }
         if (!activeExternalFundingWallet?.bridge_wallet_id) {
-          throw new Error('Add USDC or USDT before sending to an external account.');
+          throw new Error('Add funds to an available wallet before sending to an external account.');
         }
         const destinationRail =
           selectedExternalAccount.account_type === 'iban' ? 'sepa'
@@ -1749,7 +1775,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       case 'africa-destination': return 'Send to Africa';
       case 'africa-rail': return selectedAfricanCountry?.countryName || 'Send to Africa';
       case 'crypto-wallet': return 'Withdrawal Wallet';
-      case 'details': return method === 'us_ach_wire' ? t('send.usPaymentDetails') : method === 'stablecoin' ? 'Digital Dollar Transfer' : t('send.borderPayDetails');
+      case 'details': return method === 'us_ach_wire' ? 'Saved Bank Accounts' : method === 'stablecoin' ? 'External Wallet Transfer' : t('send.borderPayDetails');
       case 'amount': return t('send.amount');
       case 'review': return t('send.reviewTransfer');
       case 'pin': return t('send.verifyTransaction');
@@ -2530,7 +2556,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                         {cryptoSavedWalletId ? cryptoRouteLabel(crypto) : 'Choose a saved wallet'}
                       </p>
                       <p className={`mt-1 truncate text-xs ${tc.textMuted}`}>
-                        {cryptoSavedWalletId ? shortAddress(crypto.address) : 'USDC/Base or EURC/Base'}
+                        {cryptoSavedWalletId ? shortAddress(crypto.address) : 'USDC, USDT and EURC'}
                       </p>
                     </div>
                     <ArrowRight size={18} className={tc.textMuted} />
@@ -2556,8 +2582,19 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             {method === 'us_ach_wire' && (
               <div className="space-y-4">
                 <div>
-                  <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Destination external account</label>
-                  {externalAccounts.length === 0 ? (
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className={`text-xs font-medium ${tc.textSecondary}`}>Destination external account</label>
+                    <button type="button" onClick={() => refreshExternalAccountsRef.current()} className="text-xs font-semibold text-[#C7FF00]">Refresh</button>
+                  </div>
+                  {externalAccountsError && externalAccounts.length > 0 && <p className="mb-2 text-xs text-amber-400">{externalAccountsError}</p>}
+                  {externalAccountsLoading ? (
+                    <p className={`py-4 text-sm ${tc.textMuted}`} role="status">Loading saved bank accounts…</p>
+                  ) : externalAccountsError && externalAccounts.length === 0 ? (
+                    <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
+                      <p className="text-sm text-red-400">{externalAccountsError}</p>
+                      <button type="button" onClick={() => refreshExternalAccountsRef.current()} className="mt-3 text-sm font-semibold text-[#C7FF00]">Retry</button>
+                    </div>
+                  ) : externalAccounts.length === 0 ? (
                     <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-4`}>
                       <p className={`text-sm ${tc.textSecondary} mb-3`}>No external accounts available.</p>
                       <button
@@ -2598,7 +2635,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div>
                   <label className={`text-xs font-medium ${tc.textSecondary} mb-2 block`}>Funding wallet</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {BRIDGE_WALLET_FUNDING_CURRENCY_PRIORITY.map((currency) => {
+                    {BRIDGE_WALLET_FUNDING_CURRENCY_PRIORITY.filter(currency => currency !== 'USDT' || allowUsdtTron).map((currency) => {
                       const wallet = externalFundingWallets.find((item) => item.currency === currency);
                       const selected = activeExternalFundingWallet?.currency === currency;
                       return (
@@ -2622,7 +2659,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                     })}
                   </div>
                   {!activeExternalFundingWallet && (
-                    <p className="mt-2 px-1 text-xs text-red-400">Add USDC or USDT before sending to an external account.</p>
+                    <p className="mt-2 px-1 text-xs text-red-400">Add funds to an available wallet before sending to an external account.</p>
                   )}
                 </div>
               </div>

@@ -3,13 +3,15 @@ import { walletAPI, getCachedWalletAssetScope } from '../api/backendAPI';
 
 /** Unknown is neither EEA nor non-EEA; never flash a region-specific asset. */
 export function useWalletAssetScope(userId: string) {
-  const [state, setState] = useState(() => ({ userId, scope: getCachedWalletAssetScope(userId), resolved: false }));
+  const [state, setState] = useState(() => ({ userId, scope: getCachedWalletAssetScope(userId, 5 * 60_000), resolved: false }));
   useEffect(() => {
     let active = true;
-    const cached = getCachedWalletAssetScope(userId);
+    const cached = getCachedWalletAssetScope(userId, 5 * 60_000);
     setState({ userId, scope: cached, resolved: Boolean(cached) });
     void walletAPI.getAssetScope(userId).then(scope => {
-      if (active) setState({ userId, scope, resolved: true });
+      // A failed refresh does not mean a previously verified region changed.
+      // Keep the short-lived display cache; server checks still govern actions.
+      if (active) setState({ userId, scope: scope.country ? scope : cached, resolved: Boolean(scope.country) });
     }).catch(() => { if (active) setState({ userId, scope: cached, resolved: true }); });
     return () => { active = false; };
   }, [userId]);
