@@ -3,8 +3,10 @@
  */
 
 import React from 'react';
+import { toast } from 'sonner';
+import { canOpenReviewStore, openReviewStore } from '../../utils/reviews/appReview';
 import { FloatingBackButton } from '../common/FloatingBackButton';
-import { MessageSquare, FileText, Shield, ChevronRight } from 'lucide-react';
+import { MessageSquare, FileText, Shield, ChevronRight, Star } from 'lucide-react';
 import { useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 
 interface HelpCenterScreenProps {
@@ -144,6 +146,16 @@ export function HelpCenterScreen({ onBack, onNavigate }: HelpCenterScreenProps) 
             Quick Links
           </h2>
           <div className="space-y-2">
+            {canOpenReviewStore() && (
+              <button
+                onClick={() => { void openReviewStore().catch(() => toast.error('Could not open the store. Please try again.')); }}
+                className={`w-full ${tc.card} border ${tc.cardBorder} rounded-2xl p-4 flex items-center gap-3 active:opacity-80 transition-opacity`}
+              >
+                <Star size={18} className={tc.textSecondary} />
+                <p className={`text-sm font-medium ${tc.text} flex-1 text-left`}>Rate BorderPay</p>
+                <ChevronRight size={16} className={tc.textSecondary} />
+              </button>
+            )}
             {[
               { icon: FileText, label: 'Terms of Service', screen: 'terms-of-service' },
               { icon: Shield, label: 'Privacy Policy', screen: 'privacy-policy' },
