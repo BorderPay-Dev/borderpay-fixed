@@ -6,6 +6,10 @@ on:
       - 'tests/sql/payment_sca_*.sql'
       - 'tests/sql/usdt_read_*.sql'
       - 'tests/sql/regional_wallet_read_contract.sql'
+      - 'tests/sql/regional_financial_guard_*.sql'
+      - 'tests/sql/wallet_scope_refresh_contract.sql'
+      - 'supabase/migrations/2026091611*.sql'
+      - 'supabase/migrations/20260916100000_regional_financial_read_guard.sql'
       - 'supabase/migrations/20260916090000_regional_wallet_asset_reads.sql'
       - 'supabase/migrations/20260915190000_restore_non_eea_usdt_reads.sql'
       - '.github/workflows/payment-sca-db.yml'
@@ -53,3 +57,14 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916090000_regional_wallet_asset_reads.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916090000_regional_wallet_asset_reads.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/regional_wallet_read_contract.sql
+      - name: Test production financial guard with regional ownership
+        run: |
+          psql -v ON_ERROR_STOP=1 -f tests/sql/regional_financial_guard_fixture.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916100000_regional_financial_read_guard.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916100000_regional_financial_read_guard.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/regional_financial_guard_contract.sql
+      - name: Test background scope refresh leases and eligibility
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916110000_wallet_scope_refresh_queue.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916110000_wallet_scope_refresh_queue.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/wallet_scope_refresh_contract.sql
