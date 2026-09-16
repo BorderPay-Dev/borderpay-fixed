@@ -165,12 +165,23 @@ jobs:
             -authenticationKeyID "$APP_STORE_CONNECT_KEY_IDENTIFIER" \
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
             MARKETING_VERSION="$APP_VERSION" \
             CURRENT_PROJECT_VERSION="${{ steps.ios-build.outputs.number }}" \
             clean archive
+
+      # CI uses Apple's cloud-managed distribution signing during export. Seed
+      # the unsigned archive with the requested entitlements so export preserves
+      # them, without requiring a development profile or registered test device.
+      # This intermediate ad-hoc signature is never uploaded; export replaces it.
+      - name: Preserve archive entitlements for distribution signing
+        run: |
+          set -euo pipefail
+          codesign --force --sign - \
+            --entitlements ios/App/App/App.entitlements \
+            "$RUNNER_TEMP/$ARCHIVE_NAME/Products/Applications/App.app"
 
       - name: Export signed IPA
         run: |

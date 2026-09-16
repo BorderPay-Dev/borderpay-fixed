@@ -3,7 +3,7 @@ import { reconcileSavedBankAccounts } from '../../utils/financial/savedBankAccou
  * BorderPay Africa - Send Money Flow (provider-backed payout rails)
  * Active transfer methods:
  *   1. External Bank Account (linked payout destination)
- *   2. Digital dollar withdrawal (external wallet address)
+ *   2. External wallet withdrawal
  *
  * Flow: Choose Method → Enter Details → Amount → Review → PIN → Success
  * i18n + theme-aware, neon green (#C7FF00) + black aesthetic
@@ -1503,7 +1503,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         result = await backendAPI.stablecoin.sendTransfer({
           amount: parseFloat(amount),
-          reason: reason || 'Digital dollar transfer',
+          reason: reason || 'External wallet transfer',
           address: crypto.address.trim(),
           chain: crypto.network,                                  // tron|base
           coin: crypto.token.toLowerCase() as 'usdc' | 'usdt' | 'eurc',
@@ -1650,7 +1650,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         const friendly =
           code === 'country_not_supported' ? (result.error || 'Your country is not yet supported. We are bringing it online soon.')
         : code === 'no_partner'           ? (result.error || 'This payout rail is coming soon through BorderPay.')
-        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use the digital dollar path for now.'
+        : code === 'rails_future_state'   ? 'This transfer rail is launching soon. Use an external wallet address for now.'
         : method === 'stablecoin'         ? mapCryptoTransferError(code, result.error, crypto)
         : code === 'kyc_not_approved'     ? 'Finish identity verification before sending funds.'
         : code === 'no_customer'          ? 'Finish account setup before sending funds.'
@@ -2192,7 +2192,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             className="px-5 py-6"
           >
             <div className="mb-4">
-              <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>Digital dollar payout</p>
+              <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>External wallet transfer</p>
               <p className={`mt-1 text-sm ${tc.textSecondary}`}>Choose a saved withdrawal wallet</p>
             </div>
 
@@ -2981,7 +2981,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 <div className="flex justify-between">
                   <span className={`text-xs ${tc.textMuted}`}>{t('send.method')}</span>
                   <span className={`text-sm font-medium ${tc.text}`}>
-                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'Digital dollar' : railLabel(method)}
+                    {method === 'us_ach_wire' ? t('send.usAchWire') : method === 'stablecoin' ? 'External Wallet' : railLabel(method)}
                   </span>
                 </div>
 
