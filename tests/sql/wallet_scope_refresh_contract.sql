@@ -1,4 +1,7 @@
 begin;
+-- Production does not guarantee a unique constraint on user_profiles.id.
+-- The queue must depend on the canonical auth user key instead.
+alter table public.user_profiles drop constraint user_profiles_pkey;
 insert into public.user_profiles values
  ('00000000-0000-4000-8000-000000000001','individual','KE','customer-1','approved'),
  ('00000000-0000-4000-8000-000000000002','individual','FR','customer-2','approved'),
