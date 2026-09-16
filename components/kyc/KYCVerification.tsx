@@ -19,6 +19,8 @@ import { ShieldCheck, CheckCircle2, AlertCircle, Clock, RefreshCw, Mail, ArrowRi
 import { toast } from 'sonner';
 import { Browser } from '@capacitor/browser';
 import { openHostedVerification } from '../../utils/native/hostedVerification';
+import { VerificationSteps } from './VerificationSteps';
+import { hostedTermsAcceptance } from '../../utils/verification/hostedTerms';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { isNativeRuntime } from '../../utils/native/mobileRuntime';
@@ -95,7 +97,7 @@ function seedFromCache(): { accountType: AccountType; status: KycView } {
 export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
+  const tt = (k: string, fb: string) => ((t as any)?.(k) || fb) as string;
 
   const seed = useMemo(() => seedFromCache(), []);
   const [accountType, setAccountType] = useState<AccountType>(seed.accountType);
@@ -165,6 +167,9 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
   const [tosLinkUrl, setTosLinkUrl] = useState<string | null>(() => {
     try { return localStorage.getItem(`borderpay_last_tos_url:${userId}`); } catch { return null; }
   });
+  const termsStartedRef = useRef(Boolean(tosLinkUrl) || tosAccepted);
+  const termsCheckInFlightRef = useRef(false);
+  const [checkingTerms, setCheckingTerms] = useState(false);
   const [tosLinkUrlTs, setTosLinkUrlTs] = useState<number>(() => {
     try { return Number(localStorage.getItem(`borderpay_last_tos_url_ts:${userId}`) || '0'); } catch { return 0; }
   });
@@ -287,10 +292,27 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       await refresh();
+      // Only check a hosted flow the user has already started. Returning from
+      // the browser is not proof of acceptance; ask the provider-backed endpoint.
+      if (termsStartedRef.current && !termsCheckInFlightRef.current) {
+        termsCheckInFlightRef.current = true;
+        setCheckingTerms(true);
+        try {
+          const result = await requestHostedLink(ctx.accountType, 'terms');
+          const accepted = hostedTermsAcceptance(result);
+          if (accepted !== null) {
+            persistTosAccepted(accepted);
+            if (accepted) setTosLinkUrl(null);
+          }
+        } finally {
+          termsCheckInFlightRef.current = false;
+          setCheckingTerms(false);
+        }
+      }
     } catch {
       // silent probe: never block verification screen
     }
-  }, [persistTosAccepted, resolveVerificationContext, refresh]);
+  }, [persistTosAccepted, resolveVerificationContext, refresh, requestHostedLink]);
 
   useEffect(() => {
     if (!isNativeRuntime()) return;
@@ -299,14 +321,6 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       if (disposed || !nativeVerificationOpenRef.current) return;
       nativeVerificationOpenRef.current = false;
       await probeVerificationState();
-      try {
-        const ctx = await resolveVerificationContext();
-        const result: any = await requestHostedLink(ctx.accountType, 'terms');
-        if (!disposed && result?.success && result.data?.tos_accepted) {
-          persistTosAccepted(true);
-          setTosLinkUrl(null);
-        }
-      } catch { /* The Continue button retries the authoritative state. */ }
     };
     const listener = Browser.addListener('browserFinished', () => { void onReturn(); }).catch(() => null);
     const onVisible = () => {
@@ -396,6 +410,8 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
         return;
       }
       if (r?.success && r.data?.tos_link_url) {
+        termsStartedRef.current = true;
+        persistTosAccepted(false);
         setTosLinkUrl(r.data.tos_link_url);
         const now = Date.now();
         setTosLinkUrlTs(now);
@@ -560,7 +576,7 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
       >
         <h1 className={`text-base font-semibold ${tc.text}`}>{title}</h1>
         <button
-          onClick={refresh}
+          onClick={() => { void probeVerificationState(); }}
           aria-label="Refresh status"
           className={`w-9 h-9 rounded-full ${tc.card} border ${tc.cardBorder} flex items-center justify-center ${tc.hoverBg}`}
         >
@@ -593,13 +609,18 @@ export function KYCVerification({ userId, onBack }: KYCVerificationProps) {
               to (re)open the hosted verification link. The provider handles link reuse
               / regeneration idempotently server-side. */}
           {(status === 'not_started' || status === 'incomplete' || status === 'needs_ubos' || status === 'awaiting_rfi' || status === 'needs_edd' || status === 'pending') && (
-            <button
-              disabled={openingVerification}
-              onClick={() => { void startVerification(); }}
-              className="mt-6 w-full inline-flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#C7FF00] text-black font-semibold text-sm hover:brightness-95 transition"
-            >
-              <>{openingVerification ? 'Opening verification…' : 'Continue verification'} <ArrowRight className="w-4 h-4" /></>
-            </button>
+            <VerificationSteps
+              termsAccepted={tosAccepted}
+              checkingTerms={checkingTerms}
+              opening={openingVerification}
+              onAcceptTerms={() => { void startVerification(); }}
+              onContinue={() => {
+                if (!tosAccepted) return;
+                void startVerification();
+              }}
+              textClass={tc.text}
+              mutedClass={tc.textSecondary}
+            />
           )}
           {(status === 'pending' || status === 'under_review') && (
             <div className={`mt-5 flex items-start gap-2.5 rounded-2xl border ${tc.borderLight} ${tc.bgAlt} px-4 py-3`}>

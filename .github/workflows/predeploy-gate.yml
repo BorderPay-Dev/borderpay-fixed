@@ -51,6 +51,7 @@ jobs:
           tests/external-wallet-eurc-http.test.ts
           tests/saved-external-wallets.test.ts
           tests/saved-bank-accounts.test.ts
+          tests/hosted-terms-acceptance.test.ts
           tests/wallet-asset-scope-cache.test.ts
           tests/bridge-va-wallet-sync-http.test.ts
           tests/unit/base_wallet_funding_test.ts
