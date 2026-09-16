@@ -67,6 +67,12 @@ Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA, rejects n
     country = 'FR';
     rows = [{ ...source, user_id: null, business_user_id: uid }];
     assert((await call(destination)).status === 200, 'business-owned Base wallet must support EURC');
+    rows = [{ ...source, address: '', currency: 'usdc' }];
+    assert((await call(destination)).status === 200, 'missing source deposit address must not block a valid EURC recipient');
+    country = 'GB'; expectedAsset = 'USDC';
+    assert((await call({ ...destination, asset: 'USDC' })).status === 200, 'non-EEA USDC recipient must save with a partial source mirror');
+    assert((await call({ ...destination, asset: 'USDC', address: 'invalid' })).status === 422, 'destination address must still be validated');
+    country = 'FR'; expectedAsset = 'EURC';
     const savedCount = saved.length;
     for (const invalid of [
       { ...source, user_id: 'someone-else' }, { ...source, chain: 'tron' },

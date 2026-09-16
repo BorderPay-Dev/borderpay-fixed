@@ -47,6 +47,7 @@ jobs:
           tests/bridge-transfer-ui-outcome.test.ts
           tests/bridge-approved-account-status.test.ts
           tests/hosted-verification-resume-http.test.ts
+          tests/bridge-wallet-activity-resource.test.ts
           tests/external-wallet-eurc-http.test.ts
           tests/saved-external-wallets.test.ts
           tests/bridge-va-wallet-sync-http.test.ts
