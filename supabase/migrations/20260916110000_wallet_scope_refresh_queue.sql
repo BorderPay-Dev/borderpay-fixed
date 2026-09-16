@@ -1,6 +1,6 @@
 -- Background refresh keeps installed clients independent of on-screen requests.
 CREATE TABLE IF NOT EXISTS public.wallet_scope_refresh_jobs (
-  user_id uuid PRIMARY KEY REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   lease_token uuid NOT NULL,
   next_attempt_at timestamptz NOT NULL,
   last_success_at timestamptz,

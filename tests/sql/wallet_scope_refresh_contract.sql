@@ -4,6 +4,7 @@ insert into public.user_profiles values
  ('00000000-0000-4000-8000-000000000002','individual','FR','customer-2','approved'),
  ('00000000-0000-4000-8000-000000000003','business','KE','customer-3','approved'),
  ('00000000-0000-4000-8000-000000000004','individual','KE','customer-4','incomplete');
+insert into auth.users(id) select id from public.user_profiles;
 insert into public.sca_customer_scopes values
  ('00000000-0000-4000-8000-000000000002','customer-2','FR','bridge_customer_api',now()+interval '1 hour');
 do $$ declare n integer; begin
