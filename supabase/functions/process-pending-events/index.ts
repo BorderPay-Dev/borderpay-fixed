@@ -34,6 +34,7 @@
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { syncBridgeCustomerIdentity } from "../_shared/bridge-customer-identity-sync.ts";
 import { syncApprovedBridgeAccountStatus } from "../_shared/bridge-approved-account-status.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
@@ -1108,12 +1109,10 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       .update(update)
       .eq("bridge_customer_id", String(customer));
 
-    try {
-      const owner = await resolveOwnerFromBridgeCustomer(String(customer));
-      await syncCountryFromBridgeCustomer(String(customer), owner);
-    } catch {
-      // Keep customer status processing resilient; owner mapping is handled by queue retries.
-    }
+    // Reconcile legal jurisdiction before provisioning. A failed business read
+    // must retry through the queue, not silently retain a contact-country scope.
+    const jurisdictionOwner = await resolveOwnerFromBridgeCustomer(String(customer));
+    await syncCountryFromBridgeCustomer(String(customer), jurisdictionOwner);
 
     // Terminal customer KYC decision → best-effort email. Individual only;
     // business KYB decisions are emailed from handleBridgeKycKyb. active→approved,
@@ -3000,7 +2999,7 @@ async function ensureStablecoinWalletsProvisioned(input: {
   const statusValue = (profile as Record<string, unknown> | null)?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
 
-  const walletScope = await resolveBridgeWalletAssetScope(supabase, input.userId);
+  const walletScope = await resolveBridgeWalletAssetScope(supabase, input.userId, { forceRefresh: true });
   if (walletScope.region === "unknown") throw new Error("wallet_scope_unavailable");
   const targets = [DEFAULT_STABLECOIN_WALLET] as Array<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }>;
   if (walletScope.allow_usdt_tron) {
@@ -3052,121 +3051,10 @@ async function ensureStablecoinWalletsProvisioned(input: {
   }
 }
 
-async function syncCountryFromBridgeCustomer(
-  bridgeCustomerId: string,
+const syncCountryFromBridgeCustomer = (
+  customerId: string,
   owner: { resolved: string; account_type: "individual" | "business" },
-): Promise<void> {
-  const [{ data: userProfile }, { data: businessProfile }] = await Promise.all([
-    supabase
-      .from("user_profiles")
-      .select("country, phone, date_of_birth, id_number, id_type, bridge_address_object, bridge_identity_metadata")
-      .eq("id", owner.resolved)
-      .maybeSingle(),
-    owner.account_type === "business"
-      ? supabase
-          .from("business_profiles")
-          .select("country, company_phone, address, city, state, postal_code, bridge_identity_metadata")
-          .eq("user_id", owner.resolved)
-          .maybeSingle()
-      : Promise.resolve({ data: null as any }),
-  ]);
-
-  const userCountry = normalizeCountryCode(userProfile?.country);
-  const businessCountry = normalizeCountryCode(businessProfile?.country);
-  const needsUserIdentity =
-    !userProfile?.date_of_birth ||
-    !userProfile?.id_number ||
-    !userProfile?.id_type;
-  const hasBusinessIdentityMetadata =
-    businessProfile?.bridge_identity_metadata &&
-    typeof businessProfile.bridge_identity_metadata === "object" &&
-    Object.keys(businessProfile.bridge_identity_metadata).length > 0;
-  const needsBusinessIdentity = owner.account_type === "business" && !hasBusinessIdentityMetadata;
-  if (
-    userCountry &&
-    !needsUserIdentity &&
-    (owner.account_type !== "business" || (businessCountry && !needsBusinessIdentity))
-  ) return;
-
-  let customer: Awaited<ReturnType<typeof bridgeProvider.getCustomerProfile>> | null = null;
-  try {
-    customer = await bridgeProvider.getCustomerProfile(bridgeCustomerId);
-  } catch (e) {
-    // Do not fail financial event processing if customer-profile read is
-    // unavailable in Bridge for an imported historical customer mapping.
-    console.warn(`country-sync skipped customer=${bridgeCustomerId}: ${(e as Error).message}`);
-    return;
-  }
-  const bridgeCountry = normalizeCountryCode(customer.country ?? customer.address_object?.country);
-
-  const userUpdate: Record<string, unknown> = {
-    updated_at: new Date().toISOString(),
-  };
-  if (!userCountry && bridgeCountry) userUpdate.country = bridgeCountry;
-  if (!userProfile?.phone && customer.phone) userUpdate.phone = customer.phone;
-  if (!userProfile?.date_of_birth && customer.date_of_birth) userUpdate.date_of_birth = customer.date_of_birth;
-  if (!userProfile?.id_number && customer.id_number) userUpdate.id_number = customer.id_number;
-  if (!userProfile?.id_type && customer.id_type) userUpdate.id_type = customer.id_type;
-  if (
-    customer.id_number ||
-    customer.id_type ||
-    customer.date_of_birth ||
-    customer.identity_metadata.id_number_present
-  ) {
-    userUpdate.bridge_identity_metadata = {
-      ...(userProfile?.bridge_identity_metadata && typeof userProfile.bridge_identity_metadata === "object"
-        ? userProfile.bridge_identity_metadata
-        : {}),
-      ...customer.identity_metadata,
-    };
-    userUpdate.bridge_identity_synced_at = new Date().toISOString();
-  }
-  if (customer.address_object && Object.values(customer.address_object).some((v) => String(v ?? "").trim().length > 0)) {
-    userUpdate.bridge_address_object = customer.address_object;
-    if (!userProfile?.country && bridgeCountry) userUpdate.country = bridgeCountry;
-    const line1 = customer.address_object.street_line_1;
-    const line2 = customer.address_object.street_line_2;
-    if (line1) userUpdate.address = line2 ? `${line1}, ${line2}` : line1;
-    if (customer.address_object.city) userUpdate.city = customer.address_object.city;
-    if (customer.address_object.postal_code) userUpdate.postal_code = customer.address_object.postal_code;
-  }
-  if (Object.keys(userUpdate).length > 1) {
-    await supabase.from("user_profiles").update(userUpdate).eq("id", owner.resolved);
-  }
-
-  if (owner.account_type === "business") {
-    const bizUpdate: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-    };
-    if (!businessCountry && bridgeCountry) bizUpdate.country = bridgeCountry;
-    if (!businessProfile?.company_phone && customer.phone) bizUpdate.company_phone = customer.phone;
-    if (
-      customer.id_number ||
-      customer.id_type ||
-      customer.date_of_birth ||
-      customer.identity_metadata.id_number_present
-    ) {
-      bizUpdate.bridge_identity_metadata = {
-        ...(businessProfile?.bridge_identity_metadata && typeof businessProfile.bridge_identity_metadata === "object"
-          ? businessProfile.bridge_identity_metadata
-          : {}),
-        ...customer.identity_metadata,
-      };
-      bizUpdate.bridge_identity_synced_at = new Date().toISOString();
-    }
-    if (customer.address_object?.street_line_1 && !businessProfile?.address) {
-      const line1 = customer.address_object.street_line_1;
-      const line2 = customer.address_object.street_line_2;
-      bizUpdate.address = line2 ? `${line1}, ${line2}` : line1;
-    }
-    if (customer.address_object?.city && !businessProfile?.city) bizUpdate.city = customer.address_object.city;
-    if (customer.address_object?.state && !businessProfile?.state) bizUpdate.state = customer.address_object.state;
-    if (customer.address_object?.postal_code && !businessProfile?.postal_code) bizUpdate.postal_code = customer.address_object.postal_code;
-    if (Object.keys(bizUpdate).length > 1) {
-      await supabase.from("business_profiles").update(bizUpdate).eq("user_id", owner.resolved);
-    }
-  }
-}
+) => syncBridgeCustomerIdentity(supabase, bridgeProvider, customerId, owner);
 
 async function resolveOwnerFromBridgeCustomer(bridgeCustomerId: string): Promise<{ resolved: string; account_type: "individual" | "business" }> {
   const { data: bizRows, error: bizOwnerError } = await supabase
