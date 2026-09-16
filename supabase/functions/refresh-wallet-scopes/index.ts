@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
       const job = pending.shift()!;
       let reason: string | null = null;
       try {
-        const scope = await resolveBridgeWalletAssetScope(supabase, job.user_id);
+        const scope = await resolveBridgeWalletAssetScope(supabase, job.user_id, { forceRefresh: true });
         if (scope.region === "unknown") reason = "diagnostic_code" in scope && scope.diagnostic_code ? scope.diagnostic_code : scope.reason;
       } catch {
         reason = "provider_scope_refresh_failed";

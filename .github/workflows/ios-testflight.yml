@@ -172,6 +172,17 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ steps.ios-build.outputs.number }}" \
             clean archive
 
+      # CI uses Apple's cloud-managed distribution signing during export. Seed
+      # the unsigned archive with the requested entitlements so export preserves
+      # them, without requiring a development profile or registered test device.
+      # This intermediate ad-hoc signature is never uploaded; export replaces it.
+      - name: Preserve archive entitlements for distribution signing
+        run: |
+          set -euo pipefail
+          codesign --force --sign - \
+            --entitlements ios/App/App/App.entitlements \
+            "$RUNNER_TEMP/$ARCHIVE_NAME/Products/Applications/App.app"
+
       - name: Export signed IPA
         run: |
           set -euo pipefail
@@ -202,6 +213,9 @@ jobs:
           path: ${{ runner.temp }}/ios-export-diagnostics
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Verify signed production App Attest entitlement
+        run: python3 scripts/ci/verify_ios_app_attest.py build/ios
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

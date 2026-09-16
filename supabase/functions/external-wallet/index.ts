@@ -14,7 +14,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { getFinancialAccessBlock } from "../_shared/account-access.ts";
-import { resolveBridgeScaScope, resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
+import { resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -185,10 +185,8 @@ Deno.serve(async (req) => {
       if (!scope.allow_eurc_base) return json({ success: false, code: "wallet_asset_not_available", error: "EURC is only available for EEA accounts." }, 403);
     }
     if (asset === "USDT") {
-      const walletScope = await resolveBridgeScaScope(supa, user.id);
-      const allowUsdtTron = walletScope.status === "not_required"
-        && walletScope.reason === "non_eea"
-        && Boolean(walletScope.country);
+      const walletScope = await resolveBridgeWalletAssetScope(supa, user.id);
+      const allowUsdtTron = walletScope.allow_usdt_tron;
       if (!allowUsdtTron) {
         return json({
           success: false,

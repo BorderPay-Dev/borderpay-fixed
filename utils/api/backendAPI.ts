@@ -44,11 +44,11 @@ function snapshotAllowsEurc(snapshot: any): boolean {
 }
 
 const scopeRequests = new Map<string, Promise<WalletAssetScope>>();
-export function getCachedWalletAssetScope(userId: string): WalletAssetScope | null {
+export function getCachedWalletAssetScope(userId: string, maxAgeMs = 60_000): WalletAssetScope | null {
   if (!userId) return null;
   try {
     const cached = JSON.parse(localStorage.getItem(`borderpay_asset_scope_v2:${userId}`) || 'null');
-    if (cached?.userId !== userId || !Number.isFinite(cached.at) || cached.at > Date.now() || Date.now() - cached.at > 60_000) return null;
+    if (cached?.userId !== userId || !Number.isFinite(cached.at) || cached.at > Date.now() || Date.now() - cached.at > maxAgeMs) return null;
     if (typeof cached.scope?.allow_eurc_base !== 'boolean' || typeof cached.scope?.allow_usdt_tron !== 'boolean') return null;
     return cached.scope;
   } catch { return null; }
@@ -88,7 +88,7 @@ function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-kyc-link' || endpoint === 'bridge-kyb-link') return 45000;
   if (endpoint === 'bridge-customer') return 30000;
   if (endpoint === 'bridge-transfer') return 45000;
-  if (endpoint === 'bridge-external-account') return 30000;
+  if (['bridge-external-account', 'external-wallet', 'sca-scope'].includes(endpoint)) return 30000;
   if (endpoint === 'support-gateway') return 20000;
   // Yellow Card sandbox orchestration performs authenticated routing discovery,
   // preflight persistence and provider submission. Its upstream deadline is
@@ -562,7 +562,7 @@ export const walletAPI = {
     ] = await Promise.all([
       supabase
         .from('bridge_wallets')
-        .select('bridge_wallet_id,currency,chain,status,updated_at')
+        .select('bridge_wallet_id,currency,chain,address,status,updated_at')
         .or(ownerOrFilter(user.id))
         .in('currency', ['USDC', 'EURC', 'USDT']),
       supabase
@@ -1444,17 +1444,11 @@ export const financialReadModelAPI = (() => {
       // Refresh owned funding assets under the same regional boundary as Wallet.
       const walletsRes = await walletAPI.getWallets({ includeWithdrawalAssets: true });
       if (!walletsRes?.success) return walletsRes as any;
+      // These are the requested payout destinations, not optional dashboard
+      // decorations. Let their endpoint deadlines run; 900ms painted false emptiness.
       const [capsRes, externalListRes]: any[] = await Promise.all([
-        withTimeout(
-          bridgeAPI.externalAccount.capabilities() as Promise<any>,
-          EXTERNAL_FETCH_TIMEOUT_MS,
-          { success: false, error: 'timeout' } as any,
-        ),
-        withTimeout(
-          bridgeAPI.externalAccount.list() as Promise<any>,
-          EXTERNAL_FETCH_TIMEOUT_MS,
-          { success: false, error: 'timeout' } as any,
-        ),
+        bridgeAPI.externalAccount.capabilities(),
+        bridgeAPI.externalAccount.list(),
       ]);
       const caps = (capsRes?.success && Array.isArray(capsRes?.data?.supported_account_types))
         ? capsRes.data.supported_account_types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb')
@@ -1468,7 +1462,9 @@ export const financialReadModelAPI = (() => {
           wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
           external_account_capabilities: caps,
           external_accounts: externalAccounts,
-          external_accounts_partial: !capsRes?.success || !externalListRes?.success || Boolean(externalListRes?.data?.partial),
+          external_accounts_partial: !externalListRes?.success || !Array.isArray(externalListRes?.data?.external_accounts) || Boolean(externalListRes?.data?.partial),
+          external_accounts_error: !externalListRes?.success ? externalListRes?.error || 'Could not load saved bank accounts. Please retry.' : null,
+          external_capabilities_partial: !capsRes?.success || !Array.isArray(capsRes?.data?.supported_account_types),
         },
       };
     },

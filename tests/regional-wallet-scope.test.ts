@@ -10,7 +10,7 @@ function database(accountType: string, country: string, approved = true, cacheEr
     const filters: Record<string, unknown> = {};
     const query: any = {
       select() { return query; }, eq(key: string, value: unknown) { filters[key] = value; return query; },
-      ilike() { return query; }, or() { return query; }, order() { return query; },
+      gt() { return query; }, ilike() { return query; }, or() { return query; }, order() { return query; },
       limit() { return query; },
       then(resolve: (value: unknown) => void) { resolve({ data: table === 'business_profiles' ? (accountType === 'business' ? [{ user_id: 'owner' }] : []) : [{ id: 'owner', account_type: accountType }] }); },
       maybeSingle() { return Promise.resolve({ data: table === 'user_profiles'
