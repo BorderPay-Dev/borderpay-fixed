@@ -19,9 +19,9 @@ with tempfile.TemporaryDirectory() as temporary:
         raise SystemExit('Expected exactly one signed application')
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(apps[0])], check=True)
     signature = subprocess.run(
-        ['codesign', '-dv', str(apps[0])], check=True, capture_output=True, text=True,
+        ['codesign', '-dvv', str(apps[0])], check=True, capture_output=True, text=True,
     ).stderr
-    if 'Signature=adhoc' in signature or 'Authority=' not in signature:
+    if 'Signature=adhoc' in signature or 'Authority=Apple Distribution:' not in signature:
         raise SystemExit('Exported IPA must have an Apple distribution signature')
     result = subprocess.run(
         ['codesign', '-d', '--entitlements', ':-', str(apps[0])],
