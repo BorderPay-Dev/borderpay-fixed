@@ -12,12 +12,14 @@ try { await import('../supabase/functions/refresh-wallet-scopes/index.ts'); } fi
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 Deno.test('background refresh authenticates, fetches provider residence, preserves failed cache, and records retry', async () => {
  const original = globalThis.fetch;
+ let providerStatus = 200;
  let country = 'KE', cacheWrites: any[] = [], jobWrites: any[] = [], claims = 0, providerReads = 0;
  globalThis.fetch = async (input, init) => {
   const req = new Request(input, init), url = new URL(req.url);
   if (url.origin === bridge) {
    providerReads++;
    assert(req.method === 'GET' && url.pathname === '/v0/customers/customer', 'Provider reads only; no wallets or payments');
+   if (providerStatus !== 200) return Response.json({message:'sensitive-provider-details'}, {status:providerStatus});
    return Response.json({ id: 'customer', residential_address: { country } });
   }
   assert(url.origin === base, 'Unexpected network');
@@ -50,7 +52,10 @@ Deno.test('background refresh authenticates, fetches provider residence, preserv
   assert(cacheWrites[1].sca_required === true && cacheWrites[1].provider_country === 'FR', 'EEA refresh retains scope');
   country = ''; result = await (await call('test-service')).json();
   assert(result.failed === 1 && cacheWrites.length === 2, 'No fabricated cache on unresolved provider response');
-  assert(jobWrites[2].last_error && !jobWrites[2].last_success_at, 'Failed refresh recorded for retry');
+  assert(jobWrites[2].last_error === 'authoritative_country_missing' && !jobWrites[2].last_success_at, 'Missing country distinguished from HTTP failure');
   assert(Date.parse(jobWrites[2].next_attempt_at) < Date.now()+6*60_000, 'Bounded retry delay');
+  providerStatus = 404; result = await (await call('test-service')).json();
+  assert(result.failed === 1 && jobWrites[3].last_error === 'bridge_http_404', 'Persist exact safe HTTP failure category');
+  assert(cacheWrites.length === 2 && !JSON.stringify(jobWrites).includes('sensitive-provider-details'), 'Do not renew failed observations or store provider bodies');
  } finally { globalThis.fetch = original; }
 });
