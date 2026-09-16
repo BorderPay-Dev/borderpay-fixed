@@ -1,3 +1,4 @@
+import { assertPartnerInviteRedirect } from "../_shared/partner-invite-link.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -34,7 +35,7 @@ const isExistingUserError = (error: unknown) => {
   return message.includes("already been registered") || message.includes("already registered") || message.includes("already exists");
 };
 
-async function createPartnerAccessLink(db: any, email: string) {
+async function createPartnerAccessLink(db: any, email: string, supabaseUrl: string) {
   const passwordSetupRedirect = "https://portal.borderpayafrica.com/auth/callback?setup=password";
   const existingAccountRedirect = "https://portal.borderpayafrica.com/auth/callback";
   const invited = await db.auth.admin.generateLink({
@@ -43,7 +44,7 @@ async function createPartnerAccessLink(db: any, email: string) {
     options: { redirectTo: passwordSetupRedirect },
   });
   if (!invited.error && invited.data?.properties?.action_link) {
-    return { actionLink: invited.data.properties.action_link as string, userId: invited.data.user?.id || null, existingAccount: false };
+    return { actionLink: assertPartnerInviteRedirect(invited.data.properties.action_link, passwordSetupRedirect, supabaseUrl), userId: invited.data.user?.id || null, existingAccount: false };
   }
   if (!isExistingUserError(invited.error)) throw invited.error || new Error("Invite link generation failed");
 
@@ -53,7 +54,7 @@ async function createPartnerAccessLink(db: any, email: string) {
     options: { redirectTo: existingAccountRedirect },
   });
   if (existing.error || !existing.data?.properties?.action_link) throw existing.error || new Error("Existing-user access link generation failed");
-  return { actionLink: existing.data.properties.action_link as string, userId: existing.data.user?.id || null, existingAccount: true };
+  return { actionLink: assertPartnerInviteRedirect(existing.data.properties.action_link, existingAccountRedirect, supabaseUrl), userId: existing.data.user?.id || null, existingAccount: true };
 }
 
 const sha256 = async (value: string) => Array.from(new Uint8Array(
@@ -110,7 +111,7 @@ Deno.serve(async (req) => {
   let inviteStage = "initializing invitation";
   const deliverPartnerAccessInvite = async (email: string, requestId: number) => {
     if (!SEND_EMAIL_TOKEN) throw new Error("Partner invitation email is not configured");
-    const access = await createPartnerAccessLink(db, email);
+    const access = await createPartnerAccessLink(db, email, url);
     const sendResponse = await fetch(`${url}/functions/v1/send-email`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SEND_EMAIL_TOKEN}` },
