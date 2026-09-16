@@ -504,19 +504,11 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     () => financialCacheKey(EXTERNAL_WALLETS_CACHE_KEY, { userId }),
     [userId],
   );
-  const cachedExternalAccounts = useMemo(() => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(externalAccountsCacheKey) || '[]');
-      return Array.isArray(raw)
-        ? raw.filter((x: any) =>
-          ['us', 'iban', 'gb'].includes(String(x?.account_type || '').toLowerCase())
-          && ['USD', 'EUR', 'GBP'].includes(String(x?.currency || '').toUpperCase())
-          && String(x?.bridge_external_account_id || '').trim()
-        )
-        : [];
-    } catch {
-      return [];
-    }
+  // Saved bank descriptors stay in memory. A previous release persisted this
+  // list and could replace it with a timeout-generated empty result.
+  const cachedExternalAccounts = useMemo<ExternalAccountOption[]>(() => [], [externalAccountsCacheKey]);
+  useEffect(() => {
+    try { localStorage.removeItem(externalAccountsCacheKey); } catch { /* storage unavailable */ }
   }, [externalAccountsCacheKey]);
   // Retain saved routes while regional scope loads; filter only the visible list.
   const cachedExternalWallets = useMemo(() => {
@@ -1133,9 +1125,6 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           externalAccountsRef.current, ext, !res.data.external_accounts_partial,
         );
         setExternalAccounts(nextAccounts);
-        if (!res.data.external_accounts_partial || ext.length > 0) {
-          try { localStorage.setItem(externalAccountsCacheKey, JSON.stringify(nextAccounts)); } catch { /* noop */ }
-        }
         if (res.data.external_accounts_partial) {
           setExternalAccountsError('Saved bank accounts could not be refreshed. Please retry.');
         }
