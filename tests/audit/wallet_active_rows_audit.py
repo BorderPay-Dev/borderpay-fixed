@@ -63,7 +63,7 @@ def assert_wallet_screen(src: str) -> None:
         "function normalizeStableRows",
         "function normalizeVaRows",
         "function latestByCurrency",
-        "return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron }))",
+        "return normalizeStableRows(selectVaLinkedStablecoinWallets(scoped, cachedVas, { allowUsdtTron, allowEurcBase }))",
         "return normalizeVaRows(scoped, readCachedCountry())",
         "const rawStables = Array.isArray(routeData?.data?.stablecoin_wallets)",
         "const rawVas = Array.isArray(routeData?.data?.virtual_accounts)",

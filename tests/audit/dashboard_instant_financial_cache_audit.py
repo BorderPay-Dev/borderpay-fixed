@@ -14,7 +14,7 @@ checks = [
     (
         "dashboard reads canonical persisted financial snapshot",
         "readPersistedFinancialSnapshot" in dashboard
-        and "borderpay_snapshot_cache_v2" in dashboard,
+        and "borderpay_snapshot_cache_v3" in dashboard,
     ),
     (
         "dashboard wallet first-paint can seed from snapshot wallets",

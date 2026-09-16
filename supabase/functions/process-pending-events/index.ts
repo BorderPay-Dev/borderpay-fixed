@@ -38,7 +38,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
-import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
+import { resolveBridgeScaScope, resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 import {
   assertBridgeIngressDecision,
   evaluateBridgeIngressEvent,
@@ -2992,22 +2992,15 @@ async function ensureStablecoinWalletsProvisioned(input: {
     .eq(idCol, input.userId)
     .maybeSingle();
 
-  let country = String(profile?.country || "");
-  if (!country && input.accountType === "business") {
-    const { data: userProfile } = await supabase
-      .from("user_profiles")
-      .select("country")
-      .eq("id", input.userId)
-      .maybeSingle();
-    country = String(userProfile?.country || "");
-  }
+  const country = String(profile?.country || "");
   if (isBridgeBlocked(country) || !isBridgeCustodialWalletSupported(country)) return;
   const statusValue = (profile as Record<string, unknown> | null)?.[statusCol];
   if (String(statusValue || "").toLowerCase() !== "approved") return;
 
-  const walletScope = await resolveBridgeScaScope(supabase, input.userId);
+  const walletScope = await resolveBridgeWalletAssetScope(supabase, input.userId);
+  if (walletScope.region === "unknown") throw new Error("wallet_scope_unavailable");
   const targets = [DEFAULT_STABLECOIN_WALLET] as Array<{ symbol: "USDC" | "USDT"; chain: "BASE" | "TRON" }>;
-  if (walletScope.status === "not_required" && walletScope.reason === "non_eea" && walletScope.country) {
+  if (walletScope.allow_usdt_tron) {
     targets.push({ symbol: "USDT", chain: "TRON" });
   }
 
@@ -3036,7 +3029,7 @@ async function ensureStablecoinWalletsProvisioned(input: {
         symbol,
         chain,
       });
-      await supabase.from("bridge_wallets").upsert({
+      const { error: mirrorError } = await supabase.from("bridge_wallets").upsert({
         bridge_wallet_id:   created.wallet_id,
         bridge_customer_id: input.bridgeCustomerId,
         user_id:            input.accountType === "individual" ? input.userId : null,
@@ -3047,6 +3040,7 @@ async function ensureStablecoinWalletsProvisioned(input: {
         status:             "active",
         updated_at:         new Date().toISOString(),
       }, { onConflict: "bridge_wallet_id" });
+      if (mirrorError) throw new Error(`wallet_projection_failed: ${mirrorError.message}`);
       await completeProvisioningLock(lock.lockEventId, "provisioned");
     } catch (e) {
       await failProvisioningLock(lock.lockEventId, (e as Error).message || "provision_failed");

@@ -417,9 +417,9 @@ function walletRouteKey(asset: string, chain: string) {
   return `${String(asset || '').toUpperCase()}:${String(chain || '').toLowerCase()}`;
 }
 
-function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>, allowUsdtTron = false) {
+function isSupportedExternalWallet(wallet: Pick<ExternalWallet, 'asset' | 'chain'>, allowUsdtTron = false, allowEurcBase = false) {
   const key = walletRouteKey(wallet.asset, wallet.chain);
-  return key === 'USDC:base' || key === 'EURC:base' || (allowUsdtTron && key === 'USDT:tron');
+  return key === 'USDC:base' || (allowEurcBase && key === 'EURC:base') || (allowUsdtTron && key === 'USDT:tron');
 }
 
 function chainDisplayName(chain: string) {
@@ -450,7 +450,7 @@ function localRailQuoteError(error: unknown) {
 export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMoneyFlowProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
-  const { allowUsdtTron } = useWalletAssetScope(userId);
+  const { allowUsdtTron, allowEurcBase } = useWalletAssetScope(userId);
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
 
@@ -640,7 +640,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   const selectedCryptoRouteKey = walletRouteKey(crypto.token, crypto.network);
   const filteredExternalWallets = useMemo(
     () => externalWallets
-      .filter((wallet) => isSupportedExternalWallet(wallet, allowUsdtTron))
+      .filter((wallet) => isSupportedExternalWallet(wallet, allowUsdtTron, allowEurcBase))
       .filter((wallet) => {
         const walletChain = String(wallet.chain || '').toLowerCase();
         const walletAsset = String(wallet.asset || '').toUpperCase();
@@ -649,7 +649,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         }
         return walletRouteKey(wallet.asset, wallet.chain) === selectedCryptoRouteKey;
       }),
-    [externalWallets, selectedCryptoRouteKey, crypto.network, crypto.token, allowUsdtTron],
+    [externalWallets, selectedCryptoRouteKey, crypto.network, crypto.token, allowUsdtTron, allowEurcBase],
   );
   const selectedCryptoExternalWallet = useMemo(
     () => externalWallets.find((wallet) => String(wallet.id || '') === cryptoSavedWalletId) || null,
@@ -672,7 +672,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
       const response: any = await backendAPI.externalWallets.list();
       if (!response?.success) throw new Error(response?.error || 'Could not load withdrawal wallets.');
       const next = Array.isArray(response?.data?.wallets)
-        ? response.data.wallets.filter((wallet: ExternalWallet) => isSupportedExternalWallet(wallet, allowUsdtTron))
+        ? response.data.wallets.filter((wallet: ExternalWallet) => isSupportedExternalWallet(wallet, allowUsdtTron, allowEurcBase))
         : [];
       setExternalWallets(next);
       try { localStorage.setItem(externalWalletsCacheKey, JSON.stringify(next)); } catch { /* cache best effort */ }
@@ -681,7 +681,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     } finally {
       setExternalWalletsLoading(false);
     }
-  }, [externalWallets.length, externalWalletsCacheKey, allowUsdtTron]);
+  }, [externalWallets.length, externalWalletsCacheKey, allowUsdtTron, allowEurcBase]);
 
   const selectExternalWallet = useCallback((wallet: ExternalWallet) => {
     // A Base address can receive either supported Base asset. Preserve the
@@ -2170,7 +2170,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
                 { token: 'USDC', network: 'base', label: 'USDC', sub: 'Base' },
                 { token: 'EURC', network: 'base', label: 'EURC', sub: 'Base' },
                 { token: 'USDT', network: 'tron', label: 'USDT', sub: allowUsdtTron ? 'Tron' : 'Unavailable for this region' },
-              ].map((route) => {
+              ].filter(route => route.token === 'USDC' || (route.token === 'EURC' && allowEurcBase) || (route.token === 'USDT' && allowUsdtTron)).map((route) => {
                 const active = crypto.token === route.token && crypto.network === route.network;
                 return (
                   <button

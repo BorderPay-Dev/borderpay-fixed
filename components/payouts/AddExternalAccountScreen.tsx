@@ -18,6 +18,7 @@
  * partner rails, gated separately.
  */
 
+import { useBeneficiaryAuthorization } from '../security/useBeneficiaryAuthorization';
 import React, { useEffect, useRef, useState } from 'react';
 import { friendlyError } from '../../utils/errors/friendlyError';
 import { Banknote, Loader2, Building2, User as UserIcon } from 'lucide-react';
@@ -38,6 +39,12 @@ interface AddExternalAccountScreenProps {
 
 export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccountScreenProps) {
   const tc = useThemeClasses();
+  const beneficiaryAuthorization = useBeneficiaryAuthorization();
+  const createAccount = async (account: Parameters<typeof backendAPI.bridge.externalAccount.create>[0]) => {
+    const authorizationId = await beneficiaryAuthorization.authorize({ action: 'create', account });
+    if (authorizationId === null) return { success: false, error: 'Account change cancelled.' };
+    return backendAPI.bridge.externalAccount.create(account, authorizationId);
+  };
   const userId = (authAPI.getStoredUser()?.id as string) || '';
   const sendCapsCacheKey = financialCacheKey('borderpay_send_caps_v1', { userId });
   const readCachedCapabilities = (): Array<AccountType> => {
@@ -52,7 +59,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
     }
   };
   const cachedCapabilities = readCachedCapabilities();
-  const initialCapabilityTypes = cachedCapabilities.length > 0 ? cachedCapabilities : DEFAULT_ACCOUNT_TYPES;
+  const initialCapabilityTypes = DEFAULT_ACCOUNT_TYPES;
   const [supportedAccountTypes, setSupportedAccountTypes] = useState<Array<AccountType>>(initialCapabilityTypes);
   const supportedAccountTypesRef = useRef<Array<AccountType>>(initialCapabilityTypes);
   const capabilityLoadInFlightRef = useRef<Promise<void> | null>(null);
@@ -123,16 +130,16 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (!force && seeded.length > 0 && Number.isFinite(last) && Date.now() - last < 60_000) return;
       } catch { /* noop */ }
       try {
-        const r: any = await backendAPI.financial.getSnapshot(50);
+        const r: any = await backendAPI.bridge.externalAccount.capabilities();
         if (r?.success) {
-          const types = Array.isArray(r?.data?.external_account_capabilities) ? r.data.external_account_capabilities : [];
+          const types = Array.isArray(r?.data?.supported_account_types) ? r.data.supported_account_types : [];
           const filtered = types.filter((x: any) => x === 'us' || x === 'iban' || x === 'gb');
-          setSupportedAccountTypes(filtered.length > 0 ? filtered : cachedCapabilities);
+          setSupportedAccountTypes(filtered.length > 0 ? filtered : DEFAULT_ACCOUNT_TYPES);
           if (filtered.length > 0) {
             try { localStorage.setItem(sendCapsCacheKey, JSON.stringify(filtered)); } catch { /* noop */ }
             try { localStorage.setItem(capabilityRefreshTsKey, String(Date.now())); } catch { /* noop */ }
           }
-          if (filtered.length > 0) setAccountType(filtered[0] as AccountType);
+          if (filtered.length > 0) setAccountType(previous => filtered.includes(previous) ? previous : filtered[0] as AccountType);
         } else if (seeded.length === 0) {
           // Keep screen interactive with cached/default options on transient timeout.
           setSupportedAccountTypes(initialCapabilityTypes);
@@ -182,7 +189,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (!street.trim() || !city.trim() || !postal.trim() || !country.trim()) {
           toast.error('A full billing address is required for US accounts.'); setSubmitting(false); return;
         }
-        res = await backendAPI.bridge.externalAccount.create({
+        res = await createAccount({
           account_type: 'us',
           account_owner_name: ownerName.trim(),
           account_number: accountNumber.trim(),
@@ -207,7 +214,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (ownerType === 'business' && !businessName.trim()) {
           toast.error('Business name is required.'); setSubmitting(false); return;
         }
-        res = await backendAPI.bridge.externalAccount.create({
+        res = await createAccount({
           account_type: 'iban',
           account_owner_name: ownerName.trim(),
           account_owner_type: ownerType,
@@ -229,7 +236,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
         if (ownerType === 'business' && !businessName.trim()) {
           toast.error('Business name is required.'); setSubmitting(false); return;
         }
-        res = await backendAPI.bridge.externalAccount.create({
+        res = await createAccount({
           account_type: 'gb',
           account_owner_name: ownerName.trim(),
           account_owner_type: ownerType,
@@ -271,6 +278,7 @@ export function AddExternalAccountScreen({ onBack, onAdded }: AddExternalAccount
 
   return (
     <div className={`min-h-screen ${tc.bg}`}>
+      {beneficiaryAuthorization.dialog}
       <FloatingBackButton onBack={onBack} />
       <header
         className="flex items-center gap-3 pl-16 pr-5 sm:pr-6 pb-3"

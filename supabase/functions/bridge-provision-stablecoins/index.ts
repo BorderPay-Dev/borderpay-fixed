@@ -14,7 +14,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
-import { resolveBridgeScaScope } from "../_shared/bridge-sca-scope.ts";
+import { resolveBridgeWalletAssetScope } from "../_shared/bridge-sca-scope.ts";
 
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -33,7 +33,7 @@ const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_
 // The default set every newly activated user gets. Both assets use Base:
 // USD/GBP virtual accounts settle to USDC; EUR settles to EURC.
 const DEFAULT_WALLET = { symbol: "USDC", chain: "BASE" } as const;
-const CUSTOMER_ASSETS = ["USDC", "EURC"] as const;
+
 
 
 Deno.serve(async (req) => {
@@ -73,6 +73,10 @@ Deno.serve(async (req) => {
   if (verification !== "approved") return noop("kyc_not_approved");
   if (isBridgeBlocked(profile?.country) || !isBridgeCustodialWalletSupported(profile?.country)) return noop("country_unsupported");
 
+  const walletScope = await resolveBridgeWalletAssetScope(supa, user.id);
+  if (walletScope.region === "unknown") return json({ success: false, code: "wallet_scope_unavailable" }, 503);
+  const customerAssets = walletScope.allow_eurc_base ? ["USDC", "EURC"] : ["USDC"];
+
   const ownerCols = isBusiness ? { user_id: user.id, business_user_id: user.id } : { user_id: user.id };
   const out: Array<{ symbol: string; chain: string; address: string | null; already: boolean }> = [];
 
@@ -80,18 +84,18 @@ Deno.serve(async (req) => {
   const { data: existing } = await supa
     .from("bridge_wallets")
     .select("bridge_wallet_id,address")
-    .eq("user_id", user.id)
+    .eq("bridge_customer_id", profile.bridge_customer_id)
     .ilike("chain", chain)
     .eq("status", "active")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
   if (existing?.bridge_wallet_id) {
-    for (const asset of CUSTOMER_ASSETS) out.push({ symbol: asset, chain: "base", address: existing.address, already: true });
+    for (const asset of customerAssets) out.push({ symbol: asset, chain: "base", address: existing.address, already: true });
   } else {
     try {
       const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol, chain });
-      await supa.from("bridge_wallets").upsert({
+      const { error: mirrorError } = await supa.from("bridge_wallets").upsert({
         ...ownerCols,
         bridge_customer_id: profile.bridge_customer_id,
         bridge_wallet_id:   created.wallet_id,
@@ -100,16 +104,14 @@ Deno.serve(async (req) => {
         address:            created.deposit_address,
         status:             "active",
       }, { onConflict: "bridge_wallet_id" });
-      for (const asset of CUSTOMER_ASSETS) out.push({ symbol: asset, chain: "base", address: created.deposit_address, already: false });
+      if (mirrorError) throw new Error("Base wallet projection could not be saved");
+      for (const asset of customerAssets) out.push({ symbol: asset, chain: "base", address: created.deposit_address, already: false });
     } catch (e) {
       console.warn(`provision base wallet: ${(e as Error).message}`);
     }
   }
 
-  const walletScope = await resolveBridgeScaScope(supa, user.id);
-  const allowUsdtTron = walletScope.status === "not_required"
-    && walletScope.reason === "non_eea"
-    && Boolean(walletScope.country);
+  const allowUsdtTron = walletScope.allow_usdt_tron;
   if (allowUsdtTron) {
     const { data: existingTron } = await supa
       .from("bridge_wallets")
@@ -125,7 +127,7 @@ Deno.serve(async (req) => {
     } else {
       try {
         const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: "USDT", chain: "TRON" });
-        await supa.from("bridge_wallets").upsert({
+        const { error: mirrorError } = await supa.from("bridge_wallets").upsert({
           ...ownerCols,
           bridge_customer_id: profile.bridge_customer_id,
           bridge_wallet_id: created.wallet_id,
@@ -134,6 +136,7 @@ Deno.serve(async (req) => {
           address: created.deposit_address,
           status: "active",
         }, { onConflict: "bridge_wallet_id" });
+        if (mirrorError) throw new Error("Tron wallet projection could not be saved");
         out.push({ symbol: "USDT", chain: "tron", address: created.deposit_address, already: false });
       } catch (e) {
         console.warn(`provision tron wallet: ${(e as Error).message}`);
@@ -156,10 +159,14 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
   query = userId ? query.eq("id", userId) : query.ilike("email", email);
   const { data: rows, error } = await query;
   if (error) return json({ success: false, error: error.message }, 500);
-  const profile = rows?.[0];
+  const owner = rows?.[0];
+  if (!owner?.id) return json({ success: false, error: "User not found" }, 404);
+  const identity = await loadAndAssertBridgeIdentityInvariant(supa, owner.id);
+  if (!identity.ok) return json({ success: false, ...identity.failure }, 409);
+  const profile = { ...identity.context, id: owner.id };
   if (!profile?.id) return json({ success: false, error: "User not found" }, 404);
   if (!profile.bridge_customer_id) return json({ success: false, code: "no_customer", error: "Bridge customer required first" }, 409);
-  if (String(profile.bridge_kyc_status || "").toLowerCase() !== "approved" && String(profile.kyc_status || "").toLowerCase() !== "verified") {
+  if (profile.verification_status !== "approved") {
     return json({ success: false, code: "kyc_not_approved", error: "KYC not approved yet" }, 409);
   }
   if (isBridgeBlocked(profile.country)) return json({ success: false, code: "country_blocked", country: profile.country }, 403);
@@ -173,6 +180,9 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
   }
 
   const isBusiness = profile.account_type === "business";
+  const walletScope = await resolveBridgeWalletAssetScope(supa, profile.id);
+  if (walletScope.region === "unknown") return json({ success: false, code: "wallet_scope_unavailable" }, 503);
+  const customerAssets = walletScope.allow_eurc_base ? ["USDC", "EURC"] : ["USDC"];
   const ownerCols: Record<string, unknown> = { user_id: profile.id };
   if (isBusiness) ownerCols.business_user_id = profile.id;
   const out: Array<Record<string, unknown>> = [];
@@ -189,7 +199,7 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
       .limit(1)
       .maybeSingle();
     if (existing?.bridge_wallet_id) {
-      for (const asset of CUSTOMER_ASSETS) out.push({ ...existing, symbol: asset, display_chain: "base", already: true });
+      for (const asset of customerAssets) out.push({ ...existing, symbol: asset, display_chain: "base", already: true });
     } else try {
       const created = await bridgeProvider.createWallet({ customer_id: profile.bridge_customer_id, symbol: symbol as any, chain: chain as any });
       const bridgeWalletRow = {
@@ -211,23 +221,19 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
         stablecoin_chain: chain.toLowerCase(),
         bridge_wallet_id: created.wallet_id,
         virtual_account_number: created.deposit_address,
-        balance: 0,
         status: "active",
       });
       if (bwErr || wErr) {
         out.push({ symbol, chain: "base", created_at_bridge: true, persisted: false, bridge_wallet_id: created.wallet_id, error: (bwErr || wErr)?.message });
       } else {
-        for (const asset of CUSTOMER_ASSETS) out.push({ symbol: asset, chain: "base", created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
+        for (const asset of customerAssets) out.push({ symbol: asset, chain: "base", created_at_bridge: true, persisted: true, bridge_wallet_id: created.wallet_id, address: created.deposit_address });
       }
     } catch (e) {
       out.push({ symbol, chain: "base", created_at_bridge: false, error: e instanceof Error ? e.message : String(e) });
     }
   }
 
-  const walletScope = await resolveBridgeScaScope(supa, profile.id);
-  const allowUsdtTron = walletScope.status === "not_required"
-    && walletScope.reason === "non_eea"
-    && Boolean(walletScope.country);
+  const allowUsdtTron = walletScope.allow_usdt_tron;
   if (allowUsdtTron) {
     const { data: existingTron } = await supa
       .from("bridge_wallets")
@@ -260,7 +266,7 @@ async function provisionForOperator(body: { user_id?: string; email?: string }) 
 
   return json({
     success: out.some((row) => row.persisted === true || row.already === true),
-    user: { id: profile.id, email: profile.email, country: profile.country, bridge_customer_id: profile.bridge_customer_id },
+    user: { id: profile.id, email: owner.email, country: profile.country, bridge_customer_id: profile.bridge_customer_id },
     data: { wallets: out },
   });
 }

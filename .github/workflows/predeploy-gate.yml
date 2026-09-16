@@ -32,6 +32,9 @@ jobs:
       - name: Test payout SCA, EURC and native verification behavior
         run: >-
           deno test --node-modules-dir=auto --allow-env
+          tests/regional-wallet-scope.test.ts
+          tests/regional-wallet-provision-http.test.ts
+          tests/external-account-list-http.test.ts
           tests/bridge-initiation-http.test.ts
           tests/bridge-transfer-webhook-owner.test.ts
           tests/va-settlement-receipt.test.ts

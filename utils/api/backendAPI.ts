@@ -22,12 +22,14 @@ import { selectVaLinkedStablecoinWallets } from '../financial/vaLinkedWalletPres
 
 export type WalletAssetScope = {
   allow_usdt_tron: boolean;
+  allow_eurc_base: boolean;
   country: string | null;
   reason: string;
 };
 
 const EEA_SAFE_WALLET_SCOPE: WalletAssetScope = {
   allow_usdt_tron: false,
+  allow_eurc_base: false,
   country: null,
   reason: 'scope_unavailable',
 };
@@ -36,16 +38,43 @@ function snapshotAllowsUsdt(snapshot: any): boolean {
   return snapshot?.data?.wallet_asset_scope?.allow_usdt_tron === true;
 }
 
-async function getWalletAssetScope(): Promise<WalletAssetScope> {
-  const response: any = await apiCall('sca-scope', { method: 'POST', body: '{}' });
-  const data = response?.data;
-  if (!response?.success || !data) return EEA_SAFE_WALLET_SCOPE;
-  const country = typeof data.country === 'string' ? data.country.toUpperCase() : null;
-  return {
-    allow_usdt_tron: data.reason === 'non_eea' && Boolean(country),
-    country,
-    reason: String(data.reason || 'scope_unavailable'),
-  };
+function snapshotAllowsEurc(snapshot: any): boolean {
+  return snapshot?.data?.wallet_asset_scope?.allow_eurc_base === true;
+}
+
+const scopeRequests = new Map<string, Promise<WalletAssetScope>>();
+export function getCachedWalletAssetScope(userId: string): WalletAssetScope | null {
+  if (!userId) return null;
+  try {
+    const cached = JSON.parse(localStorage.getItem(`borderpay_asset_scope_v2:${userId}`) || 'null');
+    if (cached?.userId !== userId || !Number.isFinite(cached.at) || cached.at > Date.now() || Date.now() - cached.at > 60_000) return null;
+    if (typeof cached.scope?.allow_eurc_base !== 'boolean' || typeof cached.scope?.allow_usdt_tron !== 'boolean') return null;
+    return cached.scope;
+  } catch { return null; }
+}
+
+async function getWalletAssetScope(explicitUserId?: string): Promise<WalletAssetScope> {
+  const userId = String(explicitUserId || authAPI.getStoredUser()?.id || '');
+  const cached = getCachedWalletAssetScope(userId);
+  if (cached) return cached;
+  if (scopeRequests.has(userId)) return scopeRequests.get(userId)!;
+  const request = (async () => {
+    const response: any = await apiCall('sca-scope', { method: 'POST', body: JSON.stringify({ action: 'wallet_assets' }) });
+    const data = response?.data;
+    if (!response?.success || !data || !['eea', 'non_eea'].includes(data.region)) return EEA_SAFE_WALLET_SCOPE;
+    const scope: WalletAssetScope = {
+      allow_usdt_tron: data.region === 'non_eea' && data.allow_usdt_tron === true,
+      allow_eurc_base: data.region === 'eea' && data.allow_eurc_base === true,
+      country: data.country || null, reason: String(data.reason || ''),
+    };
+    // Never seed another signed-in user's regional cache from a late response.
+    if (userId && authAPI.getStoredUser()?.id === userId) {
+      try { localStorage.setItem(`borderpay_asset_scope_v2:${userId}`, JSON.stringify({ userId, at: Date.now(), scope })); } catch { /* quota */ }
+    }
+    return scope;
+  })().finally(() => scopeRequests.delete(userId));
+  scopeRequests.set(userId, request);
+  return request;
 }
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
@@ -494,6 +523,7 @@ export const userAPI = {
 // current account backend. Other currencies (NGN/KES/GHS/...) are future-state
 // and return rails_future_state until BorderPay enables local rails.
 export const walletAPI = {
+  getAssetScope: getWalletAssetScope,
   async getWallets(options: { includeWithdrawalAssets?: boolean } = {}) {
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) {
@@ -510,13 +540,13 @@ export const walletAPI = {
       return n / (10 ** scale);
     };
 
+    const walletAssetScope = await getWalletAssetScope(user.id);
+    if (!walletAssetScope.country) return { success: false, error: 'Wallet region is temporarily unavailable. Please retry.' };
     const [
-      walletAssetScope,
       { data: bridgeWallets, error: bridgeWalletErr },
       { data: bridgeVas, error: bridgeVaErr },
       { data: walletBalanceLedger, error: walletBalanceLedgerErr },
     ] = await Promise.all([
-      getWalletAssetScope(),
       supabase
         .from('bridge_wallets')
         .select('bridge_wallet_id,currency,chain,status,updated_at')
@@ -577,11 +607,12 @@ export const walletAPI = {
       const currency = String(w?.currency || '').toUpperCase();
       const chain = String(w?.chain || '').toLowerCase();
       if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
-      return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
+      return (currency === 'USDC' || (currency === 'EURC' && walletAssetScope.allow_eurc_base)) && chain === 'base';
     });
     // Resolve both Base assets to the VA-linked wallet; balances remain asset-specific.
     const fundingWalletRows = selectVaLinkedStablecoinWallets(allowedWalletRows, bridgeVas, {
       allowUsdtTron: walletAssetScope.allow_usdt_tron,
+      allowEurcBase: walletAssetScope.allow_eurc_base,
       includeWithdrawalAssets: options.includeWithdrawalAssets,
     });
     for (const w of fundingWalletRows) {
@@ -608,7 +639,7 @@ export const walletAPI = {
     // If projections lag but ledger has balance rows, still expose balances.
     for (const [currency, balance] of ledgerByCurrency.entries()) {
       if (currency === 'USDT' && !walletAssetScope.allow_usdt_tron) continue;
-      if (currency === 'EURC' && walletAssetScope.allow_usdt_tron && !options.includeWithdrawalAssets) continue;
+      if (currency === 'EURC' && !walletAssetScope.allow_eurc_base) continue;
       if (!['USDC', 'EURC', 'USDT'].includes(currency)) continue;
       const row = ensure(currency);
       if (!row) continue;
@@ -616,7 +647,7 @@ export const walletAPI = {
     }
 
     const wallets = Array.from(byCurrency.values())
-      .filter(row => row.currency !== 'EURC' || !walletAssetScope.allow_usdt_tron || options.includeWithdrawalAssets)
+      .filter(row => row.currency !== 'EURC' || walletAssetScope.allow_eurc_base)
       .sort((a, b) => String(a.currency).localeCompare(String(b.currency)));
     return { success: true, data: { wallets, wallet_asset_scope: walletAssetScope } };
   },
@@ -858,7 +889,7 @@ export const financialReadModelAPI = (() => {
   }
 
   function persistKey(snapshotKey: string): string {
-    return `borderpay_snapshot_cache_v2:${snapshotKey}`;
+    return `borderpay_snapshot_cache_v3:${snapshotKey}`;
   }
 
   function anySnapshotKey(userId: string): string {
@@ -929,6 +960,13 @@ export const financialReadModelAPI = (() => {
       null;
     if (!previous?.success || !previous?.data) return next;
 
+    if (next.data.external_accounts_partial) {
+      next = { ...next, data: { ...next.data,
+        external_accounts: previous.data.external_accounts || [],
+        external_account_capabilities: previous.data.external_account_capabilities || [],
+      } };
+    }
+
     const collection = (snapshot: any, key: string): any[] =>
       Array.isArray(snapshot?.data?.[key]) ? snapshot.data[key] : [];
     const surfaceKeys = ['wallets', 'stablecoin_wallets', 'virtual_accounts'];
@@ -980,7 +1018,7 @@ export const financialReadModelAPI = (() => {
     }
 
     try {
-      const snapshotPrefix = `borderpay_snapshot_cache_v2:${userId}:`;
+      const snapshotPrefix = `borderpay_snapshot_cache_v3:${userId}:`;
       const financialSuffix = `:financial-v2:${userId}`;
       const remove: string[] = [];
       for (let i = 0; i < localStorage.length; i += 1) {
@@ -1012,6 +1050,7 @@ export const financialReadModelAPI = (() => {
   }
 
   async function fetchSnapshot(userId: string, limit: number) {
+    await getWalletAssetScope(userId); // Publish fresh regional RLS scope before every wallet read.
     const [profileRes, walletsRes, txRes, stableRes, vaRes, notifRes, externalListRes, externalCapsRes, externalWalletsRes] = await Promise.all([
       userAPI.getProfile(),
       walletAPI.getWallets(),
@@ -1075,10 +1114,11 @@ export const financialReadModelAPI = (() => {
       const currency = String(row?.currency || '').toUpperCase();
       const chain = String(row?.chain || '').toLowerCase();
       if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
-      return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
+      return (currency === 'USDC' || (currency === 'EURC' && walletAssetScope.allow_eurc_base)) && chain === 'base';
     });
     const stablecoinWallets = selectVaLinkedStablecoinWallets(scopedStablecoinRows, virtualAccounts, {
       allowUsdtTron: walletAssetScope.allow_usdt_tron,
+      allowEurcBase: walletAssetScope.allow_eurc_base,
     });
     const notifications = Array.isArray(notifRes?.data) ? notifRes.data : [];
     const externalAccounts = ((externalListRes as any)?.success && Array.isArray((externalListRes as any)?.data?.external_accounts))
@@ -1130,7 +1170,7 @@ export const financialReadModelAPI = (() => {
         external_wallets: externalWallets,
         wallet_asset_scope: walletAssetScope,
         external_accounts_partial:
-          !((externalListRes as any)?.success) || !((externalCapsRes as any)?.success),
+          !((externalListRes as any)?.success) || Boolean((externalListRes as any)?.data?.partial) || !((externalCapsRes as any)?.success),
         external_wallets_partial: !((externalWalletsRes as any)?.success),
         isReady,
         wallet_status: profile?.wallet_status || walletStatus,
@@ -1188,7 +1228,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               lastSnapshot.data?.stablecoin_wallets,
               lastSnapshot.data?.virtual_accounts,
-              { allowUsdtTron: snapshotAllowsUsdt(lastSnapshot) },
+              { allowUsdtTron: snapshotAllowsUsdt(lastSnapshot), allowEurcBase: snapshotAllowsEurc(lastSnapshot) },
             ),
           },
         };
@@ -1204,7 +1244,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               lastAnySnapshot.data?.stablecoin_wallets,
               lastAnySnapshot.data?.virtual_accounts,
-              { allowUsdtTron: snapshotAllowsUsdt(lastAnySnapshot) },
+              { allowUsdtTron: snapshotAllowsUsdt(lastAnySnapshot), allowEurcBase: snapshotAllowsEurc(lastAnySnapshot) },
             ),
           },
         };
@@ -1225,7 +1265,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               persisted.snapshot.data?.stablecoin_wallets,
               persisted.snapshot.data?.virtual_accounts,
-              { allowUsdtTron: snapshotAllowsUsdt(persisted.snapshot) },
+              { allowUsdtTron: snapshotAllowsUsdt(persisted.snapshot), allowEurcBase: snapshotAllowsEurc(persisted.snapshot) },
             ),
           },
         };
@@ -1245,7 +1285,7 @@ export const financialReadModelAPI = (() => {
             stablecoin_wallets: selectVaLinkedStablecoinWallets(
               persistedAny.snapshot.data?.stablecoin_wallets,
               persistedAny.snapshot.data?.virtual_accounts,
-              { allowUsdtTron: snapshotAllowsUsdt(persistedAny.snapshot) },
+              { allowUsdtTron: snapshotAllowsUsdt(persistedAny.snapshot), allowEurcBase: snapshotAllowsEurc(persistedAny.snapshot) },
             ),
           },
         };
@@ -1277,7 +1317,7 @@ export const financialReadModelAPI = (() => {
           const stablecoinWallets = selectVaLinkedStablecoinWallets(
             snapshot.data.stablecoin_wallets,
             virtualAccounts,
-            { allowUsdtTron: snapshotAllowsUsdt(snapshot) },
+            { allowUsdtTron: snapshotAllowsUsdt(snapshot), allowEurcBase: snapshotAllowsEurc(snapshot) },
           );
           const balanceByCurrency = wallets.reduce((acc: Record<string, number>, w: any) => {
             const c = String(w?.currency || '').toUpperCase();
@@ -1314,6 +1354,7 @@ export const financialReadModelAPI = (() => {
         // Keep the route usable from local tables if sync cannot be scheduled.
       }
 
+      await getWalletAssetScope(userId);
       const [walletsRes, stableRes, vaRes, vaCapsRes] = await Promise.all([
         walletAPI.getWallets(),
         supabase
@@ -1350,10 +1391,11 @@ export const financialReadModelAPI = (() => {
         const currency = String(row?.currency || '').toUpperCase();
         const chain = String(row?.chain || '').toLowerCase();
         if (currency === 'USDT') return walletAssetScope.allow_usdt_tron && chain === 'tron';
-        return (currency === 'USDC' || currency === 'EURC') && chain === 'base';
+        return (currency === 'USDC' || (currency === 'EURC' && walletAssetScope.allow_eurc_base)) && chain === 'base';
       });
       const stablecoinWallets = selectVaLinkedStablecoinWallets(scopedStablecoinRows, virtualAccounts, {
         allowUsdtTron: walletAssetScope.allow_usdt_tron,
+      allowEurcBase: walletAssetScope.allow_eurc_base,
       });
 
       return {
@@ -1386,8 +1428,7 @@ export const financialReadModelAPI = (() => {
     },
 
     async getSendRouteData() {
-      // Withdrawal funding must retain all owned assets, even when regional
-      // wallet presentation hides EURC. A display snapshot is not a funding list.
+      // Refresh owned funding assets under the same regional boundary as Wallet.
       const walletsRes = await walletAPI.getWallets({ includeWithdrawalAssets: true });
       if (!walletsRes?.success) return walletsRes as any;
       const [capsRes, externalListRes]: any[] = await Promise.all([
@@ -1414,7 +1455,7 @@ export const financialReadModelAPI = (() => {
           wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
           external_account_capabilities: caps,
           external_accounts: externalAccounts,
-          external_accounts_partial: !capsRes?.success,
+          external_accounts_partial: !capsRes?.success || !externalListRes?.success || Boolean(externalListRes?.data?.partial),
         },
       };
     },
@@ -2520,23 +2561,22 @@ export const bridgeAPI = {
     };
   })(),
 
-  /**
-   * Deprecated: stablecoin wallets are manual-add only.
-   * Kept as a compatibility no-op so accidental callers never auto-create.
-   */
+  /** Reconcile approved users' automatic regional wallets with Bridge. */
   provisionStablecoins: (() => {
-    let inFlight: Promise<any> | null = null;
-    let lastAt = 0;
-    return async () => {
-      const now = Date.now();
-      if (inFlight && now - lastAt < 8000) return inFlight;
-      lastAt = now;
-      inFlight = Promise.resolve({
-        success: true,
-        code: 'stablecoin_manual_only',
-        data: { wallets: [] as Array<{ symbol: string; chain: string; address: string | null }> },
-      }).finally(() => { inFlight = null; });
-      return inFlight;
+    const requests = new Map<string, Promise<any>>();
+    return () => {
+      const userId = String(authAPI.getStoredUser()?.id || '');
+      if (!userId) return Promise.resolve({ success: false, error: 'Unauthorized' });
+      const existing = requests.get(userId);
+      if (existing) return existing;
+      const request = apiCall('bridge-provision-stablecoins', {
+        method: 'POST', body: '{}',
+      }).then(result => {
+        if (result?.success && authAPI.getStoredUser()?.id === userId) financialReadModelAPI.invalidateForUser(userId);
+        return result;
+      }).finally(() => { requests.delete(userId); });
+      requests.set(userId, request);
+      return request;
     };
   })(),
 
@@ -2619,16 +2659,16 @@ export const bridgeAPI = {
           bank_name?: string;
           account: { sort_code: string; account_number: string };
         }
-    ) =>
+    , scaAuthorizationId?: string) =>
       apiCall<{ external_account_id: string; account_type: 'us' | 'iban' | 'gb'; currency: 'USD' | 'EUR' | 'GBP'; rail: string; last_4: string; bank_name: string | null }>(
         'bridge-external-account',
-        { method: 'POST', body: JSON.stringify({ action: 'create', account }) },
+        { method: 'POST', body: JSON.stringify({ action: 'create', account, ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}) }) },
       ),
 
-    remove: async (externalAccountId: string) =>
+    remove: async (externalAccountId: string, scaAuthorizationId?: string) =>
       apiCall<{ deleted: boolean; external_account_id: string }>(
         'bridge-external-account',
-        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId }) },
+        { method: 'POST', body: JSON.stringify({ action: 'delete', external_account_id: externalAccountId, ...(scaAuthorizationId ? { sca_authorization_id: scaAuthorizationId } : {}) }) },
       ),
 
     /** Read payout destinations from Bridge (source of truth). */
@@ -2649,6 +2689,10 @@ export const bridgeAPI = {
 };
 
 export const scaAPI = {
+  authorizeBeneficiary: async (input: { pin: string; totp: string; request: Record<string, unknown> }) =>
+    apiCall<{ authorization_id?: string }>('sca-authorize', { method: 'POST', body: JSON.stringify({
+      action: 'authorize', operation: 'beneficiary_change', resource: 'bridge_external_account', ...input,
+    }) }),
   scope: async () => apiCall<{
     required: boolean;
     status: string;

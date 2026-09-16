@@ -208,7 +208,7 @@ Deno.test('Bridge-required initiation outside local scope cannot invent an SCA e
   const t = setup();
   try {
     t.state.country = 'GB';
-    assert((await t.pay(payment())).body.code === 'bridge_wallet_sca_required', 'fail closed on scope conflict');
+    assert((await t.pay(payment('USDC'))).body.code === 'bridge_wallet_sca_required', 'fail closed on scope conflict');
     assert(!t.state.sent.length, 'no transfer');
     let rejected = false;
     try { await bridgeProvider.createTransfer({ ...payment(), on_behalf_of: 'customer' } as any); } catch { rejected = true; }

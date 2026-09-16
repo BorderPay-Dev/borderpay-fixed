@@ -9,11 +9,11 @@ EVENTS = (ROOT / "supabase/functions/process-pending-events/index.ts").read_text
 
 
 checks = {
-    "manual provisioner creates one Base wallet": 'const DEFAULT_WALLET = { symbol: "USDC", chain: "BASE" }' in PROVISION,
-    "manual provisioner presents USDC and EURC": 'const CUSTOMER_ASSETS = ["USDC", "EURC"]' in PROVISION,
-    "manual provisioner gates Tron to non-EEA": 'chain: "TRON"' in PROVISION and 'walletScope.reason === "non_eea"' in PROVISION,
+    "automatic provisioner creates one Base wallet": 'const DEFAULT_WALLET = { symbol: "USDC", chain: "BASE" }' in PROVISION,
+    "automatic provisioner presents USDC and EURC": 'const customerAssets = walletScope.allow_eurc_base ? ["USDC", "EURC"] : ["USDC"]' in PROVISION,
+    "automatic provisioner gates Tron to non-EEA": 'chain: "TRON"' in PROVISION and 'walletScope.allow_usdt_tron' in PROVISION,
     "approval webhook creates one Base wallet": 'const DEFAULT_STABLECOIN_WALLET = { symbol: "USDC", chain: "BASE" }' in EVENTS,
-    "approval webhook keeps Base default and gates Tron": 'DEFAULT_STABLECOIN_WALLET = { symbol: "USDT"' not in EVENTS and 'walletScope.reason === "non_eea"' in EVENTS,
+    "approval webhook keeps Base default and gates Tron": 'DEFAULT_STABLECOIN_WALLET = { symbol: "USDT"' not in EVENTS and 'walletScope.allow_usdt_tron' in EVENTS,
 }
 
 failed = [name for name, passed in checks.items() if not passed]

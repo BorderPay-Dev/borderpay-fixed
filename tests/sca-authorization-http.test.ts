@@ -151,6 +151,11 @@ Deno.test('PIN then real TOTP creates recorded authorization; failures and repla
     failAudit = true;
     const auditFailure = await authorize('123456', await currentTotp());
     assert(auditFailure.status === 503 && !(await auditFailure.json()).data, 'unrecorded success must not reach client');
+    failAudit = false; lastCounter = -1;
+    const beneficiary = await call('sca-authorize', { action: 'authorize', operation: 'beneficiary_change', resource: 'bridge_external_account', pin: '123456', totp: await currentTotp(), request: { action: 'delete', external_account_id: 'account-1' } });
+    assert(beneficiary.status === 200, 'beneficiary authorization must be supported');
+    assert(authorizations.at(-1).operation === 'beneficiary_change' && authorizations.at(-1).resource === 'bridge_external_account', 'beneficiary proof must not authorize a payment');
+    assert((await call('sca-authorize', { operation: 'beneficiary_change', resource: 'bridge_transfer' })).status === 400, 'reject mismatched operation/resource');
     country = 'GB';
     const nonEea = await call('sca-authorize', { action: 'status' });
     assert((await nonEea.json()).data.required === false);

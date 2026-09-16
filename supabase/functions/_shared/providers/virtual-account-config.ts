@@ -1,5 +1,6 @@
 export type VaCurrency = "USD" | "EUR" | "GBP";
 
+import { resolveBridgeWalletAssetScope } from "../bridge-sca-scope.ts";
 import { bridgeProvider } from "./bridge.ts";
 import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../fees/schedule.ts";
 
@@ -129,13 +130,17 @@ export async function loadVirtualAccountDestinationConfig(
   const suffix = currency.toUpperCase();
   const firstValue = (values: Array<string | null | undefined>, fallback = "") =>
     values.map(clean).find(Boolean) || fallback;
-  const paymentRail = firstValue([
+  const userId = clean(owner?.userId);
+  const bridgeCustomerId = clean(owner?.bridgeCustomerId);
+  const scope = userId ? await resolveBridgeWalletAssetScope(supa, userId) : null;
+  if ((userId || bridgeCustomerId) && (!scope || scope.region === "unknown")) throw new Error("wallet_scope_unavailable");
+  const paymentRail = scope ? "base" : firstValue([
     await readSetting(supa, `bridge.virtual_account.${suffix}.destination.payment_rail`),
     await readSetting(supa, "bridge.virtual_account.destination.payment_rail"),
     Deno.env.get(`BRIDGE_VA_${suffix}_DESTINATION_PAYMENT_RAIL`),
     Deno.env.get("BRIDGE_VA_DESTINATION_PAYMENT_RAIL"),
   ], "base");
-  const destinationCurrency = firstValue([
+  const destinationCurrency = scope ? (currency === "EUR" && scope.allow_eurc_base ? "EURC" : "USDC") : firstValue([
     await readSetting(supa, `bridge.virtual_account.${suffix}.destination.currency`),
     await readSetting(supa, "bridge.virtual_account.destination.currency"),
     Deno.env.get(`BRIDGE_VA_${suffix}_DESTINATION_CURRENCY`),
@@ -144,17 +149,15 @@ export async function loadVirtualAccountDestinationConfig(
 
   const rail = clean(paymentRail).toLowerCase();
   const ccy = clean(destinationCurrency).toUpperCase();
-  const userId = clean(owner?.userId);
-  const bridgeCustomerId = clean(owner?.bridgeCustomerId);
+
 
   if (userId || bridgeCustomerId) {
     let query = supa
       .from("bridge_wallets")
       .select("bridge_wallet_id,address,currency,chain,status,updated_at")
-      .ilike("currency", ccy)
       .ilike("chain", rail)
       .eq("status", "active")
-      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: true })
       .limit(1);
     if (bridgeCustomerId) query = query.eq("bridge_customer_id", bridgeCustomerId);
     if (userId) query = query.or(`user_id.eq.${userId},business_user_id.eq.${userId}`);
@@ -174,8 +177,8 @@ export async function loadVirtualAccountDestinationConfig(
     if (bridgeCustomerId) {
       const bridgeWallets = await bridgeProvider.listWallets(bridgeCustomerId);
       const bridgeWallet = bridgeWallets.find((w) =>
-        clean(w.currency).toUpperCase() === ccy &&
         clean(w.chain).toLowerCase() === rail &&
+        !["closed", "deleted", "disabled", "inactive"].includes(clean(w.status).toLowerCase()) &&
         clean(w.address)
       );
       if (bridgeWallet?.address) {
@@ -184,7 +187,7 @@ export async function loadVirtualAccountDestinationConfig(
             user_id: userId || null,
             bridge_customer_id: bridgeCustomerId,
             bridge_wallet_id: clean(bridgeWallet.wallet_id),
-            currency: ccy,
+            currency: "USDC",
             chain: rail,
             address: clean(bridgeWallet.address),
             status: "active",
@@ -203,30 +206,8 @@ export async function loadVirtualAccountDestinationConfig(
       }
     }
 
-    if (userId) {
-      const { data: externalWallet } = await supa
-        .from("external_wallets")
-        .select("id,address,asset,chain,status,created_at")
-        .eq("user_id", userId)
-        .ilike("asset", ccy)
-        .ilike("chain", rail)
-        .eq("status", "active")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const externalAddress = clean(externalWallet?.address);
-      if (externalAddress) {
-        return {
-          payment_rail: rail,
-          currency: ccy,
-          address: externalAddress,
-          external_wallet_id: clean(externalWallet?.id) || null,
-          source: "external_wallet",
-        };
-      }
-    }
 
-    throw new Error(`Missing active ${ccy}/${rail} Bridge wallet or saved external ${ccy}/${rail} wallet for ${suffix} virtual account destination`);
+    throw new Error(`Missing active ${ccy}/${rail} custodial Bridge wallet for ${suffix} virtual account destination`);
   }
 
   const address = firstValue([

@@ -17,7 +17,7 @@ const call = (body: unknown) => handler(new Request(`${base}/functions/v1/extern
   method: 'POST', headers: { Authorization: 'Bearer test-session', 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }));
 
-Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA and non-EEA without creating a Bridge transfer or liquidation route', async () => {
+Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA, rejects non-EEA, without creating a Bridge transfer or liquidation route', async () => {
   const originalFetch = globalThis.fetch;
   let country = 'LV';
   let status = 'approved';
@@ -53,13 +53,18 @@ Deno.test('EURC save/list accepts a USDC-labelled Base wallet for EEA and non-EE
     throw new Error(`Unexpected request ${req.method} ${url.pathname}`);
   };
   try {
-    for (country of ['LV', 'GB']) {
+    for (country of ['LV', 'FR']) {
       const result = await call(destination);
       const data = await result.json();
       assert(result.status === 200 && data.data.wallet.asset === 'EURC', `EURC save failed for ${country}: ${JSON.stringify(data)}`);
       const listed = await (await call({ action: 'list' })).json();
       assert(listed.data.wallets[0].asset === 'EURC', 'EURC must remain visible after saving');
     }
+    country = 'GB';
+    assert((await call(destination)).status === 403, 'non-EEA EURC must be rejected');
+    const nonEeaListed = await (await call({ action: 'list' })).json();
+    assert(nonEeaListed.data.wallets.length === 0, 'legacy EURC destinations must not bypass region');
+    country = 'FR';
     rows = [{ ...source, user_id: null, business_user_id: uid }];
     assert((await call(destination)).status === 200, 'business-owned Base wallet must support EURC');
     const savedCount = saved.length;

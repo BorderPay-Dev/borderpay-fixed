@@ -42,12 +42,6 @@ const CARDS: WalletCard[] = [
   { code: 'USDT', type: 'stablecoin', title: 'Tether USD', subtitle: 'Tron digital dollar wallet' },
 ];
 
-const STABLE_CHAIN: Record<string, string> = {
-  USDC: 'BASE',
-  EURC: 'BASE',
-  USDT: 'TRON',
-};
-
 const ACTIVE_ROW_STATUSES = new Set(['active', 'approved', 'enabled', 'ready', 'provisioned']);
 
 function isActiveRow(row: { status?: string }): boolean {
@@ -79,10 +73,10 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   const tc = useThemeClasses();
   const { t } = useThemeLanguage();
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
-  const { allowUsdtTron } = useWalletAssetScope(userId);
+  const { allowUsdtTron, allowEurcBase } = useWalletAssetScope(userId);
   const visibleCards = useMemo(
-    () => CARDS.filter((card) => (card.code !== 'USDT' || allowUsdtTron) && (card.code !== 'EURC' || !allowUsdtTron)),
-    [allowUsdtTron],
+    () => CARDS.filter((card) => (card.code !== 'USDT' || allowUsdtTron) && (card.code !== 'EURC' || allowEurcBase)),
+    [allowUsdtTron, allowEurcBase],
   );
 
   const [country, setCountry] = useState<string | null>(() => {
@@ -129,7 +123,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     refreshInFlightRef.current = true;
     try {
       const route: any = await backendAPI.financial.getWalletRouteData();
-      const routeData = route?.data || {};
+      if (route?.success) {
+      const routeData = route.data || {};
       const nextStable = Array.isArray(routeData?.stablecoin_wallets) ? routeData.stablecoin_wallets : [];
       const nextVa = Array.isArray(routeData?.virtual_accounts) ? routeData.virtual_accounts : [];
       const vaCaps = routeData?.virtual_account_capabilities || null;
@@ -161,6 +156,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
       }
       try { localStorage.setItem(walletCacheKey, JSON.stringify(nextStable)); } catch { /* noop */ }
       try { localStorage.setItem(vaCacheKey, JSON.stringify(nextVa)); } catch { /* noop */ }
+      }
 
       try {
         const p = await backendAPI.user.getProfile();
@@ -199,6 +195,13 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     void refresh();
   }, [userId]);
 
+  useEffect(() => {
+    if (!verified) return;
+    let active = true;
+    void backendAPI.bridge.provisionStablecoins().then(() => { if (active) void refresh(); }).catch(() => {});
+    return () => { active = false; };
+  }, [userId, verified]);
+
   const activeStable = useMemo(
     () => new Set(stableRows.filter(isActiveRow).map((r) => String(r.currency || '').toUpperCase())),
     [stableRows],
@@ -229,7 +232,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
   );
 
   const requestWallet = async (card: WalletCard) => {
-    if (creating) return;
+    if (card.type !== 'virtual_account' || creating) return;
     setCreating(card.code);
     try {
       if (card.type === 'virtual_account') {
@@ -243,15 +246,8 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           return;
         }
         showToast.success(`${card.code} account ready`);
-      } else {
-        const chain = STABLE_CHAIN[card.code] || 'BASE';
-        const res: any = await backendAPI.bridge.wallet.create({ symbol: card.code, chain });
-        if (!res?.success) {
-          showToast.error(friendlyError(res?.error, `Could not add ${card.code} wallet.`));
-          return;
-        }
-        showToast.success(`${card.code} wallet added`);
       }
+
       await refresh();
     } finally {
       setCreating(null);
@@ -304,6 +300,11 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
     const deactivated = card.type === 'virtual_account'
       ? inactiveVa.has(card.code)
       : inactiveStable.has(card.code);
+    if (card.type === 'stablecoin') {
+      return <button disabled className={`h-10 px-4 rounded-xl text-sm font-semibold ${alreadyActive ? 'bg-[#C7FF00] text-black' : 'border border-white/15 text-white/55'}`}>
+        {alreadyActive ? 'Activated' : !verified ? 'After verification' : 'Activating automatically'}
+      </button>;
+    }
     if (deactivated) {
       return (
         <button
@@ -391,7 +392,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
           </p>
           <h1 className={`text-lg font-semibold ${tc.text} mt-1`}>Available wallets</h1>
           <p className={`text-xs ${tc.textMuted} mt-1`}>
-            Add only what you need. Unsupported wallets stay locked for your region.
+            Digital currency wallets activate automatically after verification. You can activate receiving accounts below.
           </p>
         </div>
 
@@ -444,7 +445,7 @@ export function AddWalletScreen({ userId, onBack }: AddWalletScreenProps) {
                     </div>
                   </div>
                   {!supported && !deactivated && <Lock className="w-4 h-4 text-white/45 mr-1" />}
-                  {!active && !deactivated && supported && (!setupPending || supportRequired) && <Plus className="w-4 h-4 text-white/45 mr-1" />}
+                  {card.type === 'virtual_account' && !active && !deactivated && supported && (!setupPending || supportRequired) && <Plus className="w-4 h-4 text-white/45 mr-1" />}
                   {renderAction(card)}
                 </div>
               );

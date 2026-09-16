@@ -1,29 +1,21 @@
 import { useEffect, useState } from 'react';
-import { backendAPI } from '../api/backendAPI';
+import { walletAPI, getCachedWalletAssetScope } from '../api/backendAPI';
 
-/** Provider-backed regional wallet boundary. Unknown scope stays EEA-safe. */
+/** Unknown is neither EEA nor non-EEA; never flash a region-specific asset. */
 export function useWalletAssetScope(userId: string) {
-  const [allowUsdtTron, setAllowUsdtTron] = useState(false);
-  const [resolved, setResolved] = useState(false);
-
+  const [state, setState] = useState(() => ({ userId, scope: getCachedWalletAssetScope(userId), resolved: false }));
   useEffect(() => {
     let active = true;
-    setAllowUsdtTron(false);
-    setResolved(false);
-    void backendAPI.sca.scope().then((response: any) => {
-      if (!active) return;
-      const data = response?.data;
-      setAllowUsdtTron(Boolean(
-        response?.success
-        && data?.reason === 'non_eea'
-        && String(data?.country || '').trim(),
-      ));
-      setResolved(true);
-    }).catch(() => {
-      if (active) setResolved(true);
-    });
+    const cached = getCachedWalletAssetScope(userId);
+    setState({ userId, scope: cached, resolved: Boolean(cached) });
+    void walletAPI.getAssetScope(userId).then(scope => {
+      if (active) setState({ userId, scope, resolved: true });
+    }).catch(() => { if (active) setState({ userId, scope: cached, resolved: true }); });
     return () => { active = false; };
   }, [userId]);
-
-  return { allowUsdtTron, resolved };
+  const scope = state.userId === userId ? state.scope : null;
+  return { allowUsdtTron: scope?.allow_usdt_tron === true,
+    allowEurcBase: scope?.allow_eurc_base === true,
+    resolved: state.userId === userId && state.resolved,
+    country: scope?.country ?? null };
 }

@@ -35,9 +35,9 @@ const BASE_WITHDRAWAL_ROUTES = [
 const USDT_WITHDRAWAL_ROUTE = { key: 'USDT:tron', asset: 'USDT', chain: 'tron', label: 'USDT · Tron' } as const;
 const chainName = (c: string) => c.toLowerCase() === 'base' ? 'Base' : c.toLowerCase() === 'tron' ? 'Tron' : c;
 const walletRouteKey = (asset: string, chain: string) => `${String(asset).toUpperCase()}:${String(chain).toLowerCase()}`;
-const filterSupportedWallets = (wallets: ExternalWallet[], allowUsdtTron: boolean) => wallets.filter((wallet) => {
+const filterSupportedWallets = (wallets: ExternalWallet[], allowUsdtTron: boolean, allowEurcBase = false) => wallets.filter((wallet) => {
   const key = walletRouteKey(wallet.asset, wallet.chain);
-  return BASE_WITHDRAWAL_ROUTES.some(route => route.key === key)
+  return (key === 'USDC:base' || (allowEurcBase && key === 'EURC:base'))
     || (allowUsdtTron && key === USDT_WITHDRAWAL_ROUTE.key);
 });
 
@@ -51,7 +51,7 @@ function validAddress(chain: string, a: string): boolean {
 function readCache(cacheKey: string): ExternalWallet[] {
   try {
     const v = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-    return Array.isArray(v) ? filterSupportedWallets(v, false) : [];
+    return Array.isArray(v) ? v : [];
   }
   catch { return []; }
 }
@@ -68,8 +68,8 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
   const userId = (authAPI.getStoredUser()?.id as string) || '';
-  const { allowUsdtTron } = useWalletAssetScope(userId);
-  const withdrawalRoutes = [...BASE_WITHDRAWAL_ROUTES, USDT_WITHDRAWAL_ROUTE];
+  const { allowUsdtTron, allowEurcBase } = useWalletAssetScope(userId);
+  const withdrawalRoutes = [...BASE_WITHDRAWAL_ROUTES, USDT_WITHDRAWAL_ROUTE].filter(route => route.asset === 'USDC' || (route.asset === 'EURC' && allowEurcBase) || (route.asset === 'USDT' && allowUsdtTron));
   const verification = useVerification(userId);
   const cacheKey = financialCacheKey(CACHE_KEY, { userId });
 
@@ -97,7 +97,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
         { success: false, error: 'request_timeout' } as any
       );
       if (r?.success) {
-        const next: ExternalWallet[] = filterSupportedWallets(r.data?.wallets || [], allowUsdtTron);
+        const next: ExternalWallet[] = Array.isArray(r.data?.wallets) ? r.data.wallets : [];
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
       }
@@ -127,12 +127,12 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  /* eslint-disable-next-line */ }, [allowUsdtTron]);
+  /* eslint-disable-next-line */ }, [allowUsdtTron, allowEurcBase]);
 
   const save = async () => {
     if (!label.trim()) { toast.error('Add a name for this wallet.'); return; }
     if (!withdrawalRoutes.some(route => route.key === selectedRouteKey) || (asset === 'USDT' && !allowUsdtTron)) {
-      toast.error(allowUsdtTron ? 'Choose USDC or EURC on Base, or USDT on Tron.' : 'Choose USDC or EURC on Base.');
+      toast.error(allowUsdtTron ? 'Choose USDC on Base or USDT on Tron.' : allowEurcBase ? 'Choose USDC or EURC on Base.' : 'Wallet region is being verified.');
       return;
     }
     if (!validAddress(chain, address)) { toast.error(`That address isn't valid for ${chainName(chain)}.`); return; }
@@ -140,7 +140,7 @@ export function ExternalWalletsScreen({ onBack, onNavigate }: Props) {
     try {
       const r: any = await backendAPI.externalWallets.add({ label: label.trim(), chain, asset, address: address.trim() });
       if (r?.success && r.data?.wallet) {
-        const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)], allowUsdtTron);
+        const next = filterSupportedWallets([r.data.wallet, ...wallets.filter(w => w.id !== r.data.wallet.id)], allowUsdtTron, allowEurcBase);
         setWallets(next);
         try { localStorage.setItem(cacheKey, JSON.stringify(next)); } catch { /* quota */ }
         setAdding(false); setLabel(''); setAddress(''); setAsset('USDC'); setChain('base');

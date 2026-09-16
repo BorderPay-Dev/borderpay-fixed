@@ -758,15 +758,16 @@ export class BridgeProvider implements PaymentProvider {
       }
 
       const payload: any = (r.data as any) ?? {};
-      const rows = Array.isArray(payload?.data)
-        ? payload.data
-        : Array.isArray(payload)
-        ? payload
-        : [];
+      const rows = [payload?.data, payload, payload?.external_accounts, payload?.data?.external_accounts,
+        payload?.external_accounts?.data, payload?.external_accounts?.items,
+        payload?.data?.external_accounts?.data, payload?.data?.external_accounts?.items,
+        payload?.data?.data, payload?.data?.items, payload?.items].find(Array.isArray);
+      if (!rows) throw new Error(`Bridge ${params.context} returned an invalid list response`);
       out.push(...rows);
 
-      const hasMore = Boolean(payload?.has_more);
-      const nextCursorRaw = payload?.next_starting_after ?? payload?.next_cursor ?? null;
+      const envelope = payload?.external_accounts ?? (Array.isArray(payload?.data) ? payload : payload?.data) ?? payload;
+      const hasMore = Boolean(payload?.has_more ?? envelope?.has_more);
+      const nextCursorRaw = payload?.next_starting_after ?? payload?.next_cursor ?? envelope?.next_starting_after ?? envelope?.next_cursor ?? null;
       const nextCursor = nextCursorRaw != null ? String(nextCursorRaw) : null;
       const firstId = rows.length > 0 ? String(rows[0]?.id ?? "") : "";
       const lastId = rows.length > 0 ? String(rows[rows.length - 1]?.id ?? "") : "";
@@ -795,6 +796,17 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Custodial stablecoin wallet ───────────────────────────────────────────
   async createWallet(input: WalletCreateInput): Promise<WalletResult> {
+    // Reconcile before creating: the local mirror can be missing while the
+    // undeletable provider wallet already exists. One resource per chain.
+    const existing = (await this.listWallets(input.customer_id)).find(wallet =>
+      wallet.chain.toLowerCase() === input.chain.toLowerCase()
+      && !["closed", "deleted", "disabled", "deactivated", "inactive"].includes(String(wallet.status || ""))
+    );
+    if (existing?.wallet_id) return {
+      provider: this.name, wallet_id: existing.wallet_id,
+      deposit_address: existing.address, symbol: input.symbol, chain: input.chain, raw: existing,
+    };
+
     // Bridge wallets are chain-level containers. A Base wallet can hold both
     // USDC and EURC; sending a currency here creates an invalid/duplicate
     // provisioning model and can leave one customer with multiple Base wallets.
@@ -803,7 +815,7 @@ export class BridgeProvider implements PaymentProvider {
       method: "POST",
       path:   `/v0/customers/${encodeURIComponent(input.customer_id)}/wallets`,
       body,
-      idempotencyKey: `borderpay:wallet:${input.customer_id}:${input.chain}`,
+      idempotencyKey: `borderpay:wallet:${input.customer_id}:${input.chain.toUpperCase()}`,
     });
     if (!r.ok) {
       const parsed = (r.data && typeof r.data === "object") ? (r.data as Record<string, unknown>) : {};
@@ -840,6 +852,13 @@ export class BridgeProvider implements PaymentProvider {
   }
 
   // ── Money movement ────────────────────────────────────────────────────────
+  async listExternalAccounts(customerId: string): Promise<Array<Record<string, any>>> {
+    return await this.fetchBridgeListPaginated<Record<string, any>>({
+      path: `/v0/customers/${encodeURIComponent(customerId)}/external_accounts`,
+      context: "listExternalAccounts",
+    });
+  }
+
   /** Read the selected wallet under its canonical customer, never client flags. */
   async getWalletInitiationRequirement(customerId: string, walletId: string): Promise<WalletInitiationRequirement> {
     if (!customerId || !walletId) throw new Error("source_wallet_required");
