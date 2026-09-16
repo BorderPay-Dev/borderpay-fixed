@@ -1462,9 +1462,9 @@ export const financialReadModelAPI = (() => {
           wallets: Array.isArray((walletsRes as any)?.data?.wallets) ? (walletsRes as any).data.wallets : [],
           external_account_capabilities: caps,
           external_accounts: externalAccounts,
-          external_accounts_partial: !externalListRes?.success || Boolean(externalListRes?.data?.partial),
+          external_accounts_partial: !externalListRes?.success || !Array.isArray(externalListRes?.data?.external_accounts) || Boolean(externalListRes?.data?.partial),
           external_accounts_error: !externalListRes?.success ? externalListRes?.error || 'Could not load saved bank accounts. Please retry.' : null,
-          external_capabilities_partial: !capsRes?.success,
+          external_capabilities_partial: !capsRes?.success || !Array.isArray(capsRes?.data?.supported_account_types),
         },
       };
     },

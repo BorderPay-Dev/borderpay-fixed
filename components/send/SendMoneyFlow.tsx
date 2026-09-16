@@ -677,7 +677,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     setExternalWalletsError('');
     try {
       const response: any = await backendAPI.externalWallets.list();
-      if (!response?.success) throw new Error(response?.error || 'Could not load withdrawal wallets.');
+      if (!response?.success || !Array.isArray(response?.data?.wallets)) throw new Error(response?.error || 'Could not load withdrawal wallets.');
       // Do not erase saved USDT/EURC when this request started before scope loaded.
       const next = retainSavedExternalWallets<ExternalWallet>(response?.data?.wallets);
       setExternalWallets(next);
