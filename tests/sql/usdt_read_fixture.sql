@@ -6,7 +6,7 @@ grant usage on schema auth to authenticated;
 create table public.user_profiles(id uuid primary key, account_type text, country text, bridge_customer_id text, bridge_kyc_status text);
 create table public.business_profiles(user_id uuid primary key, country text, bridge_customer_id text, bridge_kyb_status text);
 create table public.sca_customer_scopes(user_id uuid primary key, bridge_customer_id text, provider_country text, source text, expires_at timestamptz);
-create table public.bridge_wallets(id int generated always as identity primary key, user_id uuid, business_user_id uuid, currency text, chain text);
+create table public.bridge_wallets(id int generated always as identity primary key, user_id uuid, business_user_id uuid, currency text, chain text, bridge_customer_id text, status text);
 create table public.bridge_balance_ledger(id int generated always as identity primary key, user_id uuid, business_user_id uuid, currency text);
 create table public.wallets(id int generated always as identity primary key, user_id uuid, currency text, balance numeric default 0);
 alter table public.bridge_wallets enable row level security;

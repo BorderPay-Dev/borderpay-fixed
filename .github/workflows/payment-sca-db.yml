@@ -7,7 +7,8 @@ on:
       - 'tests/sql/usdt_read_*.sql'
       - 'tests/sql/regional_wallet_read_contract.sql'
       - 'tests/sql/regional_financial_guard_*.sql'
-      - 'tests/sql/wallet_scope_refresh_contract.sql'
+      - 'tests/sql/wallet_scope_refresh*.sql'
+      - 'supabase/migrations/20260916120000_prioritize_real_wallet_scope_refresh.sql'
       - 'supabase/migrations/2026091611*.sql'
       - 'supabase/migrations/20260916100000_regional_financial_read_guard.sql'
       - 'supabase/migrations/20260916090000_regional_wallet_asset_reads.sql'
@@ -68,3 +69,8 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916110000_wallet_scope_refresh_queue.sql
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916110000_wallet_scope_refresh_queue.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/wallet_scope_refresh_contract.sql
+      - name: Test existing wallet priority and demo isolation
+        run: |
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916120000_prioritize_real_wallet_scope_refresh.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260916120000_prioritize_real_wallet_scope_refresh.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/wallet_scope_refresh_priority_contract.sql
