@@ -458,16 +458,30 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
   void snapshotReader;
 
   // KYC gate
-  const [kycStatus] = useState<string>(() => {
+  const [kycStatus, setKycStatus] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
       if (stored) {
         const user = JSON.parse(stored);
-        return deriveKycStatus(user);            // Bridge-first (rejected overrides pending)
+        return user?.id === userId ? deriveKycStatus(user) : 'pending';
       }
     } catch {}
     return 'pending';
   });
+  const [verificationChecking, setVerificationChecking] = useState(true);
+  const [verificationReadFailed, setVerificationReadFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void backendAPI.user.getProfile().then(result => {
+      if (cancelled) return;
+      if (result?.success && result.data?.user) {
+        setKycStatus(deriveKycStatus(result.data.user));
+        setVerificationReadFailed(false);
+      } else setVerificationReadFailed(true);
+    }).catch(() => { if (!cancelled) setVerificationReadFailed(true); })
+      .finally(() => { if (!cancelled) setVerificationChecking(false); });
+    return () => { cancelled = true; };
+  }, [userId]);
   const africanRailsTester = useMemo(() => {
     try {
       const stored = localStorage.getItem('borderpay_user');
@@ -601,6 +615,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
 
   // Currency & wallet
   const [wallets, setWallets] = useState<Wallet[]>(cachedSendWallets);
+  const [fundingWalletsReady, setFundingWalletsReady] = useState(false);
+  const [fundingWalletsLoading, setFundingWalletsLoading] = useState(true);
   const walletsRef = useRef<Wallet[]>(cachedSendWallets);
   const [selectedCurrency, setSelectedCurrency] = useState('USDC');
   const [selectedWallet, setSelectedWallet] = useState<Wallet | null>(null);
@@ -1077,7 +1093,17 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         inFlight = true;
         setExternalAccountsLoading(externalAccountsRef.current.length === 0);
         setExternalAccountsError('');
-        const res: any = await backendAPI.financial.getSendRouteData();
+        setFundingWalletsLoading(true);
+        const res: any = await backendAPI.financial.getSendRouteData(freshWallets => {
+          if (cancelled) return;
+          const fresh = freshWallets.map((w: any) => ({ id: w.id, currency: w.currency,
+            balance: parseFloat(w.balance) || 0, symbol: getCurrencySymbol(w.currency),
+            bridge_wallet_id: w.bridge_wallet_id ?? null }));
+          setWallets(fresh);
+          setFundingWalletsReady(true);
+          setFundingWalletsLoading(false);
+          try { localStorage.setItem(sendWalletsCacheKey, JSON.stringify(fresh)); } catch { /* optional cache */ }
+        });
         if (cancelled) return;
         if (!res?.success || !res?.data) throw new Error(res?.error || 'Could not load saved bank accounts. Please retry.');
         const list = ((res.data as any).wallets || []).map((w: any) => ({
@@ -1142,7 +1168,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
         if (!cancelled) setExternalAccountsError(friendlyError(error?.message, 'Could not load saved bank accounts. Please retry.'));
       } finally {
         inFlight = false;
-        if (!cancelled) setExternalAccountsLoading(false);
+        if (!cancelled) { setExternalAccountsLoading(false); setFundingWalletsLoading(false); }
       }
     };
     refreshExternalAccountsRef.current = () => { void hydrateOnce(true); };
@@ -1384,13 +1410,13 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
     if (limitError || stablecoinMinimumError) return false;
     const num = parseFloat(amount);
     if (method === 'us_ach_wire') {
-      return num > 0
+      return fundingWalletsReady && !!activeExternalFundingWallet?.bridge_wallet_id && num > 0
         && !!activeExternalFundingWallet
         && num <= Number(activeExternalFundingWallet.balance || 0)
         && reason.trim().length > 0;
     }
     if (method === 'stablecoin') {
-      return num > 0
+      return fundingWalletsReady && !!selectedWallet?.bridge_wallet_id && num > 0
         && !!cryptoSavedWalletId
         && cryptoRouteDetailsReady
         && isValidCryptoAddress(crypto.network, crypto.address)
@@ -1493,7 +1519,7 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
           return;
         }
         if (!selectedWallet?.bridge_wallet_id) {
-          throw new Error('This wallet is not ready for sending yet. Please refresh and try again.');
+          throw new Error('We could not load this wallet’s sending details. Refresh your wallets and try again.');
         }
         if (!cryptoSavedWalletId) {
           throw new Error('Choose a saved withdrawal wallet before sending.');
@@ -1838,8 +1864,8 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
             <div className="w-16 h-16 rounded-2xl bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
               <Shield className="w-8 h-8 text-yellow-400" />
             </div>
-            <h2 className="text-lg font-bold text-white mb-2">Verification Required</h2>
-            <p className="text-sm text-gray-400 mb-6">Complete identity verification to access this feature.</p>
+            <h2 className="text-lg font-bold text-white mb-2">{verificationChecking ? 'Checking verification…' : verificationReadFailed ? 'Could not refresh verification' : 'Verification Required'}</h2>
+            <p className="text-sm text-gray-400 mb-6">{verificationChecking ? 'Loading your current account status.' : verificationReadFailed ? 'Please reopen Send to check your current account status.' : 'Complete identity verification to access this feature.'}</p>
             <button
               onClick={onBack}
               className="w-full h-12 rounded-2xl bg-[#C7FF00] text-[#0B0E11] font-bold text-sm"
@@ -2851,6 +2877,14 @@ export function SendMoneyFlow({ userId, onBack, onComplete, onNavigate }: SendMo
               )}
               {isExternalAccountOfframp && !activeExternalFundingWallet && (
                 <p className="text-xs text-red-400 mt-2 px-1">No USDC or USDT wallet found.</p>
+              )}
+              {(method === 'stablecoin' || isExternalAccountOfframp) && (!fundingWalletsReady || !(isExternalAccountOfframp ? activeExternalFundingWallet : selectedWallet)?.bridge_wallet_id) && (
+                <div className={`mt-3 text-sm ${tc.textSecondary}`} role="status">
+                  <p>{fundingWalletsLoading ? 'Refreshing your funding wallet…' : 'Funding wallet details could not be loaded. Refresh your wallets to continue.'}</p>
+                  <button type="button" disabled={fundingWalletsLoading}
+                    onClick={() => refreshExternalAccountsRef.current?.()}
+                    className="mt-2 text-[#C7FF00] font-semibold disabled:opacity-50">Refresh wallets</button>
+                </div>
               )}
               {!isAfricanPayout && !isExternalAccountOfframp && !selectedWallet && (
                 <p className="text-xs text-red-400 mt-2 px-1">{t('send.noWalletForCurrency')}</p>

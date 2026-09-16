@@ -1,4 +1,5 @@
 import { assertEquals } from 'jsr:@std/assert';
+import { selectVaLinkedBaseWallet } from '../utils/financial/vaLinkedWalletPresentation.ts';
 const base = 'https://va-sync-db.invalid', bridge = 'https://va-sync-provider.invalid';
 Deno.env.set('SUPABASE_URL', base); Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'test-only');
 Deno.env.set('BRIDGE_BASE_URL', bridge); Deno.env.set('BRIDGE_API_KEY', 'test-only');
@@ -18,16 +19,18 @@ Deno.test('sync uses live VA routing, mirrors only linked Base and leaves unlink
   const vas: any[] = [{ id: 'va-row', bridge_virtual_account_id: 'va', status: 'active', currency: 'EUR', account_details: { destination: destination('unlinked') } }];
   const walletWrites: string[] = [], providerCalls: string[] = [];
   let failVas = false;
+  let addressOnly = false;
+  let ambiguousAddress = false;
   globalThis.fetch = async (input, init) => {
     const req = new Request(input, init), url = new URL(req.url);
     if (url.origin === bridge) {
       assertEquals(req.method, 'GET'); providerCalls.push(url.pathname);
       if (url.pathname.endsWith('/virtual_accounts')) {
         if (failVas) return Response.json({ message: 'unavailable' }, { status: 400 });
-        return Response.json({ data: [{ id: 'va', status: 'active', source_deposit_instructions: { currency: 'eur', payment_rail: 'sepa' }, destination: destination('linked') }] });
+        return Response.json({ data: [{ id: 'va', status: 'active', source_deposit_instructions: { currency: 'eur', payment_rail: 'sepa' }, destination: addressOnly ? { payment_rail: 'base', currency: 'eurc', address: '0xlinked' } : destination('linked') }] });
       }
       if (url.pathname.endsWith('/wallets')) return Response.json({ data: [
-        { id: 'unlinked', chain: 'base', status: 'active', address: '0xold' },
+        { id: 'unlinked', chain: 'base', status: 'active', address: ambiguousAddress ? '0xlinked' : '0xold' },
         { id: 'linked', chain: 'base', status: 'active', address: '0xlinked' },
       ] });
       throw new Error('Must not fetch or mutate an individual unlinked wallet');
@@ -65,6 +68,25 @@ Deno.test('sync uses live VA routing, mirrors only linked Base and leaves unlink
     assertEquals(wallets[0].address, '0xold');
     assertEquals(wallets[0].status, 'active');
     assertEquals(providerCalls, ['/v0/customers/customer/virtual_accounts', '/v0/customers/customer/wallets']);
+    addressOnly = true;
+    const addressResult = await (await handler(request())).json();
+    assertEquals(addressResult.data.warnings, []);
+    assertEquals(vas[0].account_details.destination.bridge_wallet_id, 'linked');
+    assertEquals(vas[0].account_details.bridge_provider_raw.destination.bridge_wallet_id, undefined);
+    assertEquals(vas[0].account_details.wallet_binding.source, 'provider_wallet_address_match');
+    // Released clients omitted wallet.address. The normalized VA ID must still
+    // resolve the funded resource, without choosing an unrelated Base wallet.
+    const oldClientRows = wallets.map(({ address: _address, ...row }) => row);
+    assertEquals(selectVaLinkedBaseWallet(oldClientRows, vas)?.bridge_wallet_id, 'linked');
+    ambiguousAddress = true;
+    walletWrites.length = 0;
+    await handler(request());
+    assertEquals(walletWrites, []);
+    assertEquals(vas[0].account_details.destination.bridge_wallet_id, undefined);
+    assertEquals(vas[0].account_details.wallet_binding, null);
+    assertEquals(selectVaLinkedBaseWallet(oldClientRows, vas), null);
+    ambiguousAddress = false;
+    await handler(request());
     failVas = true; walletWrites.length = 0;
     const unavailable = await (await handler(request())).json();
     assertEquals(walletWrites, []);

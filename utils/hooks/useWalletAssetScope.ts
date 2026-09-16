@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { walletAPI, getCachedWalletAssetScope } from '../api/backendAPI';
 
 /** Unknown is neither EEA nor non-EEA; never flash a region-specific asset. */
-export function useWalletAssetScope(userId: string) {
+export function useWalletAssetScope(userId: string, refreshKey?: unknown) {
   const [state, setState] = useState(() => ({ userId, scope: getCachedWalletAssetScope(userId, 5 * 60_000), resolved: false }));
   useEffect(() => {
     let active = true;
@@ -14,7 +14,7 @@ export function useWalletAssetScope(userId: string) {
       if (active) setState({ userId, scope: scope.country ? scope : cached, resolved: Boolean(scope.country) });
     }).catch(() => { if (active) setState({ userId, scope: cached, resolved: true }); });
     return () => { active = false; };
-  }, [userId]);
+  }, [userId, refreshKey]);
   const scope = state.userId === userId ? state.scope : null;
   return { allowUsdtTron: scope?.allow_usdt_tron === true,
     allowEurcBase: scope?.allow_eurc_base === true,

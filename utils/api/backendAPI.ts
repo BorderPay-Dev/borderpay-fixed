@@ -1440,10 +1440,12 @@ export const financialReadModelAPI = (() => {
       };
     },
 
-    async getSendRouteData() {
+    async getSendRouteData(onWalletsReady?: (wallets: any[]) => void) {
       // Refresh owned funding assets under the same regional boundary as Wallet.
       const walletsRes = await walletAPI.getWallets({ includeWithdrawalAssets: true });
       if (!walletsRes?.success) return walletsRes as any;
+      // Publish funding references immediately; bank destination reads can be slow.
+      onWalletsReady?.(Array.isArray(walletsRes.data?.wallets) ? walletsRes.data.wallets : []);
       // These are the requested payout destinations, not optional dashboard
       // decorations. Let their endpoint deadlines run; 900ms painted false emptiness.
       const [capsRes, externalListRes]: any[] = await Promise.all([

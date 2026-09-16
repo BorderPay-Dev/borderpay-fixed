@@ -32,6 +32,7 @@ const ERROR_MAP: Array<{ pattern: RegExp; message: string }> = [
   // Provisioning/onboarding gaps — phrased for the user, partner-free.
   { pattern: /no .*customer|customer .*(not|n't) (found|exist|provision)|customer_id|not_started|onboarding/i, message: 'Finish verifying your identity to use this feature.' },
   { pattern: /endorsement|not .*available .*region|unsupported.*region|nexus/i, message: 'This service isn\'t available for your region yet.' },
+  { pattern: /wallet.*not ready for sending|wallet.s sending details/i, message: 'We could not load this wallet’s sending details. Refresh your wallets and try again.' },
   { pattern: /virtual account|wallet .*(not|n't)|not provisioned|no account/i, message: 'This account isn\'t ready yet. Please try again shortly.' },
   { pattern: /can't find variable|is not defined|referenceerror/i, message: 'Something went wrong. Please refresh and try again.' },
 ];
