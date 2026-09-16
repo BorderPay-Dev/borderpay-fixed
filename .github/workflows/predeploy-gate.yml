@@ -47,6 +47,7 @@ jobs:
           tests/bridge-approved-account-status.test.ts
           tests/hosted-verification-resume-http.test.ts
           tests/external-wallet-eurc-http.test.ts
+          tests/bridge-va-wallet-sync-http.test.ts
           tests/unit/base_wallet_funding_test.ts
           tests/unit/crypto_address_test.ts
           tests/bridge-eea-sca-scope.test.ts

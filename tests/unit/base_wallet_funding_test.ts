@@ -21,3 +21,31 @@ Deno.test('USDC-labelled Base resource exposes EURC funding with its VA-linked p
   const noActiveWallet = selectVaLinkedStablecoinWallets(rows.map(w => ({ ...w, status: 'closed' })), vas);
   assert(noActiveWallet.length === 0, 'closed wallets must not be synthesized as active assets');
 });
+
+Deno.test('latest Bridge destination wins over stale local routing and wallet order', () => {
+  const wallets = [
+    { bridge_wallet_id: 'old', currency: 'USDC', chain: 'base', status: 'active', address: '0xold' },
+    { bridge_wallet_id: 'linked', currency: 'USDC', chain: 'base', status: 'active', address: '0xlinked' },
+  ];
+  const route = (id: string) => ({ payment_rail: 'base', currency: 'USDC', bridge_wallet_id: id });
+  const vas = [{ status: 'active', account_details: {
+    destination: route('old'), bridge_sync_raw: { destination: route('linked') },
+  } }];
+  for (const rows of [wallets, [...wallets].reverse()]) {
+    const selected = selectVaLinkedStablecoinWallets(rows, vas, { allowEurcBase: true });
+    assert(selected.length === 2 && selected.every(w => w.bridge_wallet_id === 'linked'), 'both assets must use the API-linked resource');
+  }
+  const addressOnly = [{ status: 'active', account_details: { destination: { payment_rail: 'base', currency: 'EURC', address: '0xLINKED' } } }];
+  assert(selectVaLinkedStablecoinWallets(wallets, addressOnly)[0]?.bridge_wallet_id === 'linked', 'resolve API address against owned Base resources');
+  for (const routes of [[],
+    [{ status: 'active', account_details: { destination: route('missing') } }],
+    [{ status: 'active', account_details: { destination: route('old') } }, { status: 'active', account_details: { destination: route('linked') } }],
+    [{ status: 'active', account_details: { destination: route('old'), bridge_sync_raw: { destination: null } } }],
+  ]) {
+    assert(selectVaLinkedStablecoinWallets(wallets, routes, { allowEurcBase: true }).length === 0, 'unresolved or conflicting links cannot select an arbitrary wallet');
+  }
+  assert(selectVaLinkedStablecoinWallets([wallets[0]], [], { allowEurcBase: true }).length === 2, 'automatic wallet remains visible before first VA');
+  const tron = { bridge_wallet_id: 'tron', currency: 'USDT', chain: 'tron', status: 'active' };
+  const nonEea = selectVaLinkedStablecoinWallets([...wallets, tron], [], { allowUsdtTron: true });
+  assert(nonEea.length === 1 && nonEea[0].currency === 'USDT', 'unresolved Base links never hide the separate non-EEA Tron wallet');
+});

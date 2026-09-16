@@ -13,6 +13,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { selectVaLinkedBaseWallet } from "../../../utils/financial/vaLinkedWalletPresentation.ts";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 
 const CORS = {
@@ -75,10 +76,62 @@ Deno.serve(async (req) => {
     : { user_id: user.id, business_user_id: null };
   const warnings: string[] = [];
 
+  let providerVas: Awaited<ReturnType<typeof bridgeProvider.listVirtualAccounts>> | null = null;
+
+  // ── Virtual accounts ───────────────────────────────────────────────────────
+  try {
+    const bva = await bridgeProvider.listVirtualAccounts(customerId);
+    providerVas = bva;
+    for (const v of bva) {
+      if (!v.virtual_account_id) continue;
+      const { data: existing } = await supa.from("bridge_virtual_accounts")
+        .select("id,account_details").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
+      const existingDetails = existing?.account_details && typeof existing.account_details === "object"
+        ? existing.account_details as Record<string, unknown>
+        : {};
+      const providerDetails = v.account_details && typeof v.account_details === "object"
+        ? v.account_details as Record<string, unknown>
+        : {};
+      // The latest API destination is authoritative, including an explicit null.
+      const providerDestination = providerDetails.destination ?? null;
+      const row = {
+        ...ownerCols,
+        bridge_customer_id:        customerId,
+        bridge_virtual_account_id: v.virtual_account_id,
+        currency:                  v.currency,
+        rail:                      normalizeBridgeVaRail(v.rail),
+        status:                    normalizeBridgeVaStatus(v.status),
+        ...(normalizeDeveloperFeePercent(v.developer_fee_percent) !== null
+          ? { developer_fee_percent: normalizeDeveloperFeePercent(v.developer_fee_percent) }
+          : {}),
+        account_details:           {
+          ...existingDetails,
+          ...providerDetails,
+          destination: providerDestination,
+          bridge_sync_raw: providerDetails,
+        },
+        updated_at:                new Date().toISOString(),
+      };
+      const saved = existing?.id
+        ? await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id)
+        : await supa.from("bridge_virtual_accounts").insert(row);
+      if (saved.error) throw new Error("Virtual account projection could not be saved");
+    }
+  } catch (e) {
+    console.warn(`bridge-sync-accounts virtual_accounts: ${(e as Error).message}`);
+    warnings.push("virtual_account_sync_failed");
+  }
+
   // ── Wallets ───────────────────────────────────────────────────────────────
   try {
     const bw = await bridgeProvider.listWallets(customerId);
+    const canonicalBase = providerVas === null ? null : selectVaLinkedBaseWallet(
+      bw.map(w => ({ ...w, status: w.status || "active" })), providerVas,
+    );
     for (const w of bw) {
+      // Only the API-confirmed VA destination is mirrored for Base. Historical
+      // unlinked resources stay at Bridge and are never fetched individually.
+      if (w.chain.toLowerCase() === "base" && w.wallet_id !== canonicalBase?.wallet_id) continue;
       if (!w.wallet_id) continue;
       const { data: existing } = await supa.from("bridge_wallets")
         .select("id, currency, chain, address").eq("bridge_wallet_id", w.wallet_id).maybeSingle();
@@ -95,58 +148,18 @@ Deno.serve(async (req) => {
         currency:           keepNonEmpty(w.currency, existing?.currency) || "USDC",
         chain:              keepNonEmpty(w.chain,    existing?.chain),
         address:            keepNonEmpty(w.address,  existing?.address),
-        status:             "active",
+        status:             w.status || "active",
         updated_at:         new Date().toISOString(),
       };
-      if (existing?.id) await supa.from("bridge_wallets").update(row).eq("id", existing.id);
-      else              await supa.from("bridge_wallets").insert(row);
+      const saved = existing?.id
+        ? await supa.from("bridge_wallets").update(row).eq("id", existing.id)
+        : await supa.from("bridge_wallets").insert(row);
+      if (saved.error) throw new Error("Wallet projection could not be saved");
     }
   } catch (e) {
-    // Non-fatal: still try VAs, surface a soft note.
+    // Preserve the previous projection and surface a soft note.
     console.warn(`bridge-sync-accounts wallets: ${(e as Error).message}`);
     warnings.push("wallet_sync_failed");
-  }
-
-  // ── Virtual accounts ───────────────────────────────────────────────────────
-  try {
-    const bva = await bridgeProvider.listVirtualAccounts(customerId);
-    for (const v of bva) {
-      if (!v.virtual_account_id) continue;
-      const { data: existing } = await supa.from("bridge_virtual_accounts")
-        .select("id,account_details").eq("bridge_virtual_account_id", v.virtual_account_id).maybeSingle();
-      const existingDetails = existing?.account_details && typeof existing.account_details === "object"
-        ? existing.account_details as Record<string, unknown>
-        : {};
-      const providerDetails = v.account_details && typeof v.account_details === "object"
-        ? v.account_details as Record<string, unknown>
-        : {};
-      const preservedDestination = existingDetails.destination && typeof existingDetails.destination === "object"
-        ? existingDetails.destination
-        : providerDetails.destination;
-      const row = {
-        ...ownerCols,
-        bridge_customer_id:        customerId,
-        bridge_virtual_account_id: v.virtual_account_id,
-        currency:                  v.currency,
-        rail:                      normalizeBridgeVaRail(v.rail),
-        status:                    normalizeBridgeVaStatus(v.status),
-        ...(normalizeDeveloperFeePercent(v.developer_fee_percent) !== null
-          ? { developer_fee_percent: normalizeDeveloperFeePercent(v.developer_fee_percent) }
-          : {}),
-        account_details:           {
-          ...existingDetails,
-          ...providerDetails,
-          ...(preservedDestination ? { destination: preservedDestination } : {}),
-          bridge_sync_raw: providerDetails,
-        },
-        updated_at:                new Date().toISOString(),
-      };
-      if (existing?.id) await supa.from("bridge_virtual_accounts").update(row).eq("id", existing.id);
-      else              await supa.from("bridge_virtual_accounts").insert(row);
-    }
-  } catch (e) {
-    console.warn(`bridge-sync-accounts virtual_accounts: ${(e as Error).message}`);
-    warnings.push("virtual_account_sync_failed");
   }
 
   // Return internal normalized state (not provider payload) so UI/product
@@ -169,7 +182,9 @@ Deno.serve(async (req) => {
         vq.eq("user_id", user.id),
       ]);
 
+  const canonicalBase = providerVas === null ? null : selectVaLinkedBaseWallet(wallets, providerVas);
   const customerWallets = (wallets ?? []).filter((wallet) =>
+    wallet.bridge_wallet_id === canonicalBase?.bridge_wallet_id &&
     String(wallet.chain || "").toLowerCase() === "base" &&
     ["USDC", "EURC"].includes(String(wallet.currency || "").toUpperCase())
   );

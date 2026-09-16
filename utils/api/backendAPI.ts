@@ -2567,9 +2567,15 @@ export const bridgeAPI = {
       const now = Date.now();
       if (inFlight && now - lastAt < 8000) return inFlight;
       lastAt = now;
+      const userId = String(authAPI.getStoredUser()?.id || '');
       inFlight = apiCall<{ wallets: unknown[]; virtual_accounts: unknown[] }>(
         'bridge-sync-accounts', { method: 'POST', body: JSON.stringify({}) },
-      ).finally(() => { inFlight = null; });
+      ).then(result => {
+        if (result?.success && userId && authAPI.getStoredUser()?.id === userId) {
+          financialReadModelAPI.invalidateForUser(userId);
+        }
+        return result;
+      }).finally(() => { inFlight = null; });
       return inFlight;
     };
   })(),
