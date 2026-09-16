@@ -2498,7 +2498,7 @@ export async function handleBridgeVirtualAccount(ev: PendingEvent): Promise<void
   });
 }
 
-async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
+export async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   // Bridge envelope: event_object is the wallet; event_object_id its id.
   const d: any = ev.payload?.event_object ?? ev.payload?.data ?? ev.payload;
   const walletId = d?.wallet_id ?? d?.bridge_wallet_id ?? d?.id ?? ev.payload?.event_object_id;
@@ -2544,17 +2544,9 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
     }
 
     customer = String(mappedWallet.bridge_customer_id);
-    if (mappedWallet.user_id) {
-      resolved = String(mappedWallet.user_id);
-      account_type = "individual";
-    } else if (mappedWallet.business_user_id) {
-      resolved = String(mappedWallet.business_user_id);
-      account_type = "business";
-    } else {
-      const owner = await resolveOwnerFromBridgeCustomer(customer);
-      resolved = owner.resolved;
-      account_type = owner.account_type;
-    }
+    const owner = await resolveOwnerFromBridgeCustomer(customer);
+    resolved = owner.resolved;
+    account_type = owner.account_type;
   }
 
   const amountValue = Number(d?.amount);
@@ -2575,22 +2567,30 @@ async function handleBridgeWallet(ev: PendingEvent): Promise<void> {
   const shouldProjectWalletActivityTx =
     isActivity && Number.isFinite(walletActivityAmount) && walletActivityAmount > 0 && !!resolved;
 
-  await supabase.from("bridge_wallets").upsert({
-    bridge_wallet_id:    String(walletId),
-    bridge_customer_id:  String(customer),
-    user_id:             account_type === "individual" ? resolved : null,
-    business_user_id:    account_type === "business"   ? resolved : null,
-    currency:            String(d?.currency ?? "usdc").toLowerCase(),
-    chain:               String(d?.chain ?? "base").toLowerCase(),
-    address:             String(d?.address ?? d?.deposit_address ?? ""),
-    status:              String(d?.status ?? "active").toLowerCase(),
-    updated_at:          new Date().toISOString(),
-  }, { onConflict: "bridge_wallet_id" });
-  await updatePartnerResourceState(
-    "wallet",
-    String(walletId),
-    String(d?.status ?? "active").toLowerCase(),
-  );
+  // An activity describes a movement, not the wallet resource. In particular,
+  // its currency is the moved token and it normally omits address/chain/status.
+  // Never let a deposit, withdrawal or refund overwrite custodial descriptors.
+  if (!isActivity) {
+    const resourceChain = String(d?.chain ?? "").trim().toLowerCase();
+    const resourceCurrency = String(d?.currency ?? (
+      resourceChain === "tron" ? "USDT" : resourceChain === "base" ? "USDC" : ""
+    )).trim().toUpperCase();
+    const resourceAddress = String(d?.address || d?.deposit_address || "").trim();
+    const resourceStatus = String(d?.status ?? "").trim().toLowerCase();
+    const { error: walletWriteError } = await supabase.from("bridge_wallets").upsert({
+      bridge_wallet_id: String(walletId),
+      bridge_customer_id: String(customer),
+      user_id: account_type === "individual" ? resolved : null,
+      business_user_id: account_type === "business" ? resolved : null,
+      ...(resourceCurrency ? { currency: resourceCurrency } : {}),
+      ...(resourceChain ? { chain: resourceChain } : {}),
+      ...(resourceAddress ? { address: resourceAddress } : {}),
+      ...(resourceStatus ? { status: resourceStatus } : {}),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "bridge_wallet_id" });
+    if (walletWriteError) throw new Error(`wallet resource projection failed: ${walletWriteError.message}`);
+    if (resourceStatus) await updatePartnerResourceState("wallet", String(walletId), resourceStatus);
+  }
 
   // Projection repair/prevention: wallet activity with amount should emit a
   // canonical ledger/transaction row idempotently. Customer-facing

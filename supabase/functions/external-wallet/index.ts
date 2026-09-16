@@ -61,9 +61,11 @@ async function findCurrentBridgeWallet(userId: string, asset: string, chain: str
     .select(select)
     .eq("user_id", userId)
     .ilike("chain", normalizedChain);
+  // Saving a recipient requires an owned active source wallet, not its deposit
+  // address. Partial wallet mirrors must not prevent saving a valid destination.
   const userMatch = matches(userRows)[0];
-  if (userMatch?.bridge_wallet_id && userMatch?.address) {
-    return { id: String(userMatch.bridge_wallet_id), address: String(userMatch.address) };
+  if (userMatch?.bridge_wallet_id) {
+    return { id: String(userMatch.bridge_wallet_id), address: String(userMatch.address || "") };
   }
 
   const { data: businessRows } = await supa
@@ -72,8 +74,8 @@ async function findCurrentBridgeWallet(userId: string, asset: string, chain: str
     .eq("business_user_id", userId)
     .ilike("chain", normalizedChain);
   const businessMatch = matches(businessRows)[0];
-  if (businessMatch?.bridge_wallet_id && businessMatch?.address) {
-    return { id: String(businessMatch.bridge_wallet_id), address: String(businessMatch.address) };
+  if (businessMatch?.bridge_wallet_id) {
+    return { id: String(businessMatch.bridge_wallet_id), address: String(businessMatch.address || "") };
   }
   return null;
 }
