@@ -6,21 +6,30 @@ const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
-async function authorized(token: string): Promise<boolean> {
-  if (!token || !serviceKey) return false;
-  const hash = (value: string) => crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  const [a, b] = await Promise.all([hash(token), hash(serviceKey)]);
-  const left = new Uint8Array(a), right = new Uint8Array(b);
-  let diff = 0;
-  for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
-  return diff === 0;
-}
 Deno.serve(async (req) => {
   if (req.method !== "POST") return Response.json({ error: "POST only" }, { status: 405 });
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  if (!(await authorized(token))) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  const { data: jobs, error } = await supabase.rpc("claim_wallet_scope_refresh_batch", { p_limit: 20 });
-  if (error) return Response.json({ error: "Scope refresh queue unavailable" }, { status: 503 });
+  if (!token) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  // PostgREST validates the caller's JWT against this project and enforces
+  // EXECUTE permission (service_role only). Never substitute the runtime's
+  // privileged Authorization header when claiming on the caller's behalf.
+  let claimResponse: Response;
+  try {
+    claimResponse = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/rpc/claim_wallet_scope_refresh_batch`, {
+      method: "POST",
+      headers: { apikey: serviceKey, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_limit: 20 }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch {
+    return Response.json({ error: "Scope refresh authorization unavailable" }, { status: 503 });
+  }
+  if (claimResponse.status === 401 || claimResponse.status === 403) {
+    return Response.json({ error: "Scheduler credential rejected by Supabase", code: "scope_refresh_credential_rejected" }, { status: 401 });
+  }
+  if (!claimResponse.ok) return Response.json({ error: "Scope refresh queue unavailable" }, { status: 503 });
+  const jobs = await claimResponse.json().catch(() => null);
+  if (!Array.isArray(jobs)) return Response.json({ error: "Invalid scope refresh queue response" }, { status: 503 });
   let refreshed = 0, failed = 0;
   // Two concurrent Bridge reads; leases prevent overlapping cron invocations
   // from refreshing the same customer. Failures remain due after five minutes.

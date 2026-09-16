@@ -12,15 +12,23 @@ try { await import('../supabase/functions/refresh-wallet-scopes/index.ts'); } fi
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
 Deno.test('background refresh authenticates, fetches provider residence, preserves failed cache, and records retry', async () => {
  const original = globalThis.fetch;
- let country = 'KE', cacheWrites: any[] = [], jobWrites: any[] = [], claims = 0;
+ let country = 'KE', cacheWrites: any[] = [], jobWrites: any[] = [], claims = 0, providerReads = 0;
  globalThis.fetch = async (input, init) => {
   const req = new Request(input, init), url = new URL(req.url);
   if (url.origin === bridge) {
+   providerReads++;
    assert(req.method === 'GET' && url.pathname === '/v0/customers/customer', 'Provider reads only; no wallets or payments');
    return Response.json({ id: 'customer', residential_address: { country } });
   }
   assert(url.origin === base, 'Unexpected network');
-  if (url.pathname.endsWith('/rpc/claim_wallet_scope_refresh_batch')) { claims++; return Response.json([{ user_id: 'owner', lease_token: 'lease' }]); }
+  if (url.pathname.endsWith('/rpc/claim_wallet_scope_refresh_batch')) {
+   const auth = req.headers.get('Authorization');
+   assert(req.headers.get('apikey') === 'test-service', 'Use configured project gateway key');
+   if (auth === 'Bearer user-token') return Response.json({code:'42501'}, {status:403});
+   if (auth === 'Bearer wrong-project-token') return Response.json({code:'PGRST301'}, {status:401});
+   assert(auth === 'Bearer test-service' || auth === 'Bearer alternate-valid-service-jwt', 'Forward original caller credential');
+   claims++; return Response.json([{ user_id: 'owner', lease_token: 'lease' }]);
+  }
   if (url.pathname.endsWith('/user_profiles')) return Response.json([{ id: 'owner', account_type: 'individual', country: 'GB', bridge_customer_id: 'customer', bridge_kyc_status: 'approved' }]);
   if (url.pathname.endsWith('/business_profiles')) return Response.json([]);
   if (url.pathname.endsWith('/sca_customer_scopes')) { cacheWrites.push(await req.json()); return Response.json({}); }
@@ -32,8 +40,9 @@ Deno.test('background refresh authenticates, fetches provider residence, preserv
  };
  const call = (token: string) => handler(new Request(base, { method: 'POST', headers: { Authorization: `Bearer ${token}` } }));
  try {
-  assert((await call('user-token')).status === 401 && claims === 0, 'Reject client before DB/provider calls');
-  let result = await (await call('test-service')).json();
+  assert((await call('user-token')).status === 401 && claims === 0 && providerReads === 0, 'DB execute permission rejects app user before claims/provider reads');
+  assert((await call('wrong-project-token')).status === 401 && claims === 0 && providerReads === 0, 'Project JWT rejection cannot fall back to privileged credentials');
+  let result = await (await call('alternate-valid-service-jwt')).json();
   assert(result.refreshed === 1 && cacheWrites[0].provider_country === 'KE', 'Refresh actual provider country');
   assert(cacheWrites[0].sca_required === false, 'Non-EEA cache classification');
   assert(Date.parse(cacheWrites[0].expires_at) > Date.now(), 'New genuine observation has fresh expiry');
