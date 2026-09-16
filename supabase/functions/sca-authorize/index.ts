@@ -56,7 +56,7 @@ Deno.serve(async (req: Request) => {
 
   const scope = await resolveBridgeScaScope(supabase, user.id, "payment");
   if (scope.status === "unknown") {
-    return json({ success: false, code: "sca_scope_unavailable", error: "Strong authentication could not be verified. Nothing was changed." }, 503);
+    return json({ success: false, code: "sca_scope_unavailable", error: "Payment authentication is temporarily unavailable. Please try again shortly." }, 503);
   }
   if (scope.status === "not_required") {
     return json({ success: true, data: { required: false, reason: scope.reason } });

@@ -34,7 +34,7 @@ Deno.serve(async (req: Request) => {
   const assets = await resolveBridgeWalletAssetScope(supabase, user.id);
   if (body?.action === "wallet_assets") {
     return json({ success: assets.region !== "unknown", data: assets,
-      ...(assets.region === "unknown" ? { code: "wallet_scope_unavailable", error: "Wallet region could not be verified." } : {}) }, assets.region === "unknown" ? 503 : 200);
+      ...(assets.region === "unknown" ? { code: "wallet_scope_unavailable", error: "Wallet options are temporarily unavailable. Please try again shortly." } : {}) }, assets.region === "unknown" ? 503 : 200);
   }
 
   const scope = await resolveBridgeScaScope(supabase, user.id);
@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, code: "sca_unavailable", error: "Strong authentication is temporarily unavailable.", data: scope }, 503);
   }
   if (scope.status === "unknown") {
-    return json({ success: false, code: "sca_scope_unavailable", error: "Strong-authentication scope could not be verified.", data: scope }, 503);
+    return json({ success: false, code: "sca_scope_unavailable", error: "Payment authentication is temporarily unavailable. Please try again shortly.", data: scope }, 503);
   }
 
   let securityEnrollmentRequired = false;
@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
       .select("pin_set,pin_hash,pin_hash_v2,two_factor_enabled,two_factor_secret_encrypted")
       .eq("user_id", user.id)
       .maybeSingle();
-    if (securityError) return json({ success: false, code: "security_status_unavailable", error: "Security enrollment could not be verified." }, 503);
+    if (securityError) return json({ success: false, code: "security_status_unavailable", error: "Security settings are temporarily unavailable. Please try again shortly." }, 503);
     const pinReady = security?.pin_set === true && Boolean(String(security?.pin_hash_v2 || security?.pin_hash || "").trim());
     const encryptedTotp = security?.two_factor_secret_encrypted;
     const totpReady = security?.two_factor_enabled === true && Boolean(

@@ -42,6 +42,9 @@ jobs:
           tests/sca-payment-runtime.test.ts
           tests/sca-authorization-http.test.ts
           tests/usdt-transfer-http.test.ts
+          tests/bridge-transfer-outcome-http.test.ts
+          tests/bridge-transfer-ui-outcome.test.ts
+          tests/bridge-approved-account-status.test.ts
           tests/hosted-verification-resume-http.test.ts
           tests/external-wallet-eurc-http.test.ts
           tests/unit/base_wallet_funding_test.ts

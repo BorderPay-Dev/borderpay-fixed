@@ -68,6 +68,7 @@ import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic
 import { requireMinimumWalletBalance } from "../_shared/funding-gate.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "../_shared/bridge-identity-invariant.ts";
 import { mapBridgeTransferState } from "../_shared/bridge-transfer-state.ts";
+import { isBridgeInsufficientWalletBalance } from "../_shared/bridge-transfer-error.ts";
 import {
   isCryptoToCryptoTransfer,
   validateBridgePayout,
@@ -93,7 +94,28 @@ const CURRENCY_SCALE: Record<string, number> = {
   GBP: 2,
   USDC: 6,
   USDT: 6,
+  EURC: 6,
 };
+
+function acceptedTransferResponse(transfer: { transfer_id: string; state: string }, reconciliationPending = false, replayed = false): Response {
+  const mapped = mapBridgeTransferState(transfer.state);
+  const data = {
+    transfer_id: transfer.transfer_id,
+    state: mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
+    provider_state: mapped.providerState,
+    reconciliation_pending: reconciliationPending,
+    replayed,
+  };
+  if (mapped.transactionStatus === "failed") {
+    return json({ success: false, code: "transfer_failed", data,
+      bridge_transfer_id: transfer.transfer_id,
+      error: "This transfer did not complete. Check its status in Activity before sending again." }, 409);
+  }
+  return json({ success: true,
+    ...(mapped.transactionStatus === "pending" ? { code: "provider_confirmation_pending" } : {}),
+    data,
+  });
+}
 
 function fxLog(stage: string, detail: Record<string, unknown> = {}) {
   console.log(JSON.stringify({
@@ -415,7 +437,7 @@ Deno.serve(async (req) => {
   // key, return the previous transfer_id without touching Bridge. Guards
   // against retries where we crashed between Bridge accept and our DB write.
   {
-    const { data: existing } = await supa
+    const { data: existing, error: existingError } = await supa
       .from("transactions")
       .select("bridge_transfer_id, status")
       .eq("user_id", user.id)
@@ -427,16 +449,28 @@ Deno.serve(async (req) => {
         transfer_id: existing.bridge_transfer_id,
         idempotency_key: idem,
       });
-      return json({
-        success: true,
-        data: {
-          transfer_id: existing.bridge_transfer_id,
-          state:       existing.status === "completed" ? "succeeded"
-                      : existing.status === "failed"   ? "failed"
-                      :                                  "pending",
-          replayed:    true,
-        },
-      });
+      return acceptedTransferResponse({ transfer_id: existing.bridge_transfer_id,
+        state: existing.status === "completed" ? "payment_processed"
+          : existing.status === "failed" ? "error" : "in_review" }, false, true);
+    }
+    // Acceptance survives a failed transaction projection. Recover it before
+    // checking balance or consuming another one-time SCA authorization.
+    const { data: accepted, error: acceptedError } = await supa.from("admin_action_audit")
+      .select("after_state")
+      .eq("actor_id", user.id).eq("request_id", idem)
+      .eq("action_type", "bridge_transfer_initiation_accepted")
+      .order("timestamp", { ascending: false }).limit(1).maybeSingle();
+    if (accepted?.after_state?.bridge_transfer_id) {
+      if (accepted.after_state.payload_hash !== await scaPayloadHash("bridge_transfer", scaAuthorizedRequest)) {
+        return json({ success: false, code: "initiation_retry_mismatch",
+          error: "This payment reference belongs to different transfer details. Check Activity before continuing." }, 409);
+      }
+      return acceptedTransferResponse({ transfer_id: accepted.after_state.bridge_transfer_id,
+        state: accepted.after_state.provider_state || "unknown" }, true, true);
+    }
+    if (existingError || acceptedError) {
+      return json({ success: false, code: "transfer_status_unavailable",
+        error: "We could not check this transfer's status. Check Activity before sending again." }, 503);
     }
   }
 
@@ -677,6 +711,7 @@ Deno.serve(async (req) => {
       error: "Payment authentication could not be recorded. Nothing was sent. Please authorize again." }, 503, profile.account_type);
   }
 
+  let acceptedTransfer: { transfer_id: string; state: string } | null = null;
   try {
     fxLog("bridge_request_sent", {
       user_id: user.id,
@@ -724,6 +759,7 @@ Deno.serve(async (req) => {
       // as the HTTP `Idempotency-Key` header.
       idempotency_key: idem,
     }, walletInitiation);
+    acceptedTransfer = { transfer_id: result.transfer_id, state: result.state };
 
     // The outgoing write-only field and Bridge's HTTP request/transfer IDs
     // remain queryable independently of webhook metadata replacement.
@@ -731,7 +767,8 @@ Deno.serve(async (req) => {
       actor_id: user.id, role: "system", action_type: "bridge_transfer_initiation_accepted",
       target_resource: result.transfer_id, request_id: idem,
       after_state: { ...initiationEvidence, initiation: result.initiation ?? null,
-        bridge_transfer_id: result.transfer_id, bridge_request_id: result.request_id ?? null },
+        bridge_transfer_id: result.transfer_id, bridge_request_id: result.request_id ?? null,
+        provider_state: result.state },
     });
     if (acceptedAuditError) {
       // Money may already have moved. Persist the transfer below; never
@@ -790,14 +827,8 @@ Deno.serve(async (req) => {
       p_description:        null,
     });
     if (upsertErr) {
-      // Bridge already accepted the transfer — surface the persistence
-      // failure but with the transfer_id so the client can be reconciled.
-      return json({
-        success: false,
-        code:    "persistence_failed",
-        error:   `Transfer accepted by provider (${result.transfer_id}) but local persistence failed: ${upsertErr.message}`,
-        bridge_transfer_id: result.transfer_id,
-      }, 500);
+      fxLog("bridge_transfer_reconciliation_pending", { transfer_id: result.transfer_id, code: upsertErr.code });
+      return acceptedTransferResponse(acceptedTransfer, true);
     }
     fxLog("transfer_id_stored", {
       user_id: user.id,
@@ -811,15 +842,12 @@ Deno.serve(async (req) => {
       internal_status: mapped.transactionStatus,
     });
 
-    return json({
-      success: true,
-      data: {
-        transfer_id:    result.transfer_id,
-        state:          mapped.transactionStatus === "completed" ? "succeeded" : mapped.transactionStatus,
-        provider_state: mapped.providerState,
-      },
-    });
+    return acceptedTransferResponse(acceptedTransfer);
   } catch (e) {
+    if (acceptedTransfer) {
+      fxLog("bridge_transfer_reconciliation_pending", { transfer_id: acceptedTransfer.transfer_id });
+      return acceptedTransferResponse(acceptedTransfer, true);
+    }
     try {
       await recordTransferProviderAlert({
         user_id: user.id,
@@ -843,6 +871,10 @@ Deno.serve(async (req) => {
       idempotency_key: idem,
       error: (e as Error).message,
     });
+    if (isBridgeInsufficientWalletBalance(e)) {
+      return json({ success: false, code: "insufficient_balance",
+        error: "Insufficient balance for this payout. Reduce the amount or add funds before trying again." }, 402);
+    }
     return json({
       success: false,
       code: "bridge_provider_error",

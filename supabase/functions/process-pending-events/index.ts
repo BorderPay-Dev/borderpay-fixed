@@ -34,6 +34,7 @@
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { syncApprovedBridgeAccountStatus } from "../_shared/bridge-approved-account-status.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, isBridgeCustodialWalletSupported } from "../_shared/providers/bridge-country-policy.ts";
@@ -998,6 +999,7 @@ async function handleBridgeKycKyb(ev: PendingEvent): Promise<void> {
   // Product requirement: auto-provision stablecoin wallets after approval.
   // Any failure must surface so the queue retries safely with idempotent keys.
   if (normalized === "approved") {
+    await syncApprovedBridgeAccountStatus(supabase, resolved, String(customer));
     const approvedAccountType = isKyb || account_type === "business" ? "business" : "individual";
     await ensureStablecoinWalletsProvisioned({
       userId: resolved,
@@ -1140,6 +1142,7 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
 
     if (canonicalKyc === "verified") {
       const owner = await resolveOwnerFromBridgeCustomer(String(customer));
+      await syncApprovedBridgeAccountStatus(supabase, owner.resolved, String(customer));
       await ensureStablecoinWalletsProvisioned({
         userId: owner.resolved,
         bridgeCustomerId: String(customer),
