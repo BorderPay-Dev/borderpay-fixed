@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
+    <meta name="borderpay-white-label-runtime" content="1" />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
     <meta name="theme-color" content="#000000" />
@@ -200,6 +201,18 @@
     </script>
   </head>
   <body>
+    <script>
+      (function () {
+        var h = location.hostname;
+        if (h !== 'app.borderpayafrica.com' && h !== 'localhost' && h !== '127.0.0.1' && !/^borderpay-(recovery|fixed)(-[a-z0-9-]+)?\.vercel\.app$/.test(h)) {
+          document.documentElement.setAttribute('data-customer-brand', 'loading');
+          document.title = 'Secure customer app';
+          var style = document.createElement('style');
+          style.textContent = '[data-customer-brand] #initial-splash .logo-container { visibility: hidden; }';
+          document.head.appendChild(style);
+        }
+      })();
+    </script>
     <!-- Instant splash screen - visible immediately -->
     <div id="initial-splash">
       <div class="logo-container">

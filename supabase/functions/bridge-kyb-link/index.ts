@@ -1,3 +1,4 @@
+import { customerAppOrigin } from "../_shared/white-label-config.ts";
 // bridge-kyb-link v5 — embedded /v0/kyc_links flow for business accounts.
 //
 // Mirrors bridge-kyc-link v6: always send email + full_name;
@@ -249,7 +250,10 @@ Deno.serve(async (req: Request) => {
   try {
     body = await req.json();
   } catch { /* tolerant */ }
-  const redirectUrl = verificationRedirectUrl(APP_URL, body.redirect_url);
+  let customerOrigin: string;
+  try { customerOrigin = await customerAppOrigin(supa, user.id, APP_URL); }
+  catch { return json({success:false,code:"customer_app_unavailable",error:"Verification is temporarily unavailable. Please try again."},503); }
+  const redirectUrl = verificationRedirectUrl(customerOrigin, body.redirect_url);
   const phase = body.phase === "terms" || body.phase === "kyb" ? body.phase : null;
 
   const { data: profile } = await supa
@@ -472,7 +476,7 @@ Deno.serve(async (req: Request) => {
   let clientLinkUrl = link.link_url;
   if (link.link_url) {
     try {
-      clientLinkUrl = verifiedHostedLink(APP_URL, link.link_url);
+      clientLinkUrl = verifiedHostedLink(customerOrigin, link.link_url);
     } catch (error) {
       console.error(
         `bridge-kyb-link: hosted URL rejected user=${user.id}: ${

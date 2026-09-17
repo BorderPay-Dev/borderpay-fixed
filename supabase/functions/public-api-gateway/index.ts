@@ -1,3 +1,4 @@
+import { loadPublishedWhiteLabel } from "../_shared/white-label-config.ts";
 import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
@@ -273,6 +274,8 @@ async function handleRoute(
     if (secret.length < 32) {
       return { status: 500, body: { success: false, error: { code: "internal_error", message: "Partner onboarding authorization is not configured" } } };
     }
+    const release = parsed.value.onboarding_channel === "white_label" ? await loadPublishedWhiteLabel(supa,{tenantId:ctx.tenantId}) : null;
+    if(parsed.value.onboarding_channel === "white_label" && !release) return {status:409,body:{success:false,error:{code:"customer_app_not_live",message:"Publish the approved customer app before issuing signup links"}}};
     const now = Math.floor(Date.now() / 1000);
     const authorizationId = crypto.randomUUID();
     const expiresAt = now + parsed.value.expires_in_seconds;
@@ -320,7 +323,7 @@ async function handleRoute(
       }
       throw new Error(`Failed to persist onboarding audit: ${auditError.message}`);
     }
-    const appUrl = (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/$/, "");
+    const appUrl = release?.brand.app_origin || (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/$/, "");
     return {
       status: 201,
       body: {

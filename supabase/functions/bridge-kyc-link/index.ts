@@ -1,3 +1,4 @@
+import { customerAppOrigin } from "../_shared/white-label-config.ts";
 // Hosted individual verification: create new customers through POST /kyc_links;
 // resume existing customers through GET /customers/{id}/kyc_link. Never create
 // another customer when a resume request fails. Accepted terms are authoritative.
@@ -349,7 +350,10 @@ Deno.serve(async (req: Request) => {
   // Do not short-circuit to cached link_url: old links can expire and trap users
   // in repeated verification errors. Always ask Bridge for the current link state.
 
-  const redirectUrl = verificationRedirectUrl(APP_URL, body.redirect_url);
+  let customerOrigin: string;
+  try { customerOrigin = await customerAppOrigin(supa, user.id, APP_URL); }
+  catch { return json({success:false,code:"customer_app_unavailable",error:"Verification is temporarily unavailable. Please try again."},503); }
+  const redirectUrl = verificationRedirectUrl(customerOrigin, body.redirect_url);
   let bridgeEndpoint = "/v0/kyc_links";
   let r: BridgeFetchResult;
   let links: ExtractedLinks | null = null;
@@ -451,7 +455,7 @@ Deno.serve(async (req: Request) => {
   let clientLinkUrl = links.kyc_link_url;
   if (links.kyc_link_url) {
     try {
-      clientLinkUrl = verifiedHostedLink(APP_URL, links.kyc_link_url);
+      clientLinkUrl = verifiedHostedLink(customerOrigin, links.kyc_link_url);
     } catch {
       return json({ success: false, error: "Could not open secure verification. Please try again." }, 500);
     }
