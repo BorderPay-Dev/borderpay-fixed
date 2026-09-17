@@ -140,6 +140,10 @@ jobs:
             -PVERSION_NAME="$APP_VERSION" \
             -PVERSION_CODE="$BUILD_NUMBER"
 
+      - name: Verify optimized release plugin entry points
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
+        run: python3 scripts/ci/verify_android_optimization.py android/app/build/outputs/bundle/release/app-release.aab
+
       - name: Upload AAB artifact
         if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -148,6 +152,15 @@ jobs:
           path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: error
           retention-days: 14
+
+      - name: Retain Android release deobfuscation mapping
+        if: ${{ steps.android-signing.outputs.has-signing == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: borderpay-android-r8-mapping
+          path: android/app/build/outputs/mapping/release/
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Verify Google Play service account
         if: ${{ inputs.upload_to_play && steps.android-signing.outputs.has-signing == 'true' }}
