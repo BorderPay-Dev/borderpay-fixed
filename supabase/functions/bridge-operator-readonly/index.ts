@@ -1,3 +1,4 @@
+import { treasuryCors as cors } from "./cors.ts";
 import { virtualAccountRows } from "./accounts.ts";
 import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -19,24 +20,6 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const ALLOWED_ORIGINS = new Set([
-  "https://app.borderpayafrica.com",
-  "http://localhost:5173",
-  "http://localhost:3000",
-]);
-
-function cors(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") || "";
-  return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin)
-      ? origin
-      : "https://app.borderpayafrica.com",
-    "Access-Control-Allow-Headers":
-      "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-}
 
 function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
