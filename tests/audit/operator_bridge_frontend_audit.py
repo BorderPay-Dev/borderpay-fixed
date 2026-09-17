@@ -11,9 +11,10 @@ APP = (ROOT / 'App.tsx').read_text()
 checks = {
  'founder retains separate route': 'founder@borderpayafrica.com' in APP and '<OperatorBridgeReadOnlyApp' in APP,
  'all five financial destinations': all(f"activeView === '{v}'" in UI for v in ['home','wallets','receive','transactions','send']),
- 'desktop and mobile navigation': 'treasury-sidebar' in CSS and 'Mobile treasury navigation' in UI,
+ 'desktop and mobile navigation': 'treasury-desktop-nav' in CSS and 'Mobile treasury navigation' in UI,
  'active page announced': "aria-current={activeView === id ? 'page'" in UI,
  'treasury-only endpoint': 'bridge-operator-readonly' in API and 'treasuryAPI.getSnapshot' in UI and 'treasuryAPI.send' in UI,
+ 'business app visual structure': all(token in UI for token in ['treasury-business-identity', 'treasury-business-balance', 'treasury-account-strip', 'treasury-quick-actions']) and 'treasury-sidebar' not in UI,
  'bounded transport includes body': 'Promise.race' in REQUEST and 'await response.json()' in REQUEST and '45_000' in REQUEST,
  'no automatic mutation retry': 'retries:' not in REQUEST and 'could not be confirmed' in REQUEST,
  'refreshes cannot overlap': 'if (reading.current) return' in UI,
