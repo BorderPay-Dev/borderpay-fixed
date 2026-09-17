@@ -1,92 +1,81 @@
+/* Founder-only presentation follows BusinessDashboard and AppShell. */
 html.bp-treasury-active,body.bp-treasury-active{height:100%;overflow:hidden!important}
-.bp-treasury-shell{--treasury-lime:#c7ff00;position:fixed;inset:0;height:100vh;height:100svh;height:100dvh;overflow-y:auto;overflow-x:hidden;background:#0b0e11;color:#f2f4f3;font-family:Inter,Arial,sans-serif;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;color-scheme:dark}
+.bp-treasury-shell{position:fixed;inset:0;height:100vh;height:100svh;height:100dvh;overflow-y:auto;overflow-x:hidden;background:#0b0e11;color:#fff;font-family:inherit;color-scheme:dark;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .bp-treasury-shell *{box-sizing:border-box}
-.bp-treasury-shell button{cursor:pointer;transition:background .15s,color .15s,border-color .15s}
-.bp-treasury-shell button:disabled{cursor:not-allowed;opacity:.45}
-.bp-treasury-shell :is(button,a,input,select):focus-visible{outline:2px solid #c7ff00;outline-offset:4px}
-.bp-treasury-shell .treasury-skip{position:fixed;left:20px;top:-100px;z-index:100;background:#c7ff00;color:#080a0c;padding:14px;border-radius:8px}
-.bp-treasury-shell .treasury-skip:focus{top:12px}
-.bp-treasury-shell .treasury-sidebar{width:242px;position:fixed;inset:0 auto 0 0;background:#101417;border-right:1px solid #242a2f;display:flex;flex-direction:column;padding:30px 18px;padding-top:max(30px,env(safe-area-inset-top));z-index:30}
-.bp-treasury-shell .treasury-brand{display:flex;align-items:center;gap:12px;font-size:23px;letter-spacing:-.8px;font-weight:650;padding:0 12px}
-.bp-treasury-shell .treasury-brand img{width:35px;height:42px}
-.bp-treasury-shell .treasury-brand span{display:block;font-size:9px;letter-spacing:3.5px;color:#a4aeb5;margin-top:2px}
-.bp-treasury-shell .treasury-workspace{display:flex;align-items:center;gap:10px;border:1px solid #2c343a;border-radius:10px;padding:12px 9px;margin:36px 0 30px;font-size:12px;font-weight:600}
-.bp-treasury-shell .treasury-workspace>svg{margin-left:auto;color:#8d9a80}
-.bp-treasury-shell small{display:block;font-size:11px;line-height:1.5;color:#96a0a9;font-weight:400}
-.bp-treasury-shell .treasury-avatar{height:34px;width:34px;border:1px solid #454f2a;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:9px;background:#202a14;color:#ddf5a3;font-size:11px;font-weight:600}
-.bp-treasury-shell .treasury-nav-caption{font-size:9px;letter-spacing:1.8px;color:#808d97;margin:0 14px 12px}
-.bp-treasury-shell .treasury-sidebar nav{display:grid;gap:7px}
-.bp-treasury-shell .treasury-sidebar nav button{display:flex;align-items:center;gap:13px;padding:14px;border-radius:8px;color:#a3adb4;text-align:left;font-size:13px;font-weight:500}
-.bp-treasury-shell .treasury-sidebar nav button:hover{background:#1b2227;color:#fff}
-.bp-treasury-shell .treasury-sidebar nav button[aria-current]{background:#232e16;color:#dcf8a3}
-.bp-treasury-shell .treasury-nav-dot{width:5px;height:5px;border-radius:50%;background:#c7ff00;margin-left:auto}
-.bp-treasury-shell .treasury-sidebar-footer{margin-top:auto;display:flex;align-items:flex-start;gap:10px;padding:20px 10px;border-bottom:1px solid #262d32;font-size:12px;color:#cad2d7}
-.bp-treasury-shell .treasury-sidebar-footer svg{color:#a7ba87;flex-shrink:0}
-.bp-treasury-shell .treasury-sidebar-footer small{font-size:10px;margin-top:5px}
-.bp-treasury-shell .treasury-signout{display:flex;align-items:center;gap:12px;min-height:48px;padding:12px;color:#9da7af;font-size:12px;margin-top:12px}
-.bp-treasury-shell .treasury-workarea{margin-left:242px}
-.bp-treasury-shell .treasury-topbar{min-height:78px;padding:18px 40px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #232a2f;font-size:12px;gap:15px;padding-top:max(18px,env(safe-area-inset-top))}
-.bp-treasury-shell .treasury-breadcrumb{color:#7e8b95;margin-right:6px}
-.bp-treasury-shell .treasury-top-actions{display:flex;align-items:center;gap:20px}
-.bp-treasury-shell .treasury-top-actions button{position:relative;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:#abb6bc}
-.bp-treasury-shell .treasury-top-actions button:hover{background:#242a2f}
-.bp-treasury-shell .treasury-top-actions i{position:absolute;top:0;right:0;background:#c7ff00;color:#101417;font-size:10px;border-radius:50%;width:16px;font-style:normal}
-.bp-treasury-shell .treasury-private{display:flex;align-items:center;gap:7px;color:#a4afb6;font-size:11px}
-.bp-treasury-shell .treasury-mobile-signout{display:none!important}
-.bp-treasury-shell .bp-treasury-main{max-width:1560px;margin:auto;padding:38px 40px 20px;outline:none}
-.bp-treasury-shell .treasury-page-top{display:flex;justify-content:space-between;align-items:center;gap:18px}
-.bp-treasury-shell .treasury-eyebrow{font-size:9px;font-weight:600;letter-spacing:1.9px;color:#99a4ac}
-.bp-treasury-shell .treasury-page-top h1{font-size:30px;line-height:1.25;letter-spacing:-1.2px;font-weight:550;margin:9px 0 7px}
-.bp-treasury-shell .treasury-subtitle{font-size:12px;color:#91a0ab}
-.bp-treasury-shell .treasury-button{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:44px;border-radius:7px;padding:11px 16px;font-size:12px;font-weight:600;white-space:nowrap}
-.bp-treasury-shell .treasury-primary{background:#c7ff00;color:#0b1400;border:1px solid #c7ff00}
-.bp-treasury-shell .treasury-primary:hover{background:#d6ff54}
-.bp-treasury-shell .treasury-secondary{border:1px solid #354047;background:#171d21;color:#e2e7e9}
-.bp-treasury-shell .treasury-secondary:hover{background:#252d32}
-.bp-treasury-shell .treasury-freshness{display:flex;align-items:center;gap:7px;margin:23px 0 20px;font-size:10px;color:#a0abb4;flex-wrap:wrap}
-.bp-treasury-shell .treasury-freshness>span:last-child:not(.treasury-dot){margin-left:auto;color:#7e8b95}
-.bp-treasury-shell .treasury-dot{width:5px;height:5px;display:inline-block;border-radius:100%;background:#b9ed6d}
-.bp-treasury-shell .treasury-dot.stale{background:#eabb69}
-.bp-treasury-shell .treasury-overview-grid{display:grid;grid-template-columns:1.8fr 1fr;border:1px solid #303a40;border-radius:12px;overflow:hidden;background:#141b1e}
-.bp-treasury-shell .treasury-liquidity{padding:27px 30px;background:radial-gradient(ellipse at 90% 0%,#27341b55,transparent 60%)}
-.bp-treasury-shell .treasury-section-label{display:flex;align-items:center;justify-content:space-between;font-size:10px;letter-spacing:1.6px;color:#aab7a1}
-.bp-treasury-shell .treasury-section-label button{min-width:44px;min-height:36px;display:grid;place-items:center;color:#acb8aa}
-.bp-treasury-shell .treasury-total{font-size:clamp(28px,3.8vw,51px);line-height:1.2;letter-spacing:-1.8px;font-weight:500;font-variant-numeric:tabular-nums;margin-top:10px;overflow-wrap:anywhere}
-.bp-treasury-shell .treasury-total span{font-size:11px;color:#9ea992;letter-spacing:0;margin-left:12px;display:inline-block;white-space:nowrap}
-.bp-treasury-shell .treasury-balance-note{color:#93a090;font-size:11px;margin-top:9px}
-.bp-treasury-shell .treasury-hero-actions{display:flex;gap:10px;margin-top:25px;flex-wrap:wrap}
-.bp-treasury-shell .treasury-position{padding:28px 26px;border-left:1px solid #303a40;background:#13191c}
-.bp-treasury-shell .treasury-position>div{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid #273036;padding:13px 0;color:#a7b2bb;font-size:11px}
-.bp-treasury-shell .treasury-position strong{color:#e6ebed;font-size:20px;font-weight:500;font-variant-numeric:tabular-nums}
-.bp-treasury-shell .treasury-position>small{font-size:9px;margin-top:13px;color:#83909b}
-.bp-treasury-shell .treasury-assets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin:20px 0}
-.bp-treasury-shell .treasury-asset{display:block;text-align:left;padding:20px;border:1px solid #2a333a;border-radius:10px;background:#13191d;min-width:0}
-.bp-treasury-shell .treasury-asset:hover{border-color:#5a6b46;background:#182121}
-.bp-treasury-shell .treasury-asset>div{display:flex;align-items:center;gap:11px;font-size:13px}
-.bp-treasury-shell .treasury-asset>div>svg{margin-left:auto;color:#7a8993}
-.bp-treasury-shell .treasury-asset>strong{display:block;font-size:24px;letter-spacing:-.7px;font-weight:500;margin:20px 0 3px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-.bp-treasury-shell .treasury-analysis-grid{display:grid;grid-template-columns:1.8fr 1fr;gap:20px;margin:24px 0}
-.bp-treasury-shell .treasury-panel,.bp-treasury-shell .treasury-rail-summary{border:1px solid #29333a;background:#12181c;border-radius:10px;padding:24px;min-width:0}
-.bp-treasury-shell .treasury-section-heading{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:22px}
-.bp-treasury-shell .treasury-section-heading h2{font-size:15px;font-weight:550}
-.bp-treasury-shell .treasury-section-heading p{font-size:11px;color:#8e9ba6;margin-top:5px}
-.bp-treasury-shell .treasury-section-heading>button{display:flex;align-items:center;gap:6px;font-size:11px;min-height:44px;color:#c4d4a4}
-.bp-treasury-shell .treasury-rail-summary>button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:17px 0;border-bottom:1px solid #273139;font-size:13px}
-.bp-treasury-shell .treasury-rail-summary>button>span:last-child{margin-left:auto;font-size:9px}
-.bp-treasury-shell .treasury-rail-summary>button:last-child{border-bottom:0}
-.bp-treasury-shell .treasury-footer{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;color:#7f8e99;font-size:10px;border-top:1px solid #252e35;padding:24px 0 12px;margin-top:38px}
-.bp-treasury-shell .bp-treasury-card{border-radius:12px;background:#12191e;border-color:#2b343b}
-.bp-treasury-shell .treasury-wallet-amount{font-size:28px;font-weight:500;letter-spacing:-.8px;margin-top:28px;font-variant-numeric:tabular-nums}
-.bp-treasury-shell .bp-treasury-main>section{margin-top:20px}
-.bp-treasury-shell .bp-treasury-main section>header h1{font-size:19px}
-
-.bp-treasury-shell .text-zinc-500,.bp-treasury-shell .text-zinc-600{color:#96a3ad}
+.bp-treasury-shell button{cursor:pointer;transition:background .15s,color .15s}
+.bp-treasury-shell button:disabled{opacity:.45;cursor:not-allowed}
+.bp-treasury-shell :is(button,input,select,a):focus-visible{outline:2px solid #c7ff00;outline-offset:3px}
+.bp-treasury-shell .treasury-skip{position:fixed;left:16px;top:-100px;z-index:100;background:#c7ff00;color:#0b0e11;padding:12px;border-radius:14px}
+.bp-treasury-shell .treasury-skip:focus{top:16px}
+.bp-treasury-shell .treasury-app-header{position:fixed;inset:0 0 auto;z-index:30;pointer-events:none;padding:calc(env(safe-area-inset-top,0px) + 16px) max(16px,env(safe-area-inset-right)) 14px max(16px,env(safe-area-inset-left));background:linear-gradient(#0b0e11ee,#0b0e1100)}
+.bp-treasury-shell .treasury-header-inner{display:flex;justify-content:space-between;align-items:center;max-width:1280px;margin:auto}
+.bp-treasury-shell .treasury-header-actions{display:flex;align-items:center;gap:12px}
+.bp-treasury-shell .treasury-round{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:44px;height:44px;border:1px solid #ffffff14;border-radius:50%;background:#15191dc9;color:#eee;backdrop-filter:blur(20px);pointer-events:auto}
+.bp-treasury-shell .treasury-round:hover{background:#ffffff12}
+.bp-treasury-shell .treasury-profile{width:44px;height:44px;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;background:#c7ff00;color:#0b0e11;border-radius:50%;font-weight:650;font-size:14px;pointer-events:auto}
+.bp-treasury-shell .treasury-bell{position:relative}
+.bp-treasury-shell .treasury-bell>span{position:absolute;top:0;right:0;min-width:16px;height:16px;background:#c7ff00;border-radius:50%;font-size:9px;color:#0b0e11;display:grid;place-items:center}
+.bp-treasury-shell .treasury-app-content{padding-top:calc(env(safe-area-inset-top,0px) + 92px);max-width:1280px;margin:auto}
+.bp-treasury-shell .treasury-desktop-nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));margin:0 24px 24px;padding:8px;border-radius:16px;border:1px solid #ffffff14;background:#15191dcc;backdrop-filter:blur(20px)}
+.bp-treasury-shell .treasury-desktop-nav button{display:flex;align-items:center;justify-content:center;gap:9px;min-height:48px;border-radius:12px;font-size:13px;color:#a3a5a7}
+.bp-treasury-shell .treasury-desktop-nav button[aria-current]{background:#c7ff0014;color:#c7ff00}
+.bp-treasury-shell .bp-treasury-main{padding:0 24px 30px;outline:none;min-width:0}
+.bp-treasury-shell .treasury-business-identity{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
+.bp-treasury-shell .treasury-business-name{display:flex;gap:12px;align-items:center;min-width:0}
+.bp-treasury-shell .treasury-business-avatar{width:40px;height:40px;flex-shrink:0;display:grid;place-items:center;border-radius:12px;color:#080a0b;background:#c7ff00;font-size:14px;font-weight:700}
+.bp-treasury-shell .treasury-business-name>div{min-width:0}
+.bp-treasury-shell .treasury-business-name p{font-size:10px;letter-spacing:1.6px;color:#969a9e;line-height:1.5;font-weight:600}
+.bp-treasury-shell .treasury-business-name h1{font-size:16px;font-weight:600;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bp-treasury-shell .treasury-business-balance{position:relative;overflow:hidden;border-radius:24px;border:1px solid #ffffff0f;background:linear-gradient(135deg,#15191f,#0f1216,#0b0e11);padding:20px 24px 26px;box-shadow:0 18px 60px #00000047}
+.bp-treasury-shell .treasury-balance-glow{position:absolute;right:-96px;top:-96px;pointer-events:none;width:256px;height:256px;border-radius:50%;background:#c7ff00;opacity:.06;filter:blur(60px)}
+.bp-treasury-shell .treasury-balance-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative}
+.bp-treasury-shell .treasury-balance-heading>p{font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#9b9ea2}
+.bp-treasury-shell .treasury-balance-heading>button{display:grid;place-items:center;min-width:44px;min-height:44px;color:#a5a8aa;border-radius:50%}
+.bp-treasury-shell .treasury-total{font-size:56px;letter-spacing:-1.5px;font-weight:600;line-height:1.12;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;margin-top:4px;position:relative}
+.bp-treasury-shell .treasury-dollar,.bp-treasury-shell .treasury-cents{font-size:30px;color:#ffffff80;letter-spacing:-.5px}
+.bp-treasury-shell .treasury-dollar{vertical-align:top;display:inline-block;margin-right:5px;margin-top:4px}
+.bp-treasury-shell .treasury-balance-note{color:#969a9e;font-size:11px;margin-top:12px;position:relative}
+.bp-treasury-shell .treasury-account-section{margin-top:26px}
+.bp-treasury-shell .treasury-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
+.bp-treasury-shell .treasury-section-heading h2{font-size:12px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:#c3c5c7}
+.bp-treasury-shell .treasury-section-heading>button{color:#c7ff00;font-weight:600;font-size:11px;min-height:44px;padding:0 4px}
+.bp-treasury-shell .treasury-account-strip{display:flex;gap:10px;overflow-x:auto;padding:4px 3px 8px;scrollbar-width:none;scroll-snap-type:x proximity}
+.bp-treasury-shell .treasury-account-strip::-webkit-scrollbar{display:none}
+.bp-treasury-shell .treasury-account-tile{flex:0 0 164px;min-height:164px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:16px;border:1px solid #ffffff14;background:#ffffff0d;padding:18px 12px;scroll-snap-align:start;min-width:0}
+.bp-treasury-shell .treasury-account-tile:hover{background:#ffffff14}
+.bp-treasury-shell .treasury-account-tile>span:nth-child(2){font-size:14px;font-weight:600;margin-top:12px;line-height:1.3}
+.bp-treasury-shell .treasury-account-tile strong{font-size:18px;font-weight:650;margin-top:8px;font-variant-numeric:tabular-nums;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bp-treasury-shell .treasury-account-tile small{font-size:10px;color:#9ca0a3;margin-top:5px}
+.bp-treasury-shell .treasury-quick-actions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:24px 0}
+.bp-treasury-shell .treasury-quick-actions button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border-radius:16px;background:#ffffff0d;border:1px solid #ffffff14;min-height:78px;padding:14px 6px;font-size:12px;font-weight:600}
+.bp-treasury-shell .treasury-quick-actions button:hover{background:#ffffff14}
+.bp-treasury-shell .treasury-quick-actions .treasury-action-primary{background:#c7ff00;border-color:#c7ff00;color:#080b00}
+.bp-treasury-shell .bp-treasury-card,.bp-treasury-shell .treasury-panel{border-radius:24px;border:1px solid #ffffff14;background:#ffffff0d}
+.bp-treasury-shell .treasury-panel{padding:20px;min-width:0}
+.bp-treasury-shell .treasury-recent{margin-top:28px}
+.bp-treasury-shell .treasury-freshness{font-size:10px;color:#969a9e;margin:24px 0 12px;text-align:center;line-height:1.5}
+.bp-treasury-shell .treasury-trust{display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;color:#929699;padding:8px 0}
+.bp-treasury-shell .treasury-trust svg{color:#c7ff00}
+.bp-treasury-shell .treasury-wallet-amount{font-size:28px;font-weight:600;letter-spacing:-.8px;margin-top:24px;font-variant-numeric:tabular-nums}
+.bp-treasury-shell .text-zinc-500,.bp-treasury-shell .text-zinc-600{color:#999fa4}
 .bp-treasury-shell .bp-treasury-bottom-nav{display:none}
-@media(max-width:1200px){.bp-treasury-shell .treasury-sidebar{width:212px;padding-inline:14px}.bp-treasury-shell .treasury-workarea{margin-left:212px}.bp-treasury-shell .bp-treasury-main{padding:28px 24px 16px}.bp-treasury-shell .treasury-topbar{padding-inline:24px}.bp-treasury-shell .treasury-liquidity{padding:24px}.bp-treasury-shell .treasury-position{padding:24px 18px}.bp-treasury-shell .treasury-analysis-grid{grid-template-columns:1.3fr 1fr}}
-@media(max-width:900px){.bp-treasury-shell .treasury-sidebar{display:none}.bp-treasury-shell .treasury-workarea{margin:0}.bp-treasury-shell .bp-treasury-main{padding-bottom:calc(86px + env(safe-area-inset-bottom))}.bp-treasury-shell .treasury-mobile-signout{display:flex!important}.bp-treasury-shell .bp-treasury-bottom-nav{position:fixed;inset:auto 0 0;z-index:40;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:8px max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));border-top:1px solid #303a40;background:#11181bf5;backdrop-filter:blur(16px)}.bp-treasury-shell .bp-treasury-bottom-nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-height:52px;font-size:10px;color:#a7b2bb;border-radius:8px}.bp-treasury-shell .bp-treasury-bottom-nav button[aria-current]{color:#d7f593;background:#25311c}}
-@media(max-width:600px){.bp-treasury-shell .treasury-topbar{padding:10px 18px;padding-top:max(10px,env(safe-area-inset-top));min-height:65px}.bp-treasury-shell .treasury-private,.bp-treasury-shell .treasury-top-actions>.treasury-avatar{display:none}.bp-treasury-shell .treasury-top-actions{gap:4px}.bp-treasury-shell .bp-treasury-main{padding-inline:max(18px,env(safe-area-inset-left));padding-top:24px}.bp-treasury-shell .treasury-page-top{align-items:flex-start;flex-wrap:wrap}.bp-treasury-shell .treasury-page-top h1{font-size:26px}.bp-treasury-shell .treasury-page-top>.treasury-button{padding:8px 11px;min-height:44px;font-size:11px}.bp-treasury-shell .treasury-freshness{line-height:1.7}.bp-treasury-shell .treasury-freshness>span:last-child:not(.treasury-dot){display:none}.bp-treasury-shell .treasury-overview-grid{grid-template-columns:1fr}.bp-treasury-shell .treasury-liquidity{padding:20px}.bp-treasury-shell .treasury-total{font-size:36px}.bp-treasury-shell .treasury-total span{display:block;margin:10px 0 0;font-size:10px}.bp-treasury-shell .treasury-position{border-left:0;border-top:1px solid #303a40;padding:18px 20px}.bp-treasury-shell .treasury-position>div{padding:9px 0}.bp-treasury-shell .treasury-assets{grid-template-columns:1fr;gap:10px}.bp-treasury-shell .treasury-asset{display:grid;grid-template-columns:1fr auto;padding:16px;align-items:center;gap:3px 12px}.bp-treasury-shell .treasury-asset>div{grid-row:span 2}.bp-treasury-shell .treasury-asset>div>svg{display:none}.bp-treasury-shell .treasury-asset>strong{font-size:18px;margin:0;text-align:right}.bp-treasury-shell .treasury-asset>small{text-align:right;font-size:10px}.bp-treasury-shell .treasury-analysis-grid{grid-template-columns:1fr;gap:16px}.bp-treasury-shell .treasury-panel,.bp-treasury-shell .treasury-rail-summary{padding:18px}.bp-treasury-shell .treasury-hero-actions .treasury-button{flex:1;padding-inline:9px}.bp-treasury-shell .treasury-footer{font-size:9px}}
-@media(max-width:359px){.bp-treasury-shell .bp-treasury-main{padding-inline:12px}.bp-treasury-shell .treasury-total{font-size:30px}.bp-treasury-shell .bp-treasury-bottom-nav button{font-size:9px}}
-@media(orientation:landscape) and (max-height:540px){.bp-treasury-shell .bp-treasury-bottom-nav button{min-height:44px}.bp-treasury-shell .bp-treasury-bottom-nav button span{display:none}}
+.bp-treasury-shell .treasury-menu{position:fixed;inset:0 auto 0 0;width:88%;max-width:360px;height:100vh;height:100dvh;max-height:100dvh;margin:0;border:0;border-right:1px solid #ffffff14;background:#0b0e11;color:#fff;padding:calc(env(safe-area-inset-top,0px) + 20px) 20px max(20px,env(safe-area-inset-bottom));box-shadow:20px 0 80px #0008}
+.bp-treasury-shell .treasury-menu[open]{display:flex;flex-direction:column}
+.bp-treasury-shell .treasury-menu::backdrop{background:#0009;backdrop-filter:blur(2px)}
+.bp-treasury-shell .treasury-menu-heading{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+.bp-treasury-shell .treasury-menu-heading h2{font-size:14px;font-weight:600}
+.bp-treasury-shell .treasury-menu-heading p{font-size:11px;color:#92989c;margin-top:2px}
+.bp-treasury-shell .treasury-menu-heading>.treasury-round{margin-left:auto}
+.bp-treasury-shell .treasury-menu nav{display:grid;gap:6px}
+.bp-treasury-shell .treasury-menu nav button{display:flex;align-items:center;gap:12px;min-height:50px;padding:12px;border-radius:14px;text-align:left;font-size:14px}
+.bp-treasury-shell .treasury-menu nav button[aria-current]{background:#c7ff0010;color:#c7ff00}
+.bp-treasury-shell .treasury-menu nav button>svg:last-child{margin-left:auto;color:#92989c}
+.bp-treasury-shell .treasury-menu-footer{margin-top:auto;padding-top:28px}
+.bp-treasury-shell .treasury-menu-footer p{font-size:11px;color:#92989c;overflow-wrap:anywhere}
+.bp-treasury-shell .treasury-menu-footer button{display:flex;gap:12px;align-items:center;font-size:14px;min-height:48px;margin-top:12px}
+@media(max-width:767px){.bp-treasury-shell .treasury-desktop-nav{display:none}.bp-treasury-shell .treasury-app-content{padding-top:calc(env(safe-area-inset-top,0px) + 96px)}.bp-treasury-shell .bp-treasury-main{padding:0 max(20px,env(safe-area-inset-right)) calc(env(safe-area-inset-bottom,0px) + 106px) max(20px,env(safe-area-inset-left))}.bp-treasury-shell .treasury-business-balance{padding:16px 20px 24px}.bp-treasury-shell .treasury-total{font-size:44px}.bp-treasury-shell .treasury-dollar,.bp-treasury-shell .treasury-cents{font-size:24px}.bp-treasury-shell .treasury-account-strip{margin-inline:-20px;padding-inline:20px;scroll-padding-inline:20px}.bp-treasury-shell .bp-treasury-bottom-nav{position:fixed;inset:auto 0 0;z-index:30;display:block;padding:0 12px calc(env(safe-area-inset-bottom,0px) + 10px);pointer-events:none}.bp-treasury-shell .bp-treasury-bottom-nav>div{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));height:66px;max-width:1280px;margin:auto;border:1px solid #ffffff14;border-radius:28px;background:#101418dc;backdrop-filter:blur(24px);padding:0 6px;box-shadow:0 18px 55px #0006;pointer-events:auto}.bp-treasury-shell .bp-treasury-bottom-nav button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border-radius:22px;color:#a4a8ab;font-size:11px;min-width:0;min-height:52px;margin:5px 0;position:relative}.bp-treasury-shell .bp-treasury-bottom-nav button[aria-current]{background:#c7ff0010;color:#c7ff00}.bp-treasury-shell .bp-treasury-bottom-nav button[aria-current]:before{content:'';position:absolute;width:4px;height:4px;border-radius:50%;background:#c7ff00;top:3px}}
+@media(max-width:359px){.bp-treasury-shell .bp-treasury-main{padding-inline:16px}.bp-treasury-shell .treasury-business-name h1{font-size:14px}.bp-treasury-shell .treasury-total{font-size:38px}.bp-treasury-shell .treasury-quick-actions{gap:7px}.bp-treasury-shell .treasury-account-strip{margin-inline:-16px;padding-inline:16px}.bp-treasury-shell .treasury-menu{padding-inline:14px}}
+@media(orientation:landscape) and (max-height:540px){.bp-treasury-shell .treasury-app-content{padding-top:76px}.bp-treasury-shell .bp-treasury-bottom-nav>div{height:54px}.bp-treasury-shell .bp-treasury-bottom-nav button{min-height:44px;gap:2px}}
 @media(display-mode:standalone){.bp-treasury-shell{height:100dvh}.bp-treasury-shell button{touch-action:manipulation}}
 @media(prefers-reduced-motion:reduce){.bp-treasury-shell *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 .bp-treasury-shell .treasury-ledger-filters{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px}
