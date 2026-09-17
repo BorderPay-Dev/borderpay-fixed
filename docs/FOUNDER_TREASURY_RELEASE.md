@@ -8,7 +8,8 @@ without explanation. GBP account projection omitted `sort_code` and
 The dedicated treasury now has a persistent desktop sidebar, mobile navigation,
 asset balances, receiving-bank instructions, searchable activity and a PIN review
 flow. GBP sort codes preserve leading zeroes, display as `XX-XX-XX`, and are
-copyable. Failed and refunded transfers no longer count as pending. Chart volume
+copyable. The existing GBP `routing_number` response alias is also populated
+for currently installed treasury clients. Failed and refunded transfers no longer count as pending. Chart volume
 excludes unsettled funds and explicitly covers only returned records.
 
 Treasury-only requests have bounded authentication, body parsing and network
@@ -38,3 +39,19 @@ Live evidence before change: recent treasury snapshot audits succeeded for three
 wallet asset rows, three receiving accounts and seven activity records. A real
 signed-in founder read after deployment remains necessary to confirm the live
 GBP value; fixtures do not establish a specific production bank sort code.
+
+## Release status
+
+- Production Edge endpoint updated, including the GBP alias for existing clients.
+- New frontend passes local production build and is available in the PR preview:
+  `borderpay-recovery-1dxaytbm1-mark-ikaba-s-projects.vercel.app`.
+- Production frontend publish is blocked by Vercel's
+  `api-deployments-free-per-day` limit (100). Both one local prebuilt attempt and
+  one isolated Git release attempt were rejected. No production alias was changed.
+- PR: https://github.com/BorderPay-Dev/borderpay-fixed/pull/219.
+- Isolated production source: branch `release/founder-treasury-20260917`, based on
+  the live commit noted above. The local prebuilt artifact remains in
+  `/private/tmp/bp-founder-treasury-release/.vercel/output`.
+- Do not promote the PR preview to production: its main-branch baseline also
+  contains unrelated affiliate UI changes. Publish the isolated release artifact
+  when the quota is available.

@@ -32,11 +32,18 @@ export function virtualAccountRows(row: any) {
         typeof instructions.bank_address === "object"
       ? Object.values(instructions.bank_address).filter(Boolean).join(", ")
       : instructions?.bank_address;
+    const currency = text(instructions?.currency || row?.currency).toUpperCase();
+    const sortCode = currency === "GBP" ? text(
+      instructions?.sort_code || instructions?.bank_sort_code ||
+        bank?.sort_code || bank?.bank_sort_code || details?.sort_code || details?.bank_sort_code ||
+        instructions?.bank_routing_number || instructions?.routing_number ||
+        bank?.bank_routing_number || bank?.routing_number,
+    ) : "";
     return {
       id: `${text(row?.virtual_account_id)}${
         candidates.length > 1 ? `:${index}` : ""
       }`,
-      currency: text(instructions?.currency || row?.currency).toUpperCase(),
+      currency,
       rail: text(instructions?.payment_rail || instructions?.rail || row?.rail)
         .toLowerCase(),
       status: text(row?.status || details?.status || "active").toLowerCase(),
@@ -57,14 +64,10 @@ export function virtualAccountRows(row: any) {
         instructions?.bank_account_number || instructions?.account_number ||
           bank?.bank_account_number || bank?.account_number,
       ),
-      sort_code: text(
-        instructions?.sort_code || instructions?.bank_sort_code ||
-          bank?.sort_code || bank?.bank_sort_code || details?.sort_code || details?.bank_sort_code ||
-          (String(instructions?.currency || row?.currency).toUpperCase() === "GBP"
-            ? instructions?.bank_routing_number || instructions?.routing_number || bank?.bank_routing_number || bank?.routing_number
-            : ""),
-      ),
-      routing_number: text(
+      sort_code: sortCode,
+      // Existing treasury clients render routing_number for GBP. Keep that
+      // response alias until every installed client understands sort_code.
+      routing_number: currency === "GBP" ? sortCode : text(
         instructions?.bank_routing_number || instructions?.routing_number ||
           bank?.bank_routing_number || bank?.routing_number,
       ),
