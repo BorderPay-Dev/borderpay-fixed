@@ -17,6 +17,7 @@ Deno.test('GBP sort code supports Bridge aliases, nesting and leading zeros', ()
   for (const instructions of [{sort_code:'040075'}, {bank_sort_code:'04-00-75'}, {bank_account:{sort_code:'04 00 75'}}, {bank_routing_number:'040075'}]) {
     const account = virtualAccountRows({currency:'GBP',virtual_account_id:'va',account_details:{source_deposit_instructions:instructions}})[0];
     equal(formatSortCode(account.sort_code),'04-00-75');
+    equal(account.routing_number, account.sort_code);
   }
   equal(formatSortCode('123456789'),'');
   equal(formatSortCode(''),'');
