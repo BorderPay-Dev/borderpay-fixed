@@ -2,10 +2,15 @@
 const text = (value: unknown) => String(value ?? '').trim();
 const amount = (value: unknown) => /^\d+(\.\d+)?$/.test(text(value)) ? text(value) : '';
 
-export function normalizeTreasuryActivity(row: any, kind: 'transfer' | 'virtual_account') {
+export function normalizeTreasuryActivity(row: any, kind: 'transfer' | 'virtual_account', context: { sourceCurrency?: string } = {}) {
   const virtual = kind === 'virtual_account';
   const type = text(row?.type || row?.activity_type).toLowerCase();
   const receipt = row?.receipt ?? {};
+  const outgoingVa = virtual && ['payment_submitted', 'payment_processed'].includes(type);
+  const sourceCurrency = row?.source?.currency || row?.source_currency ||
+    (virtual ? (outgoingVa ? context.sourceCurrency : row?.currency) : row?.currency);
+  const destinationCurrency = row?.destination?.currency || row?.destination_currency ||
+    (outgoingVa ? row?.currency : undefined);
   const state = text(row?.state || row?.status || (virtual ? type : '')).toLowerCase();
   return {
     id: text(virtual ? row?.transfer_id || row?.deposit_id || row?.id : row?.id),
@@ -14,7 +19,7 @@ export function normalizeTreasuryActivity(row: any, kind: 'transfer' | 'virtual_
     activity_type: type,
     reference: text(row?.reference || row?.deposit_id || row?.tracking_id),
     source: {
-      currency: text(row?.source?.currency || row?.source_currency || row?.currency).toUpperCase(),
+      currency: text(sourceCurrency).toUpperCase(),
       payment_rail: text(row?.source?.payment_rail || row?.source?.rail || row?.payment_rail).toLowerCase(),
       // VA event amount changes meaning across its lifecycle. Receipt initial_amount
       // is explicitly denominated in the fiat/source currency in Bridge's schema.
@@ -22,9 +27,9 @@ export function normalizeTreasuryActivity(row: any, kind: 'transfer' | 'virtual_
         (virtual ? (type === 'funds_received' ? row?.amount : undefined) : row?.amount)),
     },
     destination: {
-      currency: text(row?.destination?.currency || row?.destination_currency).toUpperCase(),
+      currency: text(destinationCurrency).toUpperCase(),
       payment_rail: text(row?.destination?.payment_rail || row?.destination?.rail || row?.destination_payment_rail).toLowerCase(),
-      amount: amount(row?.destination?.amount ?? row?.destination_amount ?? receipt.final_amount),
+      amount: amount(row?.destination?.amount ?? row?.destination_amount ?? receipt.final_amount ?? (outgoingVa ? row?.amount : undefined)),
     },
     created_at: text(row?.created_at),
     updated_at: text(row?.updated_at || row?.created_at),

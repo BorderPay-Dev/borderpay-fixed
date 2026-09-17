@@ -19,7 +19,7 @@ checks = {
  'no automatic mutation retry': 'retries:' not in REQUEST and 'could not be confirmed' in REQUEST,
  'refreshes cannot overlap': 'if (reading.current) return' in UI,
  'unavailable balances stay unknown': 'if (!wallet.balance_available) return null' in VALUES and 'wallet.balance !== null' in UI,
- 'separate asset units': 'USDC + USDT' in UI and 'EURC shown separately' in UI,
+ 'USD total includes all wallet assets': 'All wallets · USD equivalent' in UI and 'valuationTotal(snapshot?.treasury_valuation)' in UI,
  'visible sort code': 'formatSortCode(account.sort_code || account.routing_number)' in UI,
  'activity filter and search': 'Search treasury activity' in UI and 'Filter activity status' in UI,
  'source and destination retain currency': 'formatMoney(row.source.amount, row.source.currency)' in UI and 'formatMoney(row.destination.amount, row.destination.currency)' in UI,

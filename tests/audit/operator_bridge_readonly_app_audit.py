@@ -94,7 +94,7 @@ checks = {
     "unavailable wallet balances are never displayed as zero": "if (!wallet.balance_available) return null" in UI and "wallet.balance !== null" in UI,
     "master treasury is isolated from customer UI": "BorderPay Africa Treasury" in UI and "<OperatorBridgeReadOnlyApp" in APP,
     "receiving rails are dynamically rendered": ".map((account)" in UI and "ReceiveView" in UI and "RailMark" in UI,
-    "operator home uses the master transfer ledger for its chart": "TreasuryActivityChart transactions={snapshot.transactions}" in UI,
+    "operator home uses the same USD valuation as total balance": "TreasuryActivityChart valuation={snapshot.treasury_valuation}" in UI and "valuationTotal(snapshot?.treasury_valuation)" in UI,
     "operator total balance is privacy protected": "balanceVisible" in UI and "aria-pressed={balanceVisible}" in UI,
 }
 

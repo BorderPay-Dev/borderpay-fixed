@@ -6,6 +6,8 @@ backend += (root / "supabase/functions/bridge-operator-readonly/activity.ts").re
 frontend = (root / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
 
 frontend += (root / "components/business/treasury/activity.ts").read_text()
+chart = (root / "components/business/treasury/TreasuryVolume.tsx").read_text()
+valuation = (root / "supabase/functions/bridge-operator-readonly/valuation.ts").read_text()
 checks = {
     "live transfer list": 'path: `/v0/customers/${encodeURIComponent(customerId)}/transfers`' in backend,
     "live virtual-account history": (
@@ -24,8 +26,8 @@ checks = {
     "recent activity consumes live ledger": "recentTransactions" in frontend,
     "transaction screen consumes live ledger": "BridgeTransferLedger" in frontend,
     "notifications consume live ledger": "pendingTransfers" in frontend,
-    "chart retains selected currency units": "activityAmount" in frontend and "leg.currency.toUpperCase() !== currency" in frontend,
-    "unsettled funds do not count as completed chart volume": "new Set(['completed', 'payment_processed', 'settlement_complete'])" in frontend,
+    "chart is USD only with no asset selector": "valuationTotal(valuation)" in chart and "<select" not in chart,
+    "history uses wallet after-balances rather than VA amounts": "event.available_balance" in valuation and "receipt.initial_amount" not in valuation,
     "operator view refreshes live": "30_000" in frontend and "visibilitychange" in frontend,
     "silent refresh preserves rendered data": "load(true)" in frontend,
     "production API is hard gated": 'BRIDGE_BASE_URL !== "https://api.bridge.xyz"' in backend,
