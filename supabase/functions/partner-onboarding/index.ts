@@ -1,3 +1,4 @@
+import { validateWhiteLabelBrand } from "../_shared/white-label-config.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { extractPublicClientIp, readBoundedJson } from "../_shared/public-request-security.ts";
@@ -28,7 +29,7 @@ const countryOk = (value: unknown) => /^[A-Z]{2}$/.test(clean(value).toUpperCase
 const editable = new Set(["draft", "more_information"]);
 const mfaProtectedActions = new Set([
   "create_project", "save_workspace_settings", "create_api_key", "revoke_api_key",
-  "upload_white_label_logo",
+  "upload_white_label_logo", "request_white_label_launch",
   "add_ip_allowlist", "remove_ip_allowlist", "create_webhook", "rotate_webhook_secret", "disable_webhook",
   "invite_team_member", "update_team_member", "remove_team_member",
 ]);
@@ -76,7 +77,7 @@ function completeness(app: any, people: any[], documents: any[], organization: a
     [technical.technical_contact_email && emailOk(technical.technical_contact_email), "Technical contact"],
     [technical.compliance_contact_email && emailOk(technical.compliance_contact_email), "Compliance contact"],
     [technical.security_contact_email && emailOk(technical.security_contact_email), "Security contact"],
-    [Array.isArray(technical.static_egress_ips) && technical.static_egress_ips.length > 0, "Static egress IP"],
+    [app?.requested_products?.includes("white_label") || (Array.isArray(technical.static_egress_ips) && technical.static_egress_ips.length > 0), "Static egress IP"],
     [declarations.accuracy === true, "Accuracy declaration"],
     [declarations.authority === true, "Authority declaration"],
     [declarations.privacy === true, "Privacy declaration"],
@@ -250,10 +251,11 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!url || !serviceKey) return json(req, { success: false, error: "Server configuration missing" }, 500);
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const envelope = await readBoundedJson<any>(req, 65_536);
+  const envelope = await readBoundedJson<any>(req, 1_500_000);
   if (!envelope.ok) return json(req, { success: false, code: envelope.code, error: envelope.error }, envelope.status);
   const body = envelope.value;
   const action = clean(body?.action, 60);
+  if (action !== "upload_white_label_logo" && JSON.stringify(body).length > 65_536) return json(req, { success: false, error: "Request too large" }, 413);
 
   try {
     if (action === "request_invite") {
@@ -430,7 +432,14 @@ Deno.serve(async (req) => {
       const approvedProducts: string[] = Array.isArray(approvalQ.data?.approved_products)
         ? approvalQ.data.approved_products
         : [];
+      const { data: whiteLabelRelease, error: releaseError } = await db.from("white_label_releases")
+        .select("draft,published,status,revision,app_origin,domain_challenge,domain_verified_at,published_at,review_requested_at,updated_at")
+        .eq("tenant_id", tenantId).maybeSingle();
+      if (releaseError) throw releaseError;
       const isApiPartner = approvedProducts.length === 1 && approvedProducts[0] === "api";
+      const whiteLabelResources = approvedProducts.includes("white_label")
+        ? await db.rpc("white_label_workspace_resources",{p_tenant_id:tenantId}) : {data:[],error:null};
+      if(whiteLabelResources.error) throw whiteLabelResources.error;
       return json(req, {
         success: true,
         organization: org,
@@ -439,6 +448,7 @@ Deno.serve(async (req) => {
         provisioned: true,
         tenant: tenantQ.data,
         approval: approvalQ.data,
+        white_label_release: whiteLabelRelease,
         api_keys: isApiPartner ? (keysQ.data || []) : [],
         ip_allowlist: isApiPartner ? (ipsQ.data || []) : [],
         webhooks: isApiPartner ? (hooksQ.data || []) : [],
@@ -449,7 +459,7 @@ Deno.serve(async (req) => {
         audit_events: auditQ.data || [],
         projects: projects || [],
         selected_project: selectedProject || null,
-        resources: resourcesQ.data || [],
+        resources: isApiPartner ? (resourcesQ.data || []) : (whiteLabelResources.data || []),
         settings: settingsQ.data || null,
         support_tickets: ticketsQ.data || [],
         controlling_people: peopleQ.data || [],
@@ -524,7 +534,7 @@ Deno.serve(async (req) => {
         const value = clean(body[field], 254);
         if (value && !emailOk(value)) return json(req, { success: false, error: `${field} must be a valid email` }, 400);
       }
-      const tenantIds = (projects || []).map((project: any) => String(project.tenant_id || "")).filter(Boolean);
+      const tenantIds = [...new Set([tenantId, ...(projects || []).map((project: any) => String(project.tenant_id || ""))].filter(Boolean))];
       const approvedTenantIds: string[] = [];
       for (const id of tenantIds) {
         const approval = await loadTenantApproval(id);
@@ -550,31 +560,16 @@ Deno.serve(async (req) => {
       const { data, error } = await db.from("partner_workspace_settings").upsert(payload, { onConflict: "organization_id" }).select("brand_name,primary_color,support_email,billing_email,payout_contact_email,email_sender_name,email_reply_to,two_factor_required,updated_at").single();
       if (error) throw error;
       for (const id of approvedTenantIds) {
-        const { data: tenantRow, error: tenantReadError } = await db.from("api_tenants").select("metadata").eq("id", id).single();
-        if (tenantReadError) throw tenantReadError;
-        const metadata = tenantRow?.metadata && typeof tenantRow.metadata === "object" ? tenantRow.metadata : {};
-        const oldWhiteLabel = (metadata as any).white_label && typeof (metadata as any).white_label === "object" ? (metadata as any).white_label : {};
-        const oldOnboarding = (metadata as any).onboarding && typeof (metadata as any).onboarding === "object" ? (metadata as any).onboarding : {};
-        const { error: publishError } = await db.from("api_tenants").update({
-          metadata: {
-            ...metadata,
-            onboarding: { ...oldOnboarding, white_label_signup_enabled: true },
-            white_label: {
-              ...oldWhiteLabel,
-              enabled: true,
-              brand_name: data.brand_name,
-              app_name: data.brand_name,
-              primary_color: data.primary_color,
-              support_email: data.support_email,
-              email_sender_name: data.email_sender_name,
-              email_reply_to: data.email_reply_to,
-              email_delivery_mode: emailDeliveryMode,
-            },
-          },
-        }).eq("id", id);
-        if (publishError) throw publishError;
+        const { data: oldRelease, error: readError } = await db.from("white_label_releases").select("draft").eq("tenant_id",id).maybeSingle();
+        if (readError) throw readError;
+        const draft = { ...(oldRelease?.draft || {}), brand_name: data.brand_name, primary_color: data.primary_color, support_email: data.support_email, email_sender_name: data.email_sender_name, email_reply_to: data.email_reply_to, email_delivery_mode: emailDeliveryMode };
+        for (const key of ["legal_name", "app_origin", "support_url", "privacy_url", "terms_url", "legal_version"]) {
+          if (Object.hasOwn(body,key)) draft[key] = clean(body[key], key.endsWith("url") ? 2048 : 200);
+        }
+        const { error: saveError } = await db.from("white_label_releases").upsert({ tenant_id:id, draft, updated_at:new Date().toISOString() }, {onConflict:"tenant_id"});
+        if (saveError) throw saveError;
       }
-      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "workspace_settings_updated", metadata: { published_tenant_count: approvedTenantIds.length } });
+      await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "workspace_settings_updated", metadata: { draft_tenant_count: approvedTenantIds.length } });
       return json(req, { success: true, settings: data });
     }
 
@@ -586,7 +581,7 @@ Deno.serve(async (req) => {
         return json(req, { success: false, error: "White-label product approval is required before uploading branding" }, 403);
       }
       const logo = decodeWhiteLabelLogo(body.file_data_url);
-      const path = `${tenantId}/logo.${logo.ext}`;
+      const path = `${tenantId}/logo-${crypto.randomUUID()}.${logo.ext}`;
       const { error: uploadError } = await db.storage.from(WHITE_LABEL_LOGO_BUCKET).upload(path, logo.bytes, {
         contentType: logo.contentType,
         upsert: true,
@@ -594,16 +589,33 @@ Deno.serve(async (req) => {
       });
       if (uploadError) throw uploadError;
       const { data: publicLogo } = db.storage.from(WHITE_LABEL_LOGO_BUCKET).getPublicUrl(path);
-      const { data: tenantRow, error: tenantReadError } = await db.from("api_tenants").select("metadata").eq("id", tenantId).single();
-      if (tenantReadError) throw tenantReadError;
-      const metadata = tenantRow?.metadata && typeof tenantRow.metadata === "object" ? tenantRow.metadata : {};
-      const oldWhiteLabel = (metadata as any).white_label && typeof (metadata as any).white_label === "object" ? (metadata as any).white_label : {};
-      const { error: metadataError } = await db.from("api_tenants").update({
-        metadata: { ...metadata, white_label: { ...oldWhiteLabel, enabled: true, logo_url: publicLogo.publicUrl } },
-      }).eq("id", tenantId);
-      if (metadataError) throw metadataError;
+      const ids = [...new Set([tenantId,...(projects || []).map((p:any) => p.tenant_id).filter(Boolean)])];
+      for (const id of ids) {
+        const product = await loadTenantApproval(id);
+        if (product?.status !== "approved" || !product.approved_products?.includes("white_label")) continue;
+        const { data: oldRelease, error: readError } = await db.from("white_label_releases").select("draft").eq("tenant_id",id).maybeSingle();
+        if (readError) throw readError;
+        const { error: saveError } = await db.from("white_label_releases").upsert({tenant_id:id,draft:{...(oldRelease?.draft||{}),logo_url:publicLogo.publicUrl},updated_at:new Date().toISOString()},{onConflict:"tenant_id"});
+        if (saveError) throw saveError;
+      }
       await db.from("partner_portal_audit_log").insert({ organization_id: org.id, actor_user_id: user.id, event_type: "white_label_logo_updated", metadata: { project_id: selectedProject?.id, tenant_id: tenantId, size_bytes: logo.bytes.byteLength } });
       return json(req, { success: true, logo_url: publicLogo.publicUrl });
+    }
+
+    if (action === "request_white_label_launch") {
+      requireOperationalTenant();
+      if (!canManage) return json(req,{success:false,error:"Owner or admin access required"},403);
+      const approval = await loadTenantApproval();
+      if (approval?.status !== "approved" || !approval.approved_products?.includes("white_label")) return json(req,{success:false,error:"White-label approval required"},403);
+      const {data:release,error} = await db.from("white_label_releases").select("draft,status").eq("tenant_id",tenantId).single();
+      if(error) throw error;
+      validateWhiteLabelBrand(release.draft);
+      // Keep a current live release serving customers while an update is reviewed.
+      const {error:saveError} = await db.from("white_label_releases").update({status:["live","pilot"].includes(release.status) ? release.status : "review",review_requested_at:new Date().toISOString(),updated_at:new Date().toISOString()}).eq("tenant_id",tenantId);
+      if(saveError) throw saveError;
+      const {error:auditError} = await db.from("partner_portal_audit_log").insert({organization_id:org.id,actor_user_id:user.id,event_type:"white_label_launch_requested",metadata:{tenant_id:tenantId}});
+      if(auditError) throw auditError;
+      return json(req,{success:true});
     }
 
     if (action === "invite_team_member") {
@@ -806,6 +818,7 @@ Deno.serve(async (req) => {
       return json(req, { success: true });
     }
 
+    if (!["owner","admin","compliance"].includes(member.role)) return json(req, {success:false,error:"Compliance, owner or admin access required"},403);
     if (!app) return json(req, { success: false, error: "No active application" }, 409);
     if (!editable.has(app.status)) return json(req, { success: false, error: "Application is read-only during review" }, 409);
     if (!editable.has(org.status)) return json(req, { success: false, error: "Partner organization is not accepting application changes" }, 409);

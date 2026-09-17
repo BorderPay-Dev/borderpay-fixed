@@ -1,3 +1,4 @@
+import { customerAppOrigin } from "../_shared/white-label-config.ts";
 // auth-reset-password — request a password reset link (LOGGED send path).
 //
 // Flow:
@@ -66,10 +67,13 @@ Deno.serve(async (req: Request) => {
     // Generate a GoTrue recovery link. For a non-existent email this returns an
     // error (or no token); we swallow it and return the SAME generic response
     // with NO email and NO email_log row.
+    const {data:profile,error:profileError} = await supabaseAdmin.from("user_profiles").select("id").ilike("email",email.replace(/[\\%_]/g, c=>"\\"+c)).maybeSingle();
+    if(profileError || !profile) return json(GENERIC_OK);
+    const recoveryOrigin = await customerAppOrigin(supabaseAdmin,profile.id,APP_URL);
     const { data, error } = await supabaseAdmin.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo: APP_URL },
+      options: { redirectTo: recoveryOrigin },
     });
 
     // Email the GoTrue-issued `action_link` VERBATIM. Clicking it hits GoTrue's
@@ -89,6 +93,8 @@ Deno.serve(async (req: Request) => {
       return json(GENERIC_OK);
     }
 
+    // GoTrue must not silently fall back to the shared app if allowlisting is missing.
+    if(new URL(resetUrl).searchParams.get("redirect_to") !== recoveryOrigin) return json(GENERIC_OK);
     const userId   = data.user?.id ?? null;
     const fullName = ((data.user?.user_metadata as Record<string, unknown> | undefined)
       ?.full_name as string | undefined) || email.split("@")[0];

@@ -1,3 +1,4 @@
+import { getCustomerBrand } from "../../utils/branding/brand";
 import { recordNativeReviewVisit } from '../../utils/reviews/appReview';
 /**
  * BorderPay Africa - Main App Container
@@ -1164,6 +1165,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'support':
+        if (getCustomerBrand()) return <main className="p-6 text-white"><button onClick={navigateBack}>Back</button><h1 className="text-xl my-6">{getCustomerBrand()!.brand.brand_name} support</h1><a href={getCustomerBrand()!.brand.support_url} target="_blank" rel="noopener noreferrer">Open support</a><p className="mt-4"><a href={`mailto:${getCustomerBrand()!.brand.support_email}`}>{getCustomerBrand()!.brand.support_email}</a></p></main>;
         return <SupportScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'team':

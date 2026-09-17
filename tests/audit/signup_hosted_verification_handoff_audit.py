@@ -13,7 +13,7 @@ def main() -> None:
             "individual signup must not enter the retired in-app identity/document flow"
         )
 
-    if "accountType: 'business'" not in SIGNUP:
+    if "accountType: getCustomerBrand()?.allowed_account_types[0] || 'business'" not in SIGNUP:
         failures.append("direct signup must default to a business account")
 
     if "Direct signup is Business-only" not in SIGNUP:

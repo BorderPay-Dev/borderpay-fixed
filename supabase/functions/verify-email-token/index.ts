@@ -1,3 +1,4 @@
+import { customerAppOrigin } from "../_shared/white-label-config.ts";
 // verify-email-token — consumes a signed email-verification token.
 //
 // On a successful verification:
@@ -93,10 +94,13 @@ Deno.serve(async (req: Request) => {
     }
   }
 
+  let customerOrigin: string;
+  try { customerOrigin = await customerAppOrigin(supabase, String(userId), APP_URL); }
+  catch { return json({success:false,code:"customer_app_unavailable",error:"Your email was verified. Please return to your customer app to sign in."},503); }
   const redirect =
-    purpose === "password_reset"     ? `${APP_URL}/reset-password?ok=1` :
-    purpose === "email_change"       ? `${APP_URL}/profile?email=updated` :
-                                       `${APP_URL}/auth/verified`;
+    purpose === "password_reset"     ? `${customerOrigin}/reset-password?ok=1` :
+    purpose === "email_change"       ? `${customerOrigin}/profile?email=updated` :
+                                       `${customerOrigin}/auth/verified`;
 
   return json({ success: true, data: { user_id: userId, purpose, redirect } });
 });

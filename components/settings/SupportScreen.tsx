@@ -1,3 +1,4 @@
+import { brandName, getCustomerBrand, openBrandLink } from "../../utils/branding/brand";
 /**
  * BorderPay Africa - Support Screen
  * User-only in-app support for borderpay-fixed.
@@ -224,7 +225,7 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
-        <p className={`text-center text-sm ${tc.textSecondary}`}>Open a ticket and chat with BorderPay support.</p>
+        <p className={`text-center text-sm ${tc.textSecondary}`}>Open a ticket and chat with {brandName()} support.</p>
 
         <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
           <section className={`${tc.card} min-w-0 overflow-hidden border ${tc.cardBorder} rounded-2xl p-4 sm:p-5`}>
@@ -364,12 +365,12 @@ export function SupportScreen({ onBack, onNavigate }: SupportScreenProps) {
           <p className={`text-xs ${tc.textSecondary}`}>See onboarding, verification, and transfer guidance.</p>
         </button>
         <a
-          href={BORDERPAY_WEBSITE}
+          href={getCustomerBrand()?.brand.support_url || BORDERPAY_WEBSITE}
           target="_blank"
           rel="noreferrer"
           className={`mt-3 block w-full rounded-2xl border ${tc.cardBorder} ${tc.card} px-4 py-3 text-left`}
         >
-          <p className={`text-sm font-medium ${tc.text}`}>BorderPay website</p>
+          <p className={`text-sm font-medium ${tc.text}`}>{brandName()} website</p>
           <p className={`text-xs ${tc.textSecondary}`}>Product, pricing, eligibility, and compliance information.</p>
         </a>
       </main>

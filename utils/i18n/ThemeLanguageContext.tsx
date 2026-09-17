@@ -1,3 +1,4 @@
+import { getCustomerBrand, brandName } from "../branding/brand";
 /**
  * BorderPay Africa - Theme & Language Context
  * Provides global theme (dark/light/auto) and language (en/fr/es/pt/sw) to entire app.
@@ -104,7 +105,8 @@ export function ThemeLanguageProvider({ children }: { children: React.ReactNode 
   }, []);
 
   const translate = useCallback(function handleTranslate(key: string) {
-    return getTranslation(langVal, key);
+    const copy = getTranslation(langVal, key);
+    return getCustomerBrand() ? copy.replace(/BorderPay Africa|BorderPay/g, () => brandName()) : copy;
   }, [langVal]);
 
   const contextValue: ThemeLanguageState = {

@@ -1,3 +1,4 @@
+import { supportEmail, openBrandLink } from "../../utils/branding/brand";
 /**
  * BorderPay Africa - Settings Screen
  * Account settings, security, preferences, and more
@@ -347,7 +348,7 @@ export function SettingsScreen({ userId, onBack, onLogout, onLock, onNavigate }:
     } else if (item.action === 'disable-2fa') {
       handleDisable2FA();
     } else if (item.action === 'email-support') {
-      window.open('mailto:support@borderpayafrica.com', '_blank');
+      if (!openBrandLink('support')) window.open(`mailto:${supportEmail()}`, '_blank');
     } else if (item.screen) {
       onNavigate(item.screen);
     }
