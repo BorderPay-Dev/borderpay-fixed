@@ -1,7 +1,7 @@
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
-backend = (root / "supabase/functions/bridge-operator-readonly/index.ts").read_text()
+backend = (root / "supabase/functions/bridge-operator-readonly/index.ts").read_text() + (root / "supabase/functions/bridge-operator-readonly/accounts.ts").read_text()
 frontend = (root / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
 
 checks = {
@@ -23,7 +23,7 @@ checks = {
     "transaction screen consumes live ledger": "BridgeTransferLedger" in frontend,
     "notifications consume live ledger": "pendingTransfers" in frontend,
     "chart consumes settled USD leg": "transactionUsdAmount" in frontend,
-    "funds received appears in chart": "'funds_received'" in frontend,
+    "unsettled funds do not count as completed chart volume": "new Set(['completed', 'payment_processed', 'settlement_complete'])" in frontend,
     "operator view refreshes live": "30_000" in frontend and "visibilitychange" in frontend,
     "silent refresh preserves rendered data": "load(true)" in frontend,
     "production API is hard gated": 'BRIDGE_BASE_URL !== "https://api.bridge.xyz"' in backend,
