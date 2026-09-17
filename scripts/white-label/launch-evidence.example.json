@@ -1,0 +1,17 @@
+{
+  "tenant_id": "REPLACE_WITH_TENANT_UUID",
+  "app_origin": "https://app.partner.example",
+  "vercel_team_id": "",
+  "vercel_project_id": "",
+  "deployment_id": "",
+  "commercial_approval": "",
+  "legal_approval": "",
+  "signup_verification": "",
+  "tenant_isolation": "",
+  "wallets_and_payments": "",
+  "sca_regional_boundaries": "",
+  "email_delivery": "",
+  "support": "",
+  "rollback": "",
+  "captcha_domain": ""
+}

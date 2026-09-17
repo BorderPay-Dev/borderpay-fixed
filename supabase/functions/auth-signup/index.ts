@@ -1,3 +1,5 @@
+import { prepareWhiteLabelSignup } from "../_shared/white-label-onboarding.ts";
+import { loadPublishedWhiteLabel } from "../_shared/white-label-config.ts";
 // auth-signup v92 — signup creates the app account before hosted verification.
 //
 // Differences vs v89:
@@ -141,11 +143,17 @@ interface SignupBody {
   captcha_token?:       string;
   referral_code?:       string;
   onboarding_token?:    string;
+  white_label_signup?: boolean;
+  white_label_revision?: number;
+  white_label_legal_version?: string;
+  accept_partner_terms?: boolean;
 }
 
 async function verifySignupCaptcha(
   token: string,
   remoteIp: string | null,
+  requestOrigin: string,
+  database: any,
 ): Promise<{ ok: true } | { ok: false; code: string; error: string }> {
   const enterpriseConfigured = Boolean(
     RECAPTCHA_ENTERPRISE_PROJECT_ID && RECAPTCHA_ENTERPRISE_API_KEY && RECAPTCHA_ENTERPRISE_SITE_KEY,
@@ -183,7 +191,11 @@ async function verifySignupCaptcha(
       if (!response.ok || assessment.tokenProperties?.valid !== true) {
         return { ok: false, code: "captcha_failed", error: "CAPTCHA validation failed." };
       }
-      if (action !== SIGNUP_CAPTCHA_ACTION || !RECAPTCHA_ALLOWED_HOSTNAMES.has(hostname)) {
+      let allowedHostname = RECAPTCHA_ALLOWED_HOSTNAMES.has(hostname);
+      if (!allowedHostname && requestOrigin === `https://${hostname}`) {
+        allowedHostname = Boolean(await loadPublishedWhiteLabel(database,{origin:requestOrigin}));
+      }
+      if (action !== SIGNUP_CAPTCHA_ACTION || !allowedHostname) {
         return { ok: false, code: "captcha_context_mismatch", error: "CAPTCHA validation failed." };
       }
       if (!Number.isFinite(score) || score < RECAPTCHA_MIN_SCORE) {
@@ -265,7 +277,12 @@ Deno.serve(async (req: Request) => {
             account_type, company_name, registration_number } = body;
     const referralCode = String(body.referral_code || "").trim().toUpperCase();
     const normalizedPhone = String(phone_number || "").trim();
-    const onboardingToken = String(body.onboarding_token || "").trim();
+    let onboardingToken = String(body.onboarding_token || "").trim();
+    const requestOrigin = req.headers.get("origin") || "";
+    const firstPartyOrigin = !requestOrigin || ["https://app.borderpayafrica.com","capacitor://localhost","http://localhost","https://localhost","http://localhost:3000","http://localhost:5173"].includes(requestOrigin) || /^https:\/\/borderpay-(recovery|fixed)(-[a-z0-9-]+)?\.vercel\.app$/.test(requestOrigin);
+    // A partner-domain request cannot opt out of immutable tenant attribution.
+    const managedWhiteLabel = body.white_label_signup === true || (!onboardingToken && !firstPartyOrigin);
+    let signupAppUrl = APP_URL;
     const normalizedCountryCode = String(country_code || "").trim().toUpperCase();
 
     if (!email || !password || !full_name) {
@@ -281,7 +298,7 @@ Deno.serve(async (req: Request) => {
       }, 400);
     }
     const normalizedAccountType: "individual" | "business" = parsedAccountType;
-    if (normalizedAccountType !== "business" && !onboardingToken) {
+    if (normalizedAccountType !== "business" && !onboardingToken && !managedWhiteLabel) {
       return json({
         success: false,
         code: "business_signup_only",
@@ -358,16 +375,17 @@ Deno.serve(async (req: Request) => {
     if (legacyNativeFallback) {
       console.warn(JSON.stringify({ tag: "legacy_native_signup_attestation_fallback" }));
     }
+    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+
     const captchaCheck = appCheckValid || legacyNativeFallback
       ? { ok: true } as const
-      : await verifySignupCaptcha(captchaToken, requestIp);
+      : await verifySignupCaptcha(captchaToken, requestIp, req.headers.get("origin") || "", supabaseAdmin);
     if (!captchaCheck.ok) {
       return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
     }
 
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
 
     // Run the IP/email gate before policy lookups and detailed validation.
     // This keeps malformed and rotating-email floods out of business logic.
@@ -394,6 +412,15 @@ Deno.serve(async (req: Request) => {
           headers: { ...CORS, "Content-Type": "application/json", "Retry-After": String(Math.max(1, retryAfter)) },
         },
       );
+    }
+
+    if (managedWhiteLabel) {
+      if (onboardingToken) return json({success:false,error:"Use one signup authorization method."},400);
+      try {
+        const prepared = await prepareWhiteLabelSignup(supabaseAdmin, req.headers.get("origin") || "", body, ONBOARDING_TOKEN_SIGNING_SECRET);
+        onboardingToken = prepared.token;
+        signupAppUrl = prepared.release.brand.app_origin;
+      } catch (error) { return json({success:false,code:"white_label_signup_unavailable",error:(error as Error).message},403); }
     }
 
     // Tenant ownership and partner identity are derived exclusively from the
@@ -437,6 +464,17 @@ Deno.serve(async (req: Request) => {
         .maybeSingle();
       if (tenantError || !tenant?.is_active) {
         return json({ success: false, code: "tenant_not_authorized", error: "This signup link is no longer active." }, 403);
+      }
+      if (partnerClaims.onboarding_channel === "white_label") {
+        const release = await loadPublishedWhiteLabel(supabaseAdmin,{tenantId:partnerClaims.tenant_id});
+        if (!release || req.headers.get("origin") !== release.brand.app_origin) return json({success:false,error:"Open this signup link on the partner customer app."},403);
+        if (release.status === "pilot" && !release.pilot_emails?.includes(email.trim().toLowerCase())) return json({success:false,error:"This customer app is accepting invited pilot users only."},403);
+        signupAppUrl = release.brand.app_origin;
+        if (!managedWhiteLabel) {
+          if(body.accept_partner_terms !== true || body.white_label_revision !== release.revision || body.white_label_legal_version !== release.brand.legal_version) return json({success:false,error:"Review the current partner Terms and Privacy Policy."},403);
+          const {error:legalError} = await supabaseAdmin.from("white_label_legal_acceptances").upsert({authorization_id:partnerClaims.jti,tenant_id:release.tenant_id,release_revision:release.revision,legal_version:release.brand.legal_version,terms_url:release.brand.terms_url,privacy_url:release.brand.privacy_url,app_origin:release.brand.app_origin},{onConflict:"authorization_id",ignoreDuplicates:true});
+          if(legalError) return json({success:false,error:"Unable to record legal acceptance."},503);
+        }
       }
       const currentPolicy = resolveTenantOnboardingPolicy(tenant.metadata);
       if (!allowedAccountTypes(currentPolicy, partnerClaims.onboarding_channel).includes(normalizedAccountType)) {
@@ -747,7 +785,7 @@ Deno.serve(async (req: Request) => {
     if (originError) {
       return rollbackAuthUser(`account origin provenance insert failed: ${originError.message}`);
     }
-    const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData)}&purpose=${tokenPurpose}`;
+    const verifyUrl = `${signupAppUrl}/auth/verify?token=${encodeURIComponent(tokenData)}&purpose=${tokenPurpose}`;
 
     // ── Send the verification email via the LOGGED `send-email` path ──
     //

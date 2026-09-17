@@ -258,3 +258,6 @@ verify_jwt = true
 
 [functions.flutterwave-webhook]
 verify_jwt = false
+
+[functions.white-label-config]
+verify_jwt = false

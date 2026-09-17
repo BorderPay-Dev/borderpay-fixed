@@ -27,9 +27,11 @@
     "packageJson": {
       "dependencies": [
         "npm:@aparajita/capacitor-biometric-auth@10",
+        "npm:@capacitor-community/in-app-review@8",
         "npm:@capacitor-firebase/app-check@8.5.1",
         "npm:@capacitor-firebase/messaging@^8.3.0",
         "npm:@capacitor/android@^8.4.1",
+        "npm:@capacitor/app-launcher@^8.0.1",
         "npm:@capacitor/browser@^8.0.4",
         "npm:@capacitor/cli@^8.4.1",
         "npm:@capacitor/core@^8.4.1",
