@@ -62,7 +62,7 @@ checks = {
         "externalAccountsAvailable",
         "destination_external_account_id",
     )),
-    "transactions are read": 'path: "/v0/transfers"' in WORKER,
+    "transactions are read": 'path: `/v0/customers/${encodeURIComponent(customerId)}/transfers`' in WORKER,
     "snapshot declares its live production source": 'source: "bridge_production_live"' in WORKER,
     "operator treasury rejects non-production provider configuration": (
         'BRIDGE_BASE_URL !== "https://api.bridge.xyz"' in WORKER
