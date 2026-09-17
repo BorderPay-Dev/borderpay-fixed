@@ -55,3 +55,16 @@ GBP value; fixtures do not establish a specific production bank sort code.
 - Do not promote the PR preview to production: its main-branch baseline also
   contains unrelated affiliate UI changes. Publish the isolated release artifact
   when the quota is available.
+
+## Native testing follow-up
+
+TestFlight 1.0.9 (66) requested from isolated source `48abb86c4ec4af2b583093fc05e79884a9e2b765`,
+workflow run https://github.com/BorderPay-Dev/borderpay-fixed/actions/runs/35261539806.
+This source retains the previous native review feature and changes only treasury
+frontend files relative to the previous uploaded iOS source.
+
+Native treasury preflight required a backend correction: explicitly allow
+`capacitor://localhost` (iOS) and `https://localhost` (Android). Arbitrary origins
+are not reflected; confirmed authentication and the operator registry remain
+mandatory. Added two origin-contract tests and verified live preflight headers.
+The origin correction deploys independently of the native binary.
