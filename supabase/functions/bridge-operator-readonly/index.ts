@@ -1,3 +1,4 @@
+import { bridgeMidmarketRate, treasuryUsdTotal, treasuryBalanceHistory } from "./valuation.ts";
 import { normalizeTreasuryActivity, mergeTreasuryActivity, readActivityPages } from "./activity.ts";
 import { treasuryCors as cors } from "./cors.ts";
 import { virtualAccountRows } from "./accounts.ts";
@@ -157,14 +158,14 @@ async function listTransfers(customerId: string) {
   return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "transfer")) };
 }
 
-async function listVirtualAccountHistory(customerId: string, virtualAccountId: string) {
+async function listVirtualAccountHistory(customerId: string, virtualAccountId: string, sourceCurrency: string) {
   const result = await readActivityPages((cursor) => bridgeFetch({
     method: "GET",
     path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${encodeURIComponent(virtualAccountId)}/history`,
     query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) },
     retryable: true,
   }), customerId);
-  return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "virtual_account")) };
+  return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "virtual_account", { sourceCurrency })) };
 }
 
 
@@ -639,7 +640,7 @@ Deno.serve(async (req: Request) => {
       ? await Promise.all(virtualAccounts.map(async (account) => {
         const virtualAccountId = text(account?.virtual_account_id);
         if (!virtualAccountId) return { available: false, complete: false, rows: [] as any[] };
-        return listVirtualAccountHistory(customerId, virtualAccountId)
+        return listVirtualAccountHistory(customerId, virtualAccountId, text(account.currency).toUpperCase())
           .then((result) => ({ available: true, ...result }))
           .catch((error) => {
             console.warn(
@@ -731,10 +732,52 @@ Deno.serve(async (req: Request) => {
         balances: balances.map((balance: Record<string, unknown>) => ({
           currency: text(balance.currency).toUpperCase(),
           chain: text(balance.chain).toLowerCase(),
-          balance: amount(balance.balance),
+          balance: /^\d+(\.\d+)?$/.test(text(balance.balance)) ? text(balance.balance) : "",
         })),
       };
     }));
+
+    // Optional valuation/history reads must not hold the entire snapshot open.
+    async function boundedRead<T>(work: Promise<T>, fallback: T, milliseconds: number): Promise<T> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([work, new Promise<T>(resolve => {
+          timer = setTimeout(() => resolve(fallback), milliseconds);
+        })]);
+      } finally { if (timer !== undefined) clearTimeout(timer); }
+    }
+    const uniqueWalletIds = [...new Set(walletRows.map(wallet => wallet.id))];
+    const [eurRateResponse, usdtRateResponse, ...walletHistoryResults] = await Promise.all([
+      boundedRead(bridgeFetch({ method: "GET", path: "/v0/exchange_rates", query: { from: "eur", to: "usd" }, retryable: false }).catch(() => ({ ok: false, data: null })), { ok: false, data: null }, 4_000),
+      boundedRead(bridgeFetch({ method: "GET", path: "/v0/exchange_rates", query: { from: "usdt", to: "usd" }, retryable: false }).catch(() => ({ ok: false, data: null })), { ok: false, data: null }, 4_000),
+      ...uniqueWalletIds.map(walletId => boundedRead((async () => {
+        try {
+          const history = await readActivityPages(cursor => bridgeFetch({
+            method: "GET", path: `/v0/wallets/${encodeURIComponent(walletId)}/history`,
+            query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) }, retryable: false,
+          }), customerId);
+          if (history.rows.some(row => row.bridge_wallet_id !== walletId)) throw new Error("Wallet history owner mismatch");
+          return history;
+        } catch { return { complete: false, rows: [] as any[] }; }
+      })(), { complete: false, rows: [] as any[] }, 8_000)),
+    ]);
+    const valuationTime = Date.now();
+    const eurResponse = eurRateResponse as { ok: boolean; data: unknown };
+    const usdtResponse = usdtRateResponse as { ok: boolean; data: unknown };
+    const rates = {
+      USDC: 1,
+      EURC: eurResponse.ok ? bridgeMidmarketRate(eurResponse.data, valuationTime) : null,
+      USDT: usdtResponse.ok ? bridgeMidmarketRate(usdtResponse.data, valuationTime) : null,
+    };
+    const historyResults = walletHistoryResults as Array<{ complete: boolean; rows: any[] }>;
+    const totalUsd = treasuryUsdTotal(walletRows, walletResult.available, rates);
+    const balanceHistory = treasuryBalanceHistory(walletRows, historyResults.flatMap(result => result.rows),
+      walletResult.available && historyResults.every(result => result.complete), rates, valuationTime);
+    const treasuryValuation = {
+      currency: "USD", total: totalUsd === null ? null : totalUsd.toFixed(2),
+      rates, as_of: new Date(valuationTime).toISOString(), source: "bridge_wallets_and_midmarket_rates",
+      history: balanceHistory,
+    };
 
     await db.from("operator_bridge_read_audit").insert({
       auth_user_id: user.id,
@@ -777,6 +820,7 @@ Deno.serve(async (req: Request) => {
             )
           ),
         external_accounts_available: externalAccountResult.available,
+        treasury_valuation: treasuryValuation,
         transactions: transfers,
         activity_history_complete: activityHistoryComplete,
         transfers_available: transferResult.available ||
