@@ -3,7 +3,7 @@
 Run from the repository root:
 
 ```sh
-deno test tests/treasury/values.test.ts tests/treasury/request.test.ts
+deno test tests/treasury/values.test.ts tests/treasury/request.test.ts tests/treasury/cors.test.ts
 deno check supabase/functions/bridge-operator-readonly/index.ts
 npm run type-check
 python3 tests/audit/operator_bridge_readonly_app_audit.py
