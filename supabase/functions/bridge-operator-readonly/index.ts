@@ -1,3 +1,4 @@
+import { normalizeTreasuryActivity, mergeTreasuryActivity, readActivityPages } from "./activity.ts";
 import { treasuryCors as cors } from "./cors.ts";
 import { virtualAccountRows } from "./accounts.ts";
 import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
@@ -146,92 +147,24 @@ function externalAccountRow(row: any) {
   };
 }
 
-async function listTransfers(customerId: string): Promise<any[]> {
-  const response = await bridgeFetch({
+async function listTransfers(customerId: string) {
+  const result = await readActivityPages((cursor) => bridgeFetch({
     method: "GET",
-    path: "/v0/transfers",
-    query: { customer_id: customerId, limit: 100 },
+    path: `/v0/customers/${encodeURIComponent(customerId)}/transfers`,
+    query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) },
     retryable: true,
-  });
-  if (!response.ok) {
-    throw new Error(`Bridge transfer read failed (${response.status})`);
-  }
-  return listRows(response.data).slice(0, 100).map((row) =>
-    normalizeTreasuryActivity(row, "transfer")
-  );
+  }), customerId);
+  return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "transfer")) };
 }
 
-function normalizeTreasuryActivity(
-  row: any,
-  activityKind: "transfer" | "virtual_account",
-) {
-  return {
-    id: text(row?.id),
-    state: text(row?.state || row?.status).toLowerCase(),
-    activity_kind: activityKind,
-    activity_type: text(row?.type || row?.activity_type).toLowerCase(),
-    reference: text(row?.reference || row?.deposit_id || row?.tracking_id),
-    source: {
-      currency: text(
-        row?.source?.currency || row?.source_currency || row?.currency,
-      ).toUpperCase(),
-      payment_rail: text(
-        row?.source?.payment_rail || row?.source?.rail || row?.payment_rail,
-      )
-        .toLowerCase(),
-      amount: amount(row?.source?.amount || row?.source_amount || row?.amount),
-    },
-    destination: {
-      currency: text(row?.destination?.currency || row?.destination_currency)
-        .toUpperCase(),
-      payment_rail: text(
-        row?.destination?.payment_rail || row?.destination?.rail,
-      ).toLowerCase(),
-      amount: amount(
-        row?.destination?.amount || row?.destination_amount || row?.subtotal,
-      ),
-    },
-    created_at: text(row?.created_at),
-    updated_at: text(row?.updated_at),
-  };
-}
-
-async function listVirtualAccountHistory(
-  customerId: string,
-  virtualAccountId: string,
-): Promise<any[]> {
-  const response = await bridgeFetch({
+async function listVirtualAccountHistory(customerId: string, virtualAccountId: string) {
+  const result = await readActivityPages((cursor) => bridgeFetch({
     method: "GET",
-    path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${
-      encodeURIComponent(virtualAccountId)
-    }/history`,
-    query: { limit: 100 },
+    path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${encodeURIComponent(virtualAccountId)}/history`,
+    query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) },
     retryable: true,
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Virtual-account history read failed (${response.status}) for ${virtualAccountId}`,
-    );
-  }
-  return listRows(response.data).slice(0, 100).map((row) =>
-    normalizeTreasuryActivity(row, "virtual_account")
-  );
-}
-
-function mergeTreasuryActivity(...groups: any[][]): any[] {
-  const rows = new Map<string, any>();
-  for (const row of groups.flat()) {
-    if (!row?.id) continue;
-    const existing = rows.get(row.id);
-    const existingTime =
-      Date.parse(existing?.updated_at || existing?.created_at || "") || 0;
-    const nextTime = Date.parse(row.updated_at || row.created_at || "") || 0;
-    if (!existing || nextTime >= existingTime) rows.set(row.id, row);
-  }
-  return [...rows.values()].sort((a, b) =>
-    (Date.parse(b.updated_at || b.created_at || "") || 0) -
-    (Date.parse(a.updated_at || a.created_at || "") || 0)
-  ).slice(0, 300);
+  }), customerId);
+  return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "virtual_account")) };
 }
 
 
@@ -691,13 +624,13 @@ Deno.serve(async (req: Request) => {
           return { available: false, rows: [] as any[] };
         }),
       listTransfers(customerId)
-        .then((rows) => ({ available: true, rows }))
+        .then((result) => ({ available: true, ...result }))
         .catch((error) => {
           console.warn("bridge_operator_transfers_unavailable", {
             bridge_customer_id: customerId,
             error: error instanceof Error ? error.message : "unknown",
           });
-          return { available: false, rows: [] as any[] };
+          return { available: false, complete: false, rows: [] as any[] };
         }),
     ]);
     const wallets = walletResult.rows;
@@ -705,9 +638,9 @@ Deno.serve(async (req: Request) => {
     const virtualAccountActivityResults = virtualAccountResult.available
       ? await Promise.all(virtualAccounts.map(async (account) => {
         const virtualAccountId = text(account?.virtual_account_id);
-        if (!virtualAccountId) return { available: false, rows: [] as any[] };
+        if (!virtualAccountId) return { available: false, complete: false, rows: [] as any[] };
         return listVirtualAccountHistory(customerId, virtualAccountId)
-          .then((rows) => ({ available: true, rows }))
+          .then((result) => ({ available: true, ...result }))
           .catch((error) => {
             console.warn(
               "bridge_operator_virtual_account_history_unavailable",
@@ -717,7 +650,7 @@ Deno.serve(async (req: Request) => {
                 error: error instanceof Error ? error.message : "unknown",
               },
             );
-            return { available: false, rows: [] as any[] };
+            return { available: false, complete: false, rows: [] as any[] };
           });
       }))
       : [];
@@ -728,6 +661,8 @@ Deno.serve(async (req: Request) => {
       transferResult.rows,
       ...virtualAccountActivityResults.map((result) => result.rows),
     );
+    const activityHistoryComplete = transferResult.available && transferResult.complete &&
+      virtualAccountResult.available && virtualAccountActivityResults.every(result => result.available && result.complete);
     const selectedWallets = TREASURY_ASSETS.flatMap((asset) => {
       const matches = wallets.filter((wallet) =>
         text(wallet.chain).toLowerCase() === asset.chain
@@ -843,6 +778,7 @@ Deno.serve(async (req: Request) => {
           ),
         external_accounts_available: externalAccountResult.available,
         transactions: transfers,
+        activity_history_complete: activityHistoryComplete,
         transfers_available: transferResult.available ||
           virtualAccountHistoryAvailable,
         virtual_account_history_available: virtualAccountHistoryAvailable,

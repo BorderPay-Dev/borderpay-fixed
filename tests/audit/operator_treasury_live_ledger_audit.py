@@ -2,10 +2,12 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 backend = (root / "supabase/functions/bridge-operator-readonly/index.ts").read_text() + (root / "supabase/functions/bridge-operator-readonly/accounts.ts").read_text()
+backend += (root / "supabase/functions/bridge-operator-readonly/activity.ts").read_text()
 frontend = (root / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
 
+frontend += (root / "components/business/treasury/activity.ts").read_text()
 checks = {
-    "live transfer list": 'path: "/v0/transfers"' in backend,
+    "live transfer list": 'path: `/v0/customers/${encodeURIComponent(customerId)}/transfers`' in backend,
     "live virtual-account history": (
         "/virtual_accounts/${" in backend
         and "encodeURIComponent(virtualAccountId)" in backend
@@ -22,7 +24,7 @@ checks = {
     "recent activity consumes live ledger": "recentTransactions" in frontend,
     "transaction screen consumes live ledger": "BridgeTransferLedger" in frontend,
     "notifications consume live ledger": "pendingTransfers" in frontend,
-    "chart consumes settled USD leg": "transactionUsdAmount" in frontend,
+    "chart retains selected currency units": "activityAmount" in frontend and "leg.currency.toUpperCase() !== currency" in frontend,
     "unsettled funds do not count as completed chart volume": "new Set(['completed', 'payment_processed', 'settlement_complete'])" in frontend,
     "operator view refreshes live": "30_000" in frontend and "visibilitychange" in frontend,
     "silent refresh preserves rendered data": "load(true)" in frontend,

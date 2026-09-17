@@ -4,6 +4,7 @@ import {
   Landmark, LogOut, ReceiptText, RefreshCw, Send, WalletCards, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { TreasuryActivityChart } from './treasury/TreasuryVolume';
 import { treasuryAPI } from './treasury/api';
 import { walletBalance, formatSortCode, isPending } from './treasury/values';
 import './treasury/treasury.css';
@@ -66,6 +67,7 @@ type OperatorSnapshot = {
   transactions: BridgeTransfer[];
   transfers_available: boolean;
   virtual_account_history_available?: boolean;
+  activity_history_complete?: boolean;
   wallets_available: boolean;
   virtual_accounts_available: boolean;
   profile_available: boolean;
@@ -272,7 +274,7 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
             <section className="treasury-business-balance" aria-label="Treasury liquidity"><div className="treasury-balance-glow"/><div className="treasury-balance-heading"><p>Total balance · USD stablecoins</p><button aria-label={balanceVisible ? 'Hide treasury balance' : 'Show treasury balance'} aria-pressed={balanceVisible} onClick={() => setBalanceVisible(value => !value)}>{balanceVisible ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div><p className="treasury-total">{balanceVisible ? usdTotal === null ? 'Unavailable' : <><span className="treasury-dollar">$</span>{new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(Number(usdTotal.toFixed(2).split('.')[0]))}<span className="treasury-cents">.{usdTotal.toFixed(2).split('.')[1]}</span></> : '••••••'}</p><p className="treasury-balance-note">USDC + USDT · EURC shown separately</p></section>
             <section className="treasury-account-section" aria-label="Treasury accounts"><div className="treasury-section-heading"><h2>Accounts</h2><button onClick={() => navigate('wallets')}>See all</button></div><div className="treasury-account-strip">{assetRows.map(wallet => <button key={`${wallet.id}:${wallet.currency}`} className="treasury-account-tile" onClick={() => navigate('wallets')}><AssetMark currency={wallet.currency}/><span>{wallet.currency === 'USDC' ? 'USD Coin' : wallet.currency === 'USDT' ? 'Tether USD' : 'Euro Coin'}</span><strong>{balanceVisible ? wallet.balance === null ? 'Unavailable' : formatMoney(wallet.balance, wallet.currency === 'EURC' ? 'EUR' : 'USD') : '••••••'}</strong><small>{wallet.currency} · {title(wallet.chain)}</small></button>)}{snapshot.virtual_accounts.map(account => <button key={account.id} className="treasury-account-tile" onClick={() => navigate('receive')}><RailMark currency={account.currency}/><span>{account.currency === 'USD' ? 'US Dollar' : account.currency === 'EUR' ? 'Euro' : 'British Pound'}</span><small>Receiving account</small></button>)}</div>{!snapshot.wallets_available && <EmptyState text="Wallet balances are temporarily unavailable. Refresh to try again."/>}</section>
             <section className="treasury-quick-actions" aria-label="Treasury quick actions">{[{view:'send' as const,label:'Send',Icon:ArrowUpRight},{view:'receive' as const,label:'Receive',Icon:ArrowDownLeft},{view:'wallets' as const,label:'Wallets',Icon:WalletCards},{view:'transactions' as const,label:'Activity',Icon:ReceiptText}].map(({view,label,Icon})=><button key={view} className={view === 'send' ? 'treasury-action-primary' : ''} onClick={()=>navigate(view)}><Icon size={21}/><span>{label}</span></button>)}</section>
-            {snapshot.transfers_available ? <TreasuryActivityChart transactions={snapshot.transactions}/> : <EmptyState text="Transaction volume is temporarily unavailable."/>}
+            {snapshot.transfers_available ? <TreasuryActivityChart transactions={snapshot.transactions} complete={snapshot.activity_history_complete} refreshedAt={snapshot.refreshed_at} renderLedger={rows => <BridgeTransferLedger transactions={rows} completedOnly/>}/> : <EmptyState text="Transaction volume is temporarily unavailable."/>}
             <section className="treasury-recent"><div className="treasury-section-heading"><h2>Recent activity</h2><button onClick={() => navigate('transactions')}>See all</button></div><TransferCards transactions={recentTransactions} available={snapshot.transfers_available}/></section>
           </>}
           {snapshot && !notificationsOpen && activeView === 'wallets' && <WalletsView wallets={snapshot.wallets}/>}
@@ -303,14 +305,14 @@ function ReceiveView({ accounts, available }: { accounts: OperatorSnapshot['virt
 }
 
 function TransactionsView({ snapshot }: { snapshot: OperatorSnapshot }) {
-  return <section aria-label="Treasury activity"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live transfers for the BorderPay Africa master operating account only." />{snapshot.transfers_available ? <BridgeTransferLedger transactions={snapshot.transactions} /> : <div className="mt-6"><EmptyState text="Live transfer data is temporarily unavailable. Wallets and receiving accounts remain accessible." /></div>}</section>;
+  return <section aria-label="Treasury activity"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live transfers for the BorderPay Africa master operating account only." />{snapshot.transfers_available ? <><TreasuryActivityChart transactions={snapshot.transactions} complete={snapshot.activity_history_complete} refreshedAt={snapshot.refreshed_at} renderLedger={rows => <BridgeTransferLedger transactions={rows} completedOnly/>}/><h2 className="mt-8 font-semibold">All activity</h2><BridgeTransferLedger transactions={snapshot.transactions} /></> : <div className="mt-6"><EmptyState text="Live transfer data is temporarily unavailable. Wallets and receiving accounts remain accessible." /></div>}</section>;
 }
 
-function BridgeTransferLedger({ transactions }: { transactions: OperatorSnapshot['transactions'] }) {
+function BridgeTransferLedger({ transactions, completedOnly = false }: { transactions: OperatorSnapshot['transactions']; completedOnly?: boolean }) {
   const [query, setQuery] = useState('');
-  const [status, setStatus] = useState('all');
+  const [status, setStatus] = useState(completedOnly ? 'completed' : 'all');
   const filtered = transactions.filter(row => (!query || `${row.id} ${row.reference || ''} ${row.source.currency} ${row.destination.currency} ${row.source.payment_rail} ${row.destination.payment_rail}`.toLowerCase().includes(query.toLowerCase())) && (status === 'all' || (status === 'pending' ? isPending(row.state) : status === 'completed' ? ['completed', 'payment_processed', 'settlement_complete'].includes(row.state) : ['failed', 'refunded', 'returned', 'canceled', 'cancelled'].includes(row.state))));
-  return <section className="treasury-panel mt-6"><div className="treasury-ledger-filters"><label><Search size={17}/><input aria-label="Search treasury activity" placeholder="Search reference, asset or rail" value={query} onChange={event => setQuery(event.target.value)}/></label><select aria-label="Filter activity status" value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option><option value="pending">In progress</option><option value="completed">Completed</option><option value="failed">Failed or returned</option></select><span>{filtered.length} records</span></div><div className="treasury-table-scroll"><table className="treasury-ledger"><thead><tr><th>Transfer / reference</th><th>Source amount</th><th>Destination amount</th><th>Status</th><th>Last update</th></tr></thead><tbody>{filtered.map(row => <tr key={row.id}><td><strong>{title(row.source.payment_rail)} → {title(row.destination.payment_rail)}</strong><button onClick={() => copy(row.id, 'Transfer reference')} aria-label={`Copy transfer ${row.id}`}>{shortId(row.id)} <Copy size={12}/></button></td><td>{formatMoney(row.source.amount, row.source.currency)}</td><td>{formatMoney(row.destination.amount, row.destination.currency)}</td><td><StatusPill status={row.state}/></td><td>{formatDate(row.updated_at || row.created_at)}</td></tr>)}</tbody></table></div>{!filtered.length && <EmptyState text={transactions.length ? 'No activity matches these filters.' : 'No master-account activity returned.'}/>}<p className="mt-4 text-xs text-zinc-500">Latest returned records. Source and destination amounts retain their original currencies.</p></section>;
+  return <section className="treasury-panel mt-6"><div className="treasury-ledger-filters"><label><Search size={17}/><input aria-label="Search treasury activity" placeholder="Search reference, asset or rail" value={query} onChange={event => setQuery(event.target.value)}/></label><select disabled={completedOnly} aria-label="Filter activity status" value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option><option value="pending">In progress</option><option value="completed">Completed</option><option value="failed">Failed or returned</option></select><span>{filtered.length} records</span></div><div className="treasury-table-scroll"><table className="treasury-ledger"><thead><tr><th>Transfer / reference</th><th>Source amount</th><th>Destination amount</th><th>Status</th><th>Last update</th></tr></thead><tbody>{filtered.map(row => <tr key={row.id}><td><strong>{title(row.source.payment_rail)} → {title(row.destination.payment_rail)}</strong><button onClick={() => copy(row.id, 'Transfer reference')} aria-label={`Copy transfer ${row.id}`}>{shortId(row.id)} <Copy size={12}/></button></td><td>{formatMoney(row.source.amount, row.source.currency)}</td><td>{formatMoney(row.destination.amount, row.destination.currency)}</td><td><StatusPill status={row.state}/></td><td>{formatDate(row.updated_at || row.created_at)}</td></tr>)}</tbody></table></div>{!filtered.length && <EmptyState text={transactions.length ? 'No activity matches these filters.' : 'No master-account activity returned.'}/>}<p className="mt-4 text-xs text-zinc-500">Latest returned records. Source and destination amounts retain their original currencies.</p></section>;
 }
 
 type SendViewProps = {
@@ -410,56 +412,6 @@ function AssetMark({ currency }: { currency: string }) {
 function RailMark({ currency }: { currency: string }) {
   const region = currency === 'USD' ? 'US' : currency === 'EUR' ? 'EU' : currency === 'GBP' ? 'GB' : currency.slice(0, 2);
   return <span aria-label={`${region} payment rail`} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-bold tracking-wider text-white">{region}</span>;
-}
-
-function transactionUsdAmount(transaction: BridgeTransfer): number | null {
-  const candidates = [transaction.destination, transaction.source];
-  for (const candidate of candidates) {
-    if (!['USD', 'USDC', 'USDT'].includes(String(candidate.currency || '').toUpperCase())) continue;
-    const value = Number(candidate.amount);
-    if (candidate.amount !== '' && Number.isFinite(value)) return value;
-  }
-  return null;
-}
-
-function TreasuryActivityChart({ transactions }: { transactions: BridgeTransfer[] }) {
-  const ranges = [
-    { id: '1W', days: 7 },
-    { id: '1M', days: 30 },
-    { id: '3M', days: 90 },
-    { id: '6M', days: 180 },
-    { id: '1Y', days: 365 },
-  ] as const;
-  const [range, setRange] = useState<(typeof ranges)[number]['id']>('1M');
-  const dayCount = ranges.find((option) => option.id === range)?.days || 30;
-  const points = useMemo(() => {
-    const completed = new Set(['completed', 'payment_processed', 'settlement_complete']);
-    const days = Array.from({ length: dayCount }, (_, index) => {
-      const date = new Date();
-      date.setHours(0, 0, 0, 0);
-      date.setDate(date.getDate() - (dayCount - 1 - index));
-      return { key: date.toISOString().slice(0, 10), date, value: 0 };
-    });
-    const byDay = new Map(days.map((day) => [day.key, day]));
-    for (const transaction of transactions) {
-      const usdAmount = transactionUsdAmount(transaction);
-      if (!completed.has(transaction.state) || usdAmount === null) continue;
-      const occurredAt = new Date(transaction.created_at);
-      if (Number.isNaN(occurredAt.getTime())) continue;
-      const key = occurredAt.toISOString().slice(0, 10);
-      const day = byDay.get(key);
-      if (day) day.value += usdAmount;
-    }
-    return days;
-  }, [dayCount, transactions]);
-  const max = Math.max(...points.map((point) => point.value), 1);
-  const coordinates = points.map((point, index) => ({ x: (index / Math.max(points.length - 1, 1)) * 760, y: 190 - (point.value / max) * 160, ...point }));
-  const line = coordinates.map((point, index) => `${index ? 'L' : 'M'} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
-  const area = `${line} L 760 200 L 0 200 Z`;
-  const total = points.reduce((sum, point) => sum + point.value, 0);
-  const summary = `Completed USD transaction volume for the selected ${range} period is ${formatMoney(total, 'USD')}.`;
-
-  return <section className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-4 sm:p-6" aria-labelledby="treasury-chart-title"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#C7FF00]">Treasury</p><h2 id="treasury-chart-title" className="mt-1 text-base font-semibold">Transaction volume</h2><p className="mt-1 text-xs text-zinc-500">USD-denominated legs in the returned activity</p></div><div className="grid w-full grid-cols-5 rounded-xl border border-white/[0.08] bg-black/20 p-1 sm:w-auto" aria-label="Chart period">{ranges.map((option) => <button key={option.id} type="button" aria-pressed={range === option.id} onClick={() => setRange(option.id)} className={`min-h-10 min-w-0 rounded-lg px-2 text-xs font-semibold sm:px-3 ${FOCUS} ${range === option.id ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>{option.id}</button>)}</div></div><div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1"><p className="min-w-0 break-all font-mono text-lg font-semibold tabular-nums sm:text-xl">{formatMoney(total, 'USD')}</p><span className="text-[11px] text-zinc-500">completed volume · returned records only</span></div><div className="mt-4 overflow-hidden rounded-2xl border border-white/[0.06] bg-black/20 p-2 sm:p-3"><svg viewBox="0 0 760 220" role="img" aria-label={summary} className="aspect-[19/7] min-h-36 w-full max-h-56" preserveAspectRatio="xMidYMid meet"><defs><linearGradient id="treasury-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#C7FF00" stopOpacity="0.28" /><stop offset="100%" stopColor="#C7FF00" stopOpacity="0" /></linearGradient></defs>{[40, 80, 120, 160, 200].map((y) => <line key={y} x1="0" x2="760" y1={y} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth="1" />)}<path d={area} fill="url(#treasury-area)" /><path d={line} fill="none" stroke="#C7FF00" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />{coordinates.filter((_, index) => index === 0 || index === coordinates.length - 1 || _.value === max).map((point) => <circle key={point.key} cx={point.x} cy={point.y} r="4" fill="#07090D" stroke="#C7FF00" strokeWidth="3"><title>{`${point.date.toLocaleDateString()}: ${formatMoney(point.value, 'USD')}`}</title></circle>)}</svg><div className="flex justify-between text-[11px] text-zinc-600"><span>{points[0]?.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><span>{points[points.length - 1]?.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span></div></div><p className="sr-only">{summary}</p></section>;
 }
 
 function StatusPill({ status }: { status: string }) {
