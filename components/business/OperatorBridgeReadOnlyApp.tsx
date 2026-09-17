@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { TreasuryActivityChart } from './treasury/TreasuryVolume';
+import { TreasuryValuation, valuationTotal } from './treasury/balance';
 import { treasuryAPI } from './treasury/api';
 import { walletBalance, formatSortCode, isPending } from './treasury/values';
 import './treasury/treasury.css';
@@ -43,6 +44,7 @@ type TreasuryExternalAccount = {
 };
 
 type OperatorSnapshot = {
+  treasury_valuation?: TreasuryValuation;
   source: 'bridge_production_live';
   access_mode: 'read_only';
   account: { name: string; customer_id: string; status: string };
@@ -185,8 +187,7 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   }, []);
 
   const assetRows = useMemo(() => (snapshot?.wallets || []).map((wallet) => ({ ...wallet, balance: walletBalance(wallet) })), [snapshot]);
-  const usdRows = assetRows.filter(row => ['USDC', 'USDT'].includes(row.currency));
-  const usdTotal = snapshot?.wallets_available && usdRows.length && usdRows.every(row => row.balance !== null) ? usdRows.reduce((sum, row) => sum + row.balance!, 0) : null;
+  const usdTotal = valuationTotal(snapshot?.treasury_valuation);
   const pendingTransfers = snapshot?.transactions.filter((transaction) => isPending(transaction.state)).length || 0;
   const recentTransactions = snapshot?.transactions.slice(0, 6) || [];
   const sendSources = useMemo(() => assetRows.filter((wallet) => wallet.balance !== null).map((wallet) => ({
@@ -271,10 +272,10 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
           {loading && !snapshot && <LoadingState />}
           {notificationsOpen && <NotificationPanel snapshot={snapshot} onClose={() => setNotificationsOpen(false)} />}
           {snapshot && !notificationsOpen && activeView === 'home' && <>
-            <section className="treasury-business-balance" aria-label="Treasury liquidity"><div className="treasury-balance-glow"/><div className="treasury-balance-heading"><p>Total balance · USD stablecoins</p><button aria-label={balanceVisible ? 'Hide treasury balance' : 'Show treasury balance'} aria-pressed={balanceVisible} onClick={() => setBalanceVisible(value => !value)}>{balanceVisible ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div><p className="treasury-total">{balanceVisible ? usdTotal === null ? 'Unavailable' : <><span className="treasury-dollar">$</span>{new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(Number(usdTotal.toFixed(2).split('.')[0]))}<span className="treasury-cents">.{usdTotal.toFixed(2).split('.')[1]}</span></> : '••••••'}</p><p className="treasury-balance-note">USDC + USDT · EURC shown separately</p></section>
+            <section className="treasury-business-balance" aria-label="Treasury liquidity"><div className="treasury-balance-glow"/><div className="treasury-balance-heading"><p>Total balance · USD</p><button aria-label={balanceVisible ? 'Hide treasury balance' : 'Show treasury balance'} aria-pressed={balanceVisible} onClick={() => setBalanceVisible(value => !value)}>{balanceVisible ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div><p className="treasury-total">{balanceVisible ? usdTotal === null ? 'Unavailable' : <><span className="treasury-dollar">$</span>{new Intl.NumberFormat(undefined,{maximumFractionDigits:0}).format(Number(usdTotal.toFixed(2).split('.')[0]))}<span className="treasury-cents">.{usdTotal.toFixed(2).split('.')[1]}</span></> : '••••••'}</p><p className="treasury-balance-note">All wallets · USD equivalent</p></section>
             <section className="treasury-account-section" aria-label="Treasury accounts"><div className="treasury-section-heading"><h2>Accounts</h2><button onClick={() => navigate('wallets')}>See all</button></div><div className="treasury-account-strip">{assetRows.map(wallet => <button key={`${wallet.id}:${wallet.currency}`} className="treasury-account-tile" onClick={() => navigate('wallets')}><AssetMark currency={wallet.currency}/><span>{wallet.currency === 'USDC' ? 'USD Coin' : wallet.currency === 'USDT' ? 'Tether USD' : 'Euro Coin'}</span><strong>{balanceVisible ? wallet.balance === null ? 'Unavailable' : formatMoney(wallet.balance, wallet.currency === 'EURC' ? 'EUR' : 'USD') : '••••••'}</strong><small>{wallet.currency} · {title(wallet.chain)}</small></button>)}{snapshot.virtual_accounts.map(account => <button key={account.id} className="treasury-account-tile" onClick={() => navigate('receive')}><RailMark currency={account.currency}/><span>{account.currency === 'USD' ? 'US Dollar' : account.currency === 'EUR' ? 'Euro' : 'British Pound'}</span><small>Receiving account</small></button>)}</div>{!snapshot.wallets_available && <EmptyState text="Wallet balances are temporarily unavailable. Refresh to try again."/>}</section>
             <section className="treasury-quick-actions" aria-label="Treasury quick actions">{[{view:'send' as const,label:'Send',Icon:ArrowUpRight},{view:'receive' as const,label:'Receive',Icon:ArrowDownLeft},{view:'wallets' as const,label:'Wallets',Icon:WalletCards},{view:'transactions' as const,label:'Activity',Icon:ReceiptText}].map(({view,label,Icon})=><button key={view} className={view === 'send' ? 'treasury-action-primary' : ''} onClick={()=>navigate(view)}><Icon size={21}/><span>{label}</span></button>)}</section>
-            {snapshot.transfers_available ? <TreasuryActivityChart transactions={snapshot.transactions} complete={snapshot.activity_history_complete} refreshedAt={snapshot.refreshed_at} renderLedger={rows => <BridgeTransferLedger transactions={rows} completedOnly/>}/> : <EmptyState text="Transaction volume is temporarily unavailable."/>}
+            <TreasuryActivityChart valuation={snapshot.treasury_valuation} balanceVisible={balanceVisible}/>
             <section className="treasury-recent"><div className="treasury-section-heading"><h2>Recent activity</h2><button onClick={() => navigate('transactions')}>See all</button></div><TransferCards transactions={recentTransactions} available={snapshot.transfers_available}/></section>
           </>}
           {snapshot && !notificationsOpen && activeView === 'wallets' && <WalletsView wallets={snapshot.wallets}/>}
@@ -305,7 +306,7 @@ function ReceiveView({ accounts, available }: { accounts: OperatorSnapshot['virt
 }
 
 function TransactionsView({ snapshot }: { snapshot: OperatorSnapshot }) {
-  return <section aria-label="Treasury activity"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live transfers for the BorderPay Africa master operating account only." />{snapshot.transfers_available ? <><TreasuryActivityChart transactions={snapshot.transactions} complete={snapshot.activity_history_complete} refreshedAt={snapshot.refreshed_at} renderLedger={rows => <BridgeTransferLedger transactions={rows} completedOnly/>}/><h2 className="mt-8 font-semibold">All activity</h2><BridgeTransferLedger transactions={snapshot.transactions} /></> : <div className="mt-6"><EmptyState text="Live transfer data is temporarily unavailable. Wallets and receiving accounts remain accessible." /></div>}</section>;
+  return <section aria-label="Treasury activity"><PageHeading eyebrow="Operations ledger" title="Transactions" description="Live transfers for the BorderPay Africa master operating account only." />{snapshot.transfers_available ? <BridgeTransferLedger transactions={snapshot.transactions} /> : <div className="mt-6"><EmptyState text="Live transfer data is temporarily unavailable. Wallets and receiving accounts remain accessible." /></div>}</section>;
 }
 
 function BridgeTransferLedger({ transactions, completedOnly = false }: { transactions: OperatorSnapshot['transactions']; completedOnly?: boolean }) {
@@ -410,8 +411,13 @@ function AssetMark({ currency }: { currency: string }) {
 }
 
 function RailMark({ currency }: { currency: string }) {
-  const region = currency === 'USD' ? 'US' : currency === 'EUR' ? 'EU' : currency === 'GBP' ? 'GB' : currency.slice(0, 2);
-  return <span aria-label={`${region} payment rail`} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-bold tracking-wider text-white">{region}</span>;
+  const flags: Record<string, { flag: string; label: string }> = {
+    USD: { flag: '🇺🇸', label: 'United States dollar' },
+    EUR: { flag: '🇪🇺', label: 'Euro' },
+    GBP: { flag: '🇬🇧', label: 'British pound' },
+  };
+  const region = flags[currency];
+  return <span role="img" aria-label={region ? `${region.label} flag` : `${currency} account`} className="inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/[0.04] text-[30px] leading-none">{region?.flag || currency.slice(0, 2)}</span>;
 }
 
 function StatusPill({ status }: { status: string }) {

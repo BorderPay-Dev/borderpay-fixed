@@ -30,7 +30,7 @@ await page.getByRole('navigation',{name:'Treasury navigation',exact:true}).getBy
 await page.evaluate(()=>{window.failRead=true;window.readDelay=100;});
 await page.getByRole('button',{name:'Refresh treasury data',exact:true}).click();
 await page.getByText('Fixture refresh unavailable',{exact:true}).waitFor();
-await page.getByText('131,900.70',{exact:false}).waitFor();
+await page.locator('.treasury-total').filter({hasText:'140,939.90'}).waitFor();
 await page.evaluate(()=>window.failRead=false);
 await page.getByRole('button',{name:'Try again',exact:true}).click();
 await page.getByText('Fixture refresh unavailable',{exact:true}).waitFor({state:'hidden'});

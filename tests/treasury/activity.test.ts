@@ -21,7 +21,7 @@ Deno.test('UTC windows include boundary, exclude future and invalid dates, calcu
  eq(series.days.length,7); eq(series.total,20.5); eq(series.previous,20.5); eq(series.rows.length,1); eq(series.days[0].count,1);
 });
 Deno.test('VA lifecycle collapses by deposit, normalizes type, refunds remove completed volume', () => {
- const event=(id:string,type:string,created_at:string)=>normalizeTreasuryActivity({id,type,deposit_id:'deposit',currency:'eur',amount:'999',receipt:{initial_amount:'100'},created_at},'virtual_account');
+ const event=(id:string,type:string,created_at:string)=>normalizeTreasuryActivity({id,type,deposit_id:'deposit',currency:'eur',amount:'999',receipt:{initial_amount:'100'},created_at},'virtual_account',{sourceCurrency:'EUR'});
  const received=event('1','funds_received','2026-09-16T01:00:00Z');
  const processed=event('2','payment_processed','2026-09-17T01:00:00Z');
  eq(mergeTreasuryActivity([received,processed]).length,1);
@@ -45,4 +45,11 @@ Deno.test('wrong owner or invalid list cannot be used as treasury history', asyn
  for (const data of [{data:[{id:'1',on_behalf_of:'other'}]}, {data:[{id:'2',customer_id:'other'}]}, {message:'unexpected'}]) {
   let rejected=false; try {await readActivityPages(async()=>({ok:true,data}),'owner');}catch{rejected=true;} eq(rejected,true);
  }
+});
+
+Deno.test('processed SEPA receipt keeps original EUR separate from credited USDC',()=>{
+ const row=normalizeTreasuryActivity({id:'receipt',type:'payment_processed',currency:'usdc',amount:'24800.26',receipt:{initial_amount:'21620.14',final_amount:'24800.26'}},'virtual_account',{sourceCurrency:'EUR'});
+ eq(row.source.currency,'EUR'); eq(row.source.amount,'21620.14'); eq(row.destination.currency,'USDC'); eq(row.destination.amount,'24800.26');
+ const unknown=normalizeTreasuryActivity({id:'receipt',type:'payment_processed',currency:'usdc',receipt:{initial_amount:'21620.14'}},'virtual_account');
+ eq(unknown.source.currency,'');
 });
