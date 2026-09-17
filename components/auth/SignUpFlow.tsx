@@ -736,7 +736,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         <div className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4">
           <BorderPayLogo size={28} color="#000000" />
         </div>
-        <h1 className="text-2xl font-bold mb-1">Create {formData.accountType === 'business' ? 'Business' : 'Personal'} Account</h1>
+        <h1 className="text-2xl font-bold mb-1">{formData.accountType === 'business' ? 'Create Business Account' : 'Create Personal Account'}</h1>
         <p className="text-sm text-gray-400">Join {brandName()}</p>
       </div>
 

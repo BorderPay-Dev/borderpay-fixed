@@ -8,14 +8,15 @@ url_guard = (ROOT / "supabase/functions/_shared/bridge-verification-url.ts").rea
 app = (ROOT / "App.tsx").read_text()
 vercel = (ROOT / "vercel.json").read_text()
 checks = {
-    "new and existing customers receive the current provider URL": "verifiedHostedLink(APP_URL, link.link_url)" in kyb and "link_url: clientLinkUrl" in kyb,
+    "callback origin is resolved from recorded customer ownership": "customerAppOrigin(supa, user.id, APP_URL)" in kyb,
+    "new and existing customers receive the current provider URL": "verifiedHostedLink(customerOrigin, link.link_url)" in kyb and "link_url: clientLinkUrl" in kyb,
     "only the approved identity host is accepted": 'const PERSONA_HOST = "bridge.withpersona.com"' in url_guard and "host.endsWith(`.${PERSONA_HOST}`)" in url_guard,
     "KYB URL is not wrapped in an intermediate launcher": "verification_launch_tokens" not in kyb and "/verification/continue?token=" not in kyb,
     "client receives the validated provider URL": "return target.toString()" in url_guard,
     "launcher Edge function is absent": not (ROOT / "supabase/functions/verification-launch/index.ts").exists(),
     "launcher SPA page is absent": not (ROOT / "components/verification/VerificationContinuePage.tsx").exists(),
     "launcher route is absent": "VerificationContinuePage" not in app and "'/verification/continue'" not in app,
-    "native callback cannot use an internal WebView origin": "verificationRedirectUrl(APP_URL, body.redirect_url)" in kyb and "capacitor://localhost" in url_guard,
+    "native callback cannot use an internal WebView origin": "verificationRedirectUrl(customerOrigin, body.redirect_url)" in kyb and "capacitor://localhost" in url_guard,
     "external callback is pinned to the exact BorderPay HTTPS origin": 'parsed.protocol === "https:"' in url_guard and "parsed.origin === app.origin" in url_guard,
     "cached provider links have their native callback replaced": 'target.searchParams.set("redirect-uri", verificationRedirectUrl(appUrl))' in url_guard,
     "normalized KYB URL is persisted instead of the provider raw URL": "bridge_kyb_link_url: clientLinkUrl" in kyb,

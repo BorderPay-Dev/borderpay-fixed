@@ -13,7 +13,9 @@ country_endpoint = (ROOT / "supabase/functions/bridge-supported-countries/index.
 assert "const steps: SignUpStep[] = ['personal', 'confirm-email'];" in signup
 assert "const totalSteps = steps.length;" in signup
 assert "Create Business Account" in signup
-assert "accountType: 'business'" in signup
+assert "accountType: getCustomerBrand()?.allowed_account_types[0] || 'business'" in signup
+assert "{getCustomerBrand() && <label" in signup  # account-type selector is partner-only
+assert '!onboardingToken && !managedWhiteLabel' in auth_signup
 assert "I'm signing up as" not in signup
 assert "> Individual" not in signup
 assert "Country of Incorporation" in signup

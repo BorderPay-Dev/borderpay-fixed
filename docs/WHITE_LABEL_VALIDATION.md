@@ -11,6 +11,8 @@ Passed locally:
 - Signup abuse and hosted verification handoff source guards.
 - Partner branding, email and team-operation source guards.
 - EEA SCA challenge guard (18/18) and transfer regression guard.
+- Full predeploy gate passed. The complete payout/wallet/verification runtime suite passed (105 tests),
+  including direct and partner KYC/KYB return domains.
 - SQL migration executed inside a rolled-back production-schema transaction. The private resource RPC
   returned no direct customer records for a tenant with no white-label owners. Authenticated callers
   lacked RPC execution permission; anonymous callers lacked draft-release read permission.
