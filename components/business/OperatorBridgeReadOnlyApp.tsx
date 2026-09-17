@@ -1,10 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight, Bell, CheckCircle2, Copy, Eye, EyeOff, Home,
+  ArrowUpRight, ArrowDownLeft, Search, ShieldCheck, ArrowRight, Bell, CheckCircle2, Copy, Eye, EyeOff, Home,
   Landmark, LogOut, ReceiptText, RefreshCw, Send, WalletCards, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { backendAPI } from '../../utils/api/backendAPI';
+import { treasuryAPI } from './treasury/api';
+import { walletBalance, formatSortCode, isPending } from './treasury/values';
+import './treasury/treasury.css';
 
 type WalletRow = {
   id: string;
@@ -54,6 +56,7 @@ type OperatorSnapshot = {
     bank_address: string;
     account_number: string;
     routing_number: string;
+    sort_code?: string;
     iban: string;
     bic: string;
     created_at: string;
@@ -72,11 +75,11 @@ type OperatorSnapshot = {
 type TreasuryView = 'home' | 'wallets' | 'receive' | 'transactions' | 'send';
 
 const TREASURY_NAV = [
-  { id: 'home', label: 'Home', icon: Home },
-  { id: 'wallets', label: 'Wallet', icon: WalletCards },
+  { id: 'home', label: 'Overview', icon: Home },
+  { id: 'wallets', label: 'Balances', icon: WalletCards },
   { id: 'receive', label: 'Accounts', icon: Landmark },
-  { id: 'transactions', label: 'Transactions', icon: ReceiptText },
-  { id: 'send', label: 'Send', icon: Send },
+  { id: 'transactions', label: 'Activity', icon: ReceiptText },
+  { id: 'send', label: 'Transfer', icon: Send },
 ] satisfies Array<{ id: TreasuryView; label: string; icon: React.ComponentType<{ className?: string; 'aria-hidden'?: boolean | 'true' | 'false' }> }>;
 
 const FOCUS = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C7FF00] focus-visible:ring-offset-2 focus-visible:ring-offset-[#07090D]';
@@ -97,11 +100,11 @@ function formatDate(value: string): string {
 
 function formatMoney(value: string | number, currency: string): string {
   const number = Number(value);
-  if (!Number.isFinite(number)) return `— ${currency}`;
+  if (value === '' || !Number.isFinite(number)) return `— ${currency}`;
   try {
     return new Intl.NumberFormat(undefined, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(number);
   } catch {
-    return `${number.toFixed(2)} ${currency}`;
+    return `${new Intl.NumberFormat(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(number)} ${currency}`;
   }
 }
 
@@ -111,11 +114,6 @@ function copy(value: string, label: string) {
     () => toast.success(`${label} copied`),
     () => toast.error(`Could not copy ${label.toLowerCase()}`),
   );
-}
-
-function walletBalance(wallet: WalletRow): number | null {
-  if (!wallet.balance_available) return null;
-  return wallet.balances.reduce((sum, row) => sum + (Number(row.balance) || 0), 0);
 }
 
 export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }) {
@@ -135,18 +133,26 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   const [transferResult, setTransferResult] = useState<{ transfer_id: string; state: string } | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    if (!silent) setError('');
-    const response = await backendAPI.bridge.operator.getSnapshot();
-    if (!response.success || !response.data) {
-      if (!silent) setError(response.error || 'Treasury data is temporarily unavailable.');
-      if (!silent) setLoading(false);
-      return;
-    }
-    setSnapshot(response.data as OperatorSnapshot);
-    setLoading(false);
+  const reading = useRef(false);
+  const submitting = useRef(false);
+  const mounted = useRef(true);
+  const load = useCallback(async (_silent = false) => {
+    if (reading.current) return;
+    reading.current = true;
+    setLoading(true);
+    try {
+      const response = await treasuryAPI.getSnapshot<OperatorSnapshot>();
+      if (!mounted.current) return;
+      if (!response.success || !response.data || response.data.source !== 'bridge_production_live') {
+        setError(response.error || 'Treasury data is temporarily unavailable.');
+        return;
+      }
+      setSnapshot(response.data);
+      setError('');
+    } catch { if (mounted.current) setError('Treasury refresh failed. Try again.'); }
+    finally { reading.current = false; if (mounted.current) setLoading(false); }
   }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -175,8 +181,9 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   }, []);
 
   const assetRows = useMemo(() => (snapshot?.wallets || []).map((wallet) => ({ ...wallet, balance: walletBalance(wallet) })), [snapshot]);
-  const usdTotal = useMemo(() => assetRows.filter((row) => row.currency === 'USDC' || row.currency === 'USDT').reduce((sum, row) => sum + (row.balance || 0), 0), [assetRows]);
-  const pendingTransfers = snapshot?.transactions.filter((transaction) => !['completed', 'payment_processed', 'approved'].includes(transaction.state)).length || 0;
+  const usdRows = assetRows.filter(row => ['USDC', 'USDT'].includes(row.currency));
+  const usdTotal = snapshot?.wallets_available && usdRows.length && usdRows.every(row => row.balance !== null) ? usdRows.reduce((sum, row) => sum + row.balance!, 0) : null;
+  const pendingTransfers = snapshot?.transactions.filter((transaction) => isPending(transaction.state)).length || 0;
   const recentTransactions = snapshot?.transactions.slice(0, 6) || [];
   const sendSources = useMemo(() => assetRows.filter((wallet) => wallet.balance !== null).map((wallet) => ({
     key: `${wallet.id}:${wallet.currency}`,
@@ -205,13 +212,14 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   };
 
   const submitTransfer = async () => {
-    if (!selectedSource) return;
+    if (!selectedSource || submitting.current) return;
     if (destinationType === 'bank' && !selectedExternalAccount) {
       toast.error('Choose an active external bank account.');
       return;
     }
+    submitting.current = true;
     setSendStep('submitting');
-    const response = await backendAPI.bridge.operator.send({
+    const response = await treasuryAPI.send({
       source_wallet_id: selectedSource.wallet_id,
       currency: selectedSource.currency,
       destination_rail: destinationType === 'bank' ? (selectedExternalAccount?.rail || '') : selectedSource.chain,
@@ -222,6 +230,8 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
       idempotency_key: idempotencyKey,
       pin,
     });
+    submitting.current = false;
+    setPin('');
     if (!response.success || !response.data) {
       setSendStep('pin');
       setPin('');
@@ -234,104 +244,58 @@ export function OperatorBridgeReadOnlyApp({ onLogout }: { onLogout: () => void }
   };
 
   return (
-    <div className="bp-treasury-shell bp-treasury-scroll fixed inset-0 h-dvh overflow-y-auto overflow-x-hidden bg-[#07090D] text-white">
-      <style>{`
-        html.bp-treasury-active,body.bp-treasury-active{height:100%;overflow:hidden!important;overscroll-behavior:none}
-        html.bp-treasury-active,body.bp-treasury-active,#root{scrollbar-width:none;-ms-overflow-style:none}
-        html.bp-treasury-active::-webkit-scrollbar,body.bp-treasury-active::-webkit-scrollbar,#root::-webkit-scrollbar{display:none;width:0;height:0}
-        .bp-treasury-shell{height:100vh;height:100svh;height:100dvh;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:100%;scrollbar-gutter:auto}
-        .bp-treasury-scroll{scrollbar-width:none;-ms-overflow-style:none}
-        .bp-treasury-scroll::-webkit-scrollbar{display:none;width:0;height:0}
-        .bp-treasury-header{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
-        .bp-treasury-main{padding-left:max(1rem,env(safe-area-inset-left,0px));padding-right:max(1rem,env(safe-area-inset-right,0px))}
-        .bp-treasury-bottom-nav{padding-right:max(.5rem,env(safe-area-inset-right,0px));padding-bottom:max(.5rem,env(safe-area-inset-bottom,0px));padding-left:max(.5rem,env(safe-area-inset-left,0px))}
-        @media (min-width:640px){.bp-treasury-main{padding-left:max(1.5rem,env(safe-area-inset-left,0px));padding-right:max(1.5rem,env(safe-area-inset-right,0px))}}
-        @media (min-width:1024px){.bp-treasury-main{padding-left:max(2.5rem,env(safe-area-inset-left,0px));padding-right:max(2.5rem,env(safe-area-inset-right,0px))}}
-        @media (display-mode:standalone){.bp-treasury-shell{height:100dvh}.bp-treasury-header{touch-action:pan-y}.bp-treasury-bottom-nav{touch-action:manipulation}}
-        @media (max-width:359px){.bp-treasury-brand-copy{display:none}.bp-treasury-nav-label{font-size:9px}.bp-treasury-card{border-radius:1.25rem}}
-        @media (orientation:landscape) and (max-height:540px) and (max-width:900px){.bp-treasury-header-inner{min-height:3.5rem}.bp-treasury-bottom-nav button{min-height:2.75rem}.bp-treasury-bottom-nav .bp-treasury-nav-label{display:none}.bp-treasury-main{padding-top:1rem}}
-        @media (prefers-reduced-motion:reduce){.bp-treasury-shell *{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
-      `}</style>
-      <a href="#treasury-main" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-3 focus:text-black">Skip to treasury content</a>
-
-      <header className="bp-treasury-header sticky top-0 z-30 border-b border-white/[0.07] bg-[#07090D]/95 backdrop-blur-xl">
-        <div className="bp-treasury-header-inner mx-auto flex min-h-16 max-w-[1440px] items-center justify-between gap-2 px-3 sm:min-h-20 sm:gap-4 sm:px-6 lg:px-10">
-          <div className="flex min-w-0 items-center gap-3">
-            <img src="/borderpay-mark.svg" alt="BorderPay" className="h-9 w-9 shrink-0 sm:h-10 sm:w-10" />
-            <div className="bp-treasury-brand-copy min-w-0"><p className="truncate text-sm font-semibold tracking-tight sm:text-base">BorderPay Africa Treasury</p><p className="hidden truncate text-xs text-zinc-500 sm:block">Master operating account</p></div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button type="button" aria-label="Open treasury notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)} className={`relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white ${FOCUS}`}>
-              <Bell className="h-5 w-5" aria-hidden="true" />
-              {pendingTransfers > 0 && <span className="absolute right-1.5 top-1.5 min-w-4 rounded-full bg-[#C7FF00] px-1 text-center text-[10px] font-bold leading-4 text-black">{Math.min(pendingTransfers, 99)}</span>}
-            </button>
-            <button type="button" onClick={() => void load()} disabled={loading} className={`inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-50 ${FOCUS}`} aria-label="Refresh treasury data"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" /></button>
-            <button type="button" onClick={onLogout} className={`inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/10 px-3 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/[0.06] hover:text-white ${FOCUS}`}><LogOut className="h-4 w-4" aria-hidden="true" /><span className="hidden sm:inline">Sign out</span></button>
-          </div>
-        </div>
-        <nav aria-label="Treasury navigation" className="mx-auto hidden max-w-[1440px] grid-cols-5 gap-2 px-6 pb-4 md:grid lg:px-10">
-          {TREASURY_NAV.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={activeView === id ? 'page' : undefined} onClick={() => navigate(id)} className={`inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl px-3 text-sm font-semibold transition-colors ${FOCUS} ${activeView === id ? 'bg-[#C7FF00] text-black' : 'text-zinc-400 hover:bg-white/[0.05] hover:text-white'}`}><Icon className="h-4 w-4" aria-hidden="true" />{label}</button>)}
-        </nav>
-      </header>
-
-      <main id="treasury-main" className="bp-treasury-main mx-auto w-full max-w-[1440px] space-y-5 py-5 pb-[calc(6.5rem+env(safe-area-inset-bottom,0px))] sm:space-y-6 sm:py-6 md:pb-10 lg:py-10">
-        {notificationsOpen && <NotificationPanel snapshot={snapshot} onClose={() => setNotificationsOpen(false)} />}
-        {loading && !snapshot && <LoadingState />}
-        {error && <ErrorState error={error} onRetry={() => void load()} />}
-
-        {snapshot && !notificationsOpen && activeView === 'home' && (
-          <div className="space-y-6">
-            <section className="bp-treasury-card overflow-hidden rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-8" aria-labelledby="treasury-balance-title">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-zinc-400">Total balance</p>
-                  <div id="treasury-balance-title" className="mt-3 flex items-baseline gap-3" aria-live="polite">
-                    <p className="min-w-0 break-all font-mono text-[clamp(2rem,10vw,3.75rem)] font-semibold leading-none tracking-[-0.04em] tabular-nums">{balanceVisible ? formatMoney(usdTotal, 'USD') : '••••••'}</p>
-                    <span className="text-sm font-semibold text-zinc-500">USD</span>
-                  </div>
-                </div>
-                <button type="button" onClick={() => setBalanceVisible((visible) => !visible)} aria-label={balanceVisible ? 'Hide treasury balance' : 'Show treasury balance'} aria-pressed={balanceVisible} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 text-zinc-300 hover:bg-white/[0.06] hover:text-white ${FOCUS}`}>
-                  {balanceVisible ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
-                </button>
-              </div>
-            </section>
-
-            <TreasuryActivityChart transactions={snapshot.transactions} />
-
-            <QuickActions onNavigate={navigate} />
-
-            <section className="bp-treasury-card rounded-3xl border border-white/[0.08] bg-[#0D1016] p-4 sm:p-6" aria-labelledby="recent-activity-title">
-              <div className="flex items-end justify-between gap-4"><div><h2 id="recent-activity-title" className="text-lg font-semibold">Recent activity</h2><p className="mt-1 text-sm text-zinc-500">Live master-account transfers</p></div><button type="button" onClick={() => navigate('transactions')} className={`min-h-11 text-sm font-semibold text-[#C7FF00] ${FOCUS}`}>View all</button></div>
-              <TransferCards transactions={recentTransactions} available={snapshot.transfers_available} />
-            </section>
-          </div>
-        )}
-
-        {snapshot && !notificationsOpen && activeView === 'wallets' && <WalletsView wallets={snapshot.wallets} />}
-        {snapshot && !notificationsOpen && activeView === 'receive' && <ReceiveView accounts={snapshot.virtual_accounts} available={snapshot.virtual_accounts_available} />}
-        {snapshot && !notificationsOpen && activeView === 'transactions' && <TransactionsView snapshot={snapshot} />}
+    <div className="bp-treasury-shell">
+      <a href="#treasury-main" className="treasury-skip">Skip to treasury content</a>
+      <aside className="treasury-sidebar">
+        <div className="treasury-brand"><img src="/logo-color.png" alt="BorderPay" /><div>BorderPay<span>TREASURY</span></div></div>
+        <div className="treasury-workspace"><span className="treasury-avatar">BA</span><div>Operating master<small>BorderPay Africa</small></div><ShieldCheck size={16} /></div>
+        <p className="treasury-nav-caption">WORKSPACE</p>
+        <nav aria-label="Treasury navigation">{TREASURY_NAV.map(({id, label, icon: Icon}) => <button key={id} aria-current={activeView === id ? 'page' : undefined} onClick={() => navigate(id)}><Icon size={19}/><span>{label}</span>{activeView === id && <span className="treasury-nav-dot"/>}</button>)}</nav>
+        <div className="treasury-sidebar-footer"><ShieldCheck size={18}/><p>Private workspace<small>founder@borderpayafrica.com</small></p></div>
+        <button className="treasury-signout" onClick={onLogout}><LogOut size={18}/>Sign out</button>
+      </aside>
+      <div className="treasury-workarea">
+        <header className="treasury-topbar"><div><span className="treasury-breadcrumb">Treasury /</span> {TREASURY_NAV.find(item => item.id === activeView)?.label}</div><div className="treasury-top-actions"><span className="treasury-private"><ShieldCheck size={14}/> Founder access</span><button aria-label="Open treasury notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}><Bell size={19}/>{pendingTransfers > 0 && <i>{pendingTransfers}</i>}</button><button aria-label="Sign out" className="treasury-mobile-signout" onClick={onLogout}><LogOut size={18}/></button><span className="treasury-avatar">BA</span></div></header>
+        <main id="treasury-main" className="bp-treasury-main" tabIndex={-1}>
+          <div className="treasury-page-top"><div><p className="treasury-eyebrow">BORDERPAY AFRICA · OPERATING MASTER</p><h1>{activeView === 'home' ? 'Treasury overview' : activeView === 'wallets' ? 'Asset balances' : activeView === 'receive' ? 'Receiving accounts' : activeView === 'transactions' ? 'Account activity' : 'Move money'}</h1><p className="treasury-subtitle">{snapshot?.account.name || 'Your private financial workspace'}</p></div><button className="treasury-button treasury-secondary" disabled={loading} onClick={() => void load()}><RefreshCw size={16} className={loading ? 'animate-spin' : ''}/>{loading ? 'Refreshing' : 'Refresh data'}</button></div>
+          <div className="treasury-freshness" role="status"><span className={error ? 'treasury-dot stale' : snapshot ? 'treasury-dot' : 'treasury-dot stale'}/>{error ? 'Refresh interrupted · last available snapshot' : snapshot ? `Last refreshed ${formatDate(snapshot.refreshed_at)}` : 'Connecting to your treasury'}{snapshot && <span>Source: Bridge</span>}</div>
+          {error && <ErrorState error={error} onRetry={() => void load()} />}
+          {loading && !snapshot && <LoadingState />}
+          {notificationsOpen && <NotificationPanel snapshot={snapshot} onClose={() => setNotificationsOpen(false)} />}
+          {snapshot && !notificationsOpen && activeView === 'home' && <>
+            <div className="treasury-overview-grid">
+              <section className="treasury-liquidity" aria-label="Treasury liquidity"><div className="treasury-section-label">USD STABLECOINS<button aria-label={balanceVisible ? 'Hide treasury balance' : 'Show treasury balance'} aria-pressed={balanceVisible} onClick={() => setBalanceVisible(value => !value)}>{balanceVisible ? <EyeOff size={18}/> : <Eye size={18}/>}</button></div><p className="treasury-total">{balanceVisible ? usdTotal === null ? 'Unavailable' : new Intl.NumberFormat(undefined, {maximumFractionDigits: 2, minimumFractionDigits: 2}).format(usdTotal) : '••••••'}<span>USDC + USDT</span></p><p className="treasury-balance-note">Token units held · EURC shown separately below</p><div className="treasury-hero-actions"><button className="treasury-button treasury-primary" onClick={() => navigate('send')}>Make a transfer<ArrowUpRight size={17}/></button><button className="treasury-button treasury-secondary" onClick={() => navigate('receive')}><ArrowDownLeft size={17}/>Receive funds</button></div></section>
+              <section className="treasury-position"><p className="treasury-eyebrow">OPERATIONAL POSITION</p><div><span>Receiving accounts</span><strong>{snapshot.virtual_accounts_available ? snapshot.virtual_accounts.length : '—'}</strong></div><div><span>Transfers in progress</span><strong>{snapshot.transfers_available ? pendingTransfers : '—'}</strong></div><div><span>Saved bank destinations</span><strong>{snapshot.external_accounts_available ? snapshot.external_accounts.length : '—'}</strong></div><small>Counts reflect the latest available snapshot.</small></section>
+            </div>
+            <div className="treasury-assets">{assetRows.map(wallet => <button key={`${wallet.id}:${wallet.currency}`} className="treasury-asset" onClick={() => navigate('wallets')}><div><AssetMark currency={wallet.currency}/><span>{wallet.currency}<small>{title(wallet.chain)}</small></span><ArrowUpRight size={17}/></div><strong>{balanceVisible ? wallet.balance === null ? 'Unavailable' : formatMoney(wallet.balance, wallet.currency) : '••••••'}</strong><small>{wallet.balance === null ? 'Balance could not be read' : 'Available balance'}</small></button>)}</div>
+            {!snapshot.wallets_available && <EmptyState text="Wallet balances are temporarily unavailable. Refresh to try again."/>}
+            <div className="treasury-analysis-grid"><div>{snapshot.transfers_available ? <TreasuryActivityChart transactions={snapshot.transactions}/> : <EmptyState text="Transaction volume is temporarily unavailable."/>}</div><section className="treasury-rail-summary"><div className="treasury-section-heading"><h2>Receiving rails</h2><button onClick={() => navigate('receive')}>Details <ArrowRight size={14}/></button></div>{snapshot.virtual_accounts.map(account => <button key={account.id} onClick={() => navigate('receive')}><RailMark currency={account.currency}/><span>{account.currency}<small>{title(account.rail)}</small></span><StatusPill status={account.status}/></button>)}{!snapshot.virtual_accounts.length && <EmptyState text="No receiving account data available."/>}</section></div>
+            <section className="treasury-panel"><div className="treasury-section-heading"><div><h2>Recent activity</h2><p>Latest transfers and account deposits</p></div><button onClick={() => navigate('transactions')}>View activity <ArrowRight size={15}/></button></div><TransferCards transactions={recentTransactions} available={snapshot.transfers_available}/></section>
+          </>}
+          {snapshot && !notificationsOpen && activeView === 'wallets' && <WalletsView wallets={snapshot.wallets}/>}
+          {snapshot && !notificationsOpen && activeView === 'receive' && <ReceiveView accounts={snapshot.virtual_accounts} available={snapshot.virtual_accounts_available}/>}
+          {snapshot && !notificationsOpen && activeView === 'transactions' && <TransactionsView snapshot={snapshot}/>}
         {snapshot && !notificationsOpen && activeView === 'send' && <SendView sendStep={sendStep} sourceSelection={sourceSelection} setSourceSelection={setSourceSelection} sendSources={sendSources} selectedSource={selectedSource} sendAmount={sendAmount} setSendAmount={setSendAmount} destinationType={destinationType} setDestinationType={setDestinationType} destinationAddress={destinationAddress} setDestinationAddress={setDestinationAddress} externalAccounts={snapshot.external_accounts} externalAccountsAvailable={snapshot.external_accounts_available} externalAccountId={externalAccountId} setExternalAccountId={setExternalAccountId} selectedExternalAccount={selectedExternalAccount} pin={pin} setPin={setPin} transferResult={transferResult} setSendStep={setSendStep} submitTransfer={submitTransfer} resetSend={resetSend} />}
-      </main>
-
-      <nav aria-label="Treasury navigation" className="bp-treasury-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-white/[0.08] bg-[#07090D]/95 pt-2 backdrop-blur-xl md:hidden">
-        {TREASURY_NAV.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-label={label} aria-current={activeView === id ? 'page' : undefined} onClick={() => navigate(id)} className={`flex min-h-14 min-w-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[11px] font-semibold ${FOCUS} ${activeView === id ? 'bg-[#C7FF00]/10 text-[#C7FF00]' : 'text-zinc-400 active:bg-white/[0.06]'}`}><Icon className="h-5 w-5 shrink-0" aria-hidden="true" /><span className="bp-treasury-nav-label w-full truncate text-center">{label}</span></button>)}
-      </nav>
+          <footer className="treasury-footer"><span>BorderPay Africa Treasury</span><span>Operating master account · Private access</span></footer>
+        </main>
+      </div>
+      <nav className="bp-treasury-bottom-nav" aria-label="Mobile treasury navigation">{TREASURY_NAV.map(({id, label, icon: Icon}) => <button key={id} aria-label={label} aria-current={activeView === id ? 'page' : undefined} onClick={() => navigate(id)}><Icon size={20}/><span>{label}</span></button>)}</nav>
     </div>
   );
 }
 
 function NotificationPanel({ snapshot, onClose }: { snapshot: OperatorSnapshot | null; onClose: () => void }) {
-  const pending = (snapshot?.transactions || []).filter((transaction) => !['completed', 'payment_processed', 'approved'].includes(transaction.state));
+  const pending = (snapshot?.transactions || []).filter((transaction) => isPending(transaction.state));
   return <section aria-label="Treasury notifications" className="bp-treasury-card ml-auto w-full max-w-xl rounded-3xl border border-white/10 bg-[#0D1016] p-4 shadow-2xl shadow-black/40"><div className="flex items-center justify-between gap-4"><div className="min-w-0"><h1 className="text-lg font-semibold">Treasury updates</h1><p className="mt-1 truncate text-sm text-zinc-500">Transfers requiring attention</p></div><button type="button" aria-label="Close notifications" onClick={onClose} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-zinc-400 hover:bg-white/[0.06] hover:text-white ${FOCUS}`}><X className="h-5 w-5" /></button></div><div className="mt-4 max-h-[min(65dvh,36rem)] space-y-2 overflow-y-auto overscroll-contain">{pending.map((transaction) => <article key={transaction.id} className="rounded-2xl border border-white/[0.07] bg-black/20 p-4"><div className="flex items-start justify-between gap-3"><p className="break-words font-medium">{title(transaction.state || 'Transfer update')}</p><StatusPill status={transaction.state} /></div><p className="mt-2 break-words text-sm text-zinc-400">{title(transaction.source.payment_rail)} → {title(transaction.destination.payment_rail)}</p><p className="mt-2 break-words font-mono text-xs text-zinc-500">{shortId(transaction.id)} · {formatDate(transaction.updated_at || transaction.created_at)}</p></article>)}{snapshot?.transfers_available === false && <EmptyState text="Live transfer updates are temporarily unavailable." />}{snapshot?.transfers_available !== false && !pending.length && <EmptyState text="No transfers require attention." />}</div></section>;
 }
 
 function WalletsView({ wallets }: { wallets: WalletRow[] }) {
-  return <section aria-labelledby="wallets-title"><PageHeading eyebrow="Treasury assets" title="Wallets" description="Approved operating assets and deposit addresses. Balances are intentionally consolidated on Home." /><div className="mt-5 grid gap-4 sm:mt-6 sm:grid-cols-2 xl:grid-cols-3">{wallets.map((wallet) => <article key={`${wallet.id}:${wallet.currency}`} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5"><div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><AssetMark currency={wallet.currency} /><div className="min-w-0"><h2 className="font-semibold">{wallet.currency}</h2><p className="truncate text-sm text-zinc-500">{title(wallet.chain)} network</p></div></div><StatusPill status={wallet.status} /></div><p className="mt-8 text-xs font-medium uppercase tracking-[0.15em] text-zinc-600">Deposit address</p><button type="button" onClick={() => copy(wallet.address, `${wallet.currency} address`)} className={`mt-2 flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-black/20 px-3 text-left ${FOCUS}`}><span className="min-w-0 truncate font-mono text-xs text-zinc-300">{wallet.address || 'Address unavailable'}</span><Copy className="h-4 w-4 shrink-0 text-zinc-500" /></button></article>)}{!wallets.length && <EmptyState text="No treasury wallets are available." />}</div></section>;
+  return <section aria-labelledby="wallets-title"><PageHeading eyebrow="Treasury assets" title="Wallets" description="Live balances by asset. Copy the matching network address to receive funds." /><div className="mt-5 grid gap-4 sm:mt-6 sm:grid-cols-2 xl:grid-cols-3">{wallets.map((wallet) => <article key={`${wallet.id}:${wallet.currency}`} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5"><div className="flex items-start justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><AssetMark currency={wallet.currency} /><div className="min-w-0"><h2 className="font-semibold">{wallet.currency}</h2><p className="truncate text-sm text-zinc-500">{title(wallet.chain)} network</p></div></div><StatusPill status={wallet.status} /></div><p className="treasury-wallet-amount">{walletBalance(wallet) === null ? 'Unavailable' : formatMoney(walletBalance(wallet)!, wallet.currency)}</p><p className="mt-8 text-xs font-medium uppercase tracking-[0.15em] text-zinc-600">Deposit address</p><button type="button" onClick={() => copy(wallet.address, `${wallet.currency} address`)} className={`mt-2 flex min-h-12 w-full min-w-0 items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-black/20 px-3 text-left ${FOCUS}`}><span className="min-w-0 truncate font-mono text-xs text-zinc-300">{wallet.address || 'Address unavailable'}</span><Copy className="h-4 w-4 shrink-0 text-zinc-500" /></button></article>)}{!wallets.length && <EmptyState text="No treasury wallets are available." />}</div></section>;
 }
 
 function ReceiveView({ accounts, available }: { accounts: OperatorSnapshot['virtual_accounts']; available: boolean }) {
   const railOrder: Record<string, number> = { USD: 0, EUR: 1, GBP: 2 };
-  return <section aria-labelledby="receive-title"><PageHeading eyebrow="Collections" title="Receiving accounts" description="Live payment instructions for the master operating account. Each card displays only the fields returned for that currency and rail." /><div className="mt-5 grid gap-4 sm:mt-6 xl:grid-cols-2">{[...accounts].sort((a, b) => (railOrder[a.currency] ?? 99) - (railOrder[b.currency] ?? 99)).map((account) => <article key={account.id} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><RailMark currency={account.currency} /><div className="min-w-0"><h2 className="truncate font-semibold">{account.currency} business account</h2><p className="truncate text-sm text-zinc-500">{account.currency === 'EUR' ? 'SEPA' : account.currency === 'GBP' ? 'Faster Payments' : account.currency === 'USD' ? title(account.rail || 'ACH / Wire') : title(account.rail)}</p></div></div><StatusPill status={account.status} /></div><dl className="mt-6 grid min-w-0 gap-4 text-sm sm:grid-cols-2"><Detail label="Account holder" value={account.account_holder_name} /><Detail label="Bank name" value={account.bank_name} />{account.currency === 'EUR' && <><Detail label="IBAN" value={account.iban} copyable /><Detail label="BIC / SWIFT" value={account.bic} copyable /></>}{account.currency !== 'EUR' && <><Detail label="Account number" value={account.account_number} copyable /><Detail label={account.currency === 'USD' ? 'Routing number' : 'Sort code'} value={account.routing_number} copyable /></>}<Detail label="Bank address" value={account.bank_address} /></dl></article>)}{!accounts.length && <EmptyState text={available ? 'No live receiving accounts are enabled for this treasury yet.' : 'Receiving account data is temporarily unavailable. Other treasury sections remain available.'} />}</div></section>;
+  return <section aria-labelledby="receive-title"><PageHeading eyebrow="Collections" title="Receiving accounts" description="Use the exact beneficiary and bank details below when making a deposit." /><div className="mt-5 grid gap-4 sm:mt-6 xl:grid-cols-2">{[...accounts].sort((a, b) => (railOrder[a.currency] ?? 99) - (railOrder[b.currency] ?? 99)).map((account) => <article key={account.id} className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><RailMark currency={account.currency} /><div className="min-w-0"><h2 className="truncate font-semibold">{account.currency} business account</h2><p className="truncate text-sm text-zinc-500">{account.currency === 'EUR' ? 'SEPA' : account.currency === 'GBP' ? 'Faster Payments' : account.currency === 'USD' ? title(account.rail || 'ACH / Wire') : title(account.rail)}</p></div></div><StatusPill status={account.status} /></div><dl className="mt-6 grid min-w-0 gap-4 text-sm sm:grid-cols-2"><Detail label="Account holder" value={account.account_holder_name} /><Detail label="Bank name" value={account.bank_name} />{account.currency === 'EUR' && <><Detail label="IBAN" value={account.iban} copyable /><Detail label="BIC / SWIFT" value={account.bic} copyable /></>}{account.currency !== 'EUR' && <><Detail label="Account number" value={account.account_number} copyable /><Detail label={account.currency === 'USD' ? 'Routing number' : 'Sort code'} value={account.currency === 'GBP' ? formatSortCode(account.sort_code || account.routing_number) : account.routing_number} copyable /></>}<Detail label="Bank address" value={account.bank_address} /></dl></article>)}{!accounts.length && <EmptyState text={available ? 'No live receiving accounts are enabled for this treasury yet.' : 'Receiving account data is temporarily unavailable. Other treasury sections remain available.'} />}</div></section>;
 }
 
 function TransactionsView({ snapshot }: { snapshot: OperatorSnapshot }) {
@@ -339,7 +303,10 @@ function TransactionsView({ snapshot }: { snapshot: OperatorSnapshot }) {
 }
 
 function BridgeTransferLedger({ transactions }: { transactions: OperatorSnapshot['transactions'] }) {
-  return <div className="mt-6 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-3 sm:p-5"><div className="mb-4 flex items-center justify-between gap-3"><h2 className="font-semibold">Master account activity</h2><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300">Live</span></div><div className="space-y-3">{transactions.map((transaction) => <article key={transaction.id} className="grid gap-3 rounded-2xl border border-white/[0.07] bg-black/20 p-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"><div className="min-w-0"><p className="font-medium">{title(transaction.source.payment_rail || 'Treasury transfer')} → {title(transaction.destination.payment_rail || 'Destination')}</p><p className="mt-1 truncate font-mono text-xs text-zinc-500">{transaction.id}</p></div><div className="sm:text-right"><p className="font-mono font-semibold tabular-nums">{formatMoney(transaction.source.amount || transaction.destination.amount, transaction.source.currency || transaction.destination.currency || 'USD')}</p><p className="text-xs text-zinc-500">{formatDate(transaction.updated_at || transaction.created_at)}</p></div><StatusPill status={transaction.state} /></article>)}{!transactions.length && <EmptyState text="No live master-account transfers were returned by Bridge." />}</div></div>;
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState('all');
+  const filtered = transactions.filter(row => (!query || `${row.id} ${row.reference || ''} ${row.source.currency} ${row.destination.currency} ${row.source.payment_rail} ${row.destination.payment_rail}`.toLowerCase().includes(query.toLowerCase())) && (status === 'all' || (status === 'pending' ? isPending(row.state) : status === 'completed' ? ['completed', 'payment_processed', 'settlement_complete'].includes(row.state) : ['failed', 'refunded', 'returned', 'canceled', 'cancelled'].includes(row.state))));
+  return <section className="treasury-panel mt-6"><div className="treasury-ledger-filters"><label><Search size={17}/><input aria-label="Search treasury activity" placeholder="Search reference, asset or rail" value={query} onChange={event => setQuery(event.target.value)}/></label><select aria-label="Filter activity status" value={status} onChange={event => setStatus(event.target.value)}><option value="all">All statuses</option><option value="pending">In progress</option><option value="completed">Completed</option><option value="failed">Failed or returned</option></select><span>{filtered.length} records</span></div><div className="treasury-table-scroll"><table className="treasury-ledger"><thead><tr><th>Transfer / reference</th><th>Source amount</th><th>Destination amount</th><th>Status</th><th>Last update</th></tr></thead><tbody>{filtered.map(row => <tr key={row.id}><td><strong>{title(row.source.payment_rail)} → {title(row.destination.payment_rail)}</strong><button onClick={() => copy(row.id, 'Transfer reference')} aria-label={`Copy transfer ${row.id}`}>{shortId(row.id)} <Copy size={12}/></button></td><td>{formatMoney(row.source.amount, row.source.currency)}</td><td>{formatMoney(row.destination.amount, row.destination.currency)}</td><td><StatusPill status={row.state}/></td><td>{formatDate(row.updated_at || row.created_at)}</td></tr>)}</tbody></table></div>{!filtered.length && <EmptyState text={transactions.length ? 'No activity matches these filters.' : 'No master-account activity returned.'}/>}<p className="mt-4 text-xs text-zinc-500">Latest returned records. Source and destination amounts retain their original currencies.</p></section>;
 }
 
 type SendViewProps = {
@@ -387,7 +354,7 @@ function SendView(props: SendViewProps) {
             <div className="mt-2 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-[#07090D] p-1.5">
               {(['wallet', 'bank'] as const).map((kind) => (
                 <button key={kind} type="button" aria-pressed={destinationType === kind} onClick={() => chooseDestinationType(kind)} className={`min-h-11 rounded-xl px-3 text-sm font-semibold transition-colors ${FOCUS} ${destinationType === kind ? 'bg-[#C7FF00] text-black' : 'text-zinc-400 hover:bg-white/[0.06] hover:text-white'}`}>
-                  {kind === 'wallet' ? 'Digital-currency wallet' : 'External bank account'}
+                  {kind === 'wallet' ? 'External wallet address' : 'External bank account'}
                 </button>
               ))}
             </div>
@@ -414,8 +381,9 @@ function SendView(props: SendViewProps) {
               {!externalAccounts.length && <span className="mt-2 block text-xs text-zinc-500">{externalAccountsAvailable ? 'No active external bank account is available for this treasury account.' : 'External bank accounts are temporarily unavailable. Refresh before sending.'}</span>}
             </label>
           )}
+          {selectedSource && <p className="text-sm text-zinc-400 lg:col-span-2">Available: {formatMoney(selectedSource.balance, selectedSource.currency)}{Number(sendAmount) > Number(selectedSource.balance) && <span role="alert" className="text-red-300"> · Amount exceeds available balance</span>}</p>}
           <div className="flex justify-end lg:col-span-2">
-            <button type="button" disabled={!selectedSource || !sendAmount.trim() || !destinationReady} onClick={() => setSendStep('pin')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#C7FF00] px-5 font-semibold text-black hover:bg-[#B8EB00] disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS}`}>Review transfer <ArrowRight className="h-4 w-4" /></button>
+            <button type="button" disabled={!selectedSource || !Number.isFinite(Number(sendAmount)) || Number(sendAmount) <= 0 || Number(sendAmount) > Number(selectedSource.balance) || !destinationReady} onClick={() => setSendStep('pin')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#C7FF00] px-5 font-semibold text-black hover:bg-[#B8EB00] disabled:cursor-not-allowed disabled:opacity-40 ${FOCUS}`}>Review transfer <ArrowRight className="h-4 w-4" /></button>
           </div>
         </div>
       )}
@@ -426,7 +394,7 @@ function SendView(props: SendViewProps) {
 }
 
 function PageHeading({ eyebrow, title: heading, description }: { eyebrow: string; title: string; description: string }) {
-  return <header className="min-w-0"><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C7FF00] sm:text-xs">{eyebrow}</p><h1 className="mt-2 break-words text-2xl font-semibold tracking-tight sm:text-4xl">{heading}</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">{description}</p></header>;
+  return <header aria-label={`${eyebrow}: ${heading}`} className="min-w-0"><p className="max-w-2xl text-sm leading-6 text-zinc-400">{description}</p></header>;
 }
 
 function AssetMark({ currency }: { currency: string }) {
@@ -440,22 +408,12 @@ function RailMark({ currency }: { currency: string }) {
   return <span aria-label={`${region} payment rail`} className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-xs font-bold tracking-wider text-white">{region}</span>;
 }
 
-function QuickActions({ onNavigate }: { onNavigate: (view: TreasuryView) => void }) {
-  const actions = [
-    { view: 'wallets' as const, label: 'Wallet', detail: 'Asset details', icon: WalletCards },
-    { view: 'receive' as const, label: 'Accounts', detail: 'Receiving rails', icon: Landmark },
-    { view: 'transactions' as const, label: 'Transactions', detail: 'Operations ledger', icon: ReceiptText },
-    { view: 'send' as const, label: 'Send', detail: 'Move funds', icon: Send },
-  ];
-  return <section aria-labelledby="quick-actions-title"><h2 id="quick-actions-title" className="text-lg font-semibold">Quick actions</h2><div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">{actions.map(({ view, label, detail, icon: Icon }) => <button key={view} type="button" onClick={() => onNavigate(view)} className={`bp-treasury-card group min-h-24 min-w-0 rounded-2xl border border-white/[0.08] bg-[#0D1016] p-3 text-left transition-colors hover:border-[#C7FF00]/30 hover:bg-white/[0.04] sm:min-h-28 sm:p-4 ${FOCUS}`}><div className="flex items-start justify-between"><span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.05] text-[#C7FF00]"><Icon className="h-5 w-5" aria-hidden="true" /></span><ArrowRight className="h-4 w-4 text-zinc-600 transition-transform group-hover:translate-x-0.5 group-hover:text-zinc-300" aria-hidden="true" /></div><p className="mt-3 truncate font-semibold sm:mt-4">{label}</p><p className="mt-1 hidden truncate text-xs text-zinc-500 min-[380px]:block">{detail}</p></button>)}</div></section>;
-}
-
 function transactionUsdAmount(transaction: BridgeTransfer): number | null {
   const candidates = [transaction.destination, transaction.source];
   for (const candidate of candidates) {
     if (!['USD', 'USDC', 'USDT'].includes(String(candidate.currency || '').toUpperCase())) continue;
     const value = Number(candidate.amount);
-    if (Number.isFinite(value)) return value;
+    if (candidate.amount !== '' && Number.isFinite(value)) return value;
   }
   return null;
 }
@@ -470,7 +428,7 @@ function TreasuryActivityChart({ transactions }: { transactions: BridgeTransfer[
   const [range, setRange] = useState<(typeof ranges)[number]['id']>('1M');
   const dayCount = ranges.find((option) => option.id === range)?.days || 30;
   const points = useMemo(() => {
-    const completed = new Set(['completed', 'payment_processed', 'approved', 'settlement_complete', 'funds_received']);
+    const completed = new Set(['completed', 'payment_processed', 'settlement_complete']);
     const days = Array.from({ length: dayCount }, (_, index) => {
       const date = new Date();
       date.setHours(0, 0, 0, 0);
@@ -496,7 +454,7 @@ function TreasuryActivityChart({ transactions }: { transactions: BridgeTransfer[
   const total = points.reduce((sum, point) => sum + point.value, 0);
   const summary = `Completed USD transaction volume for the selected ${range} period is ${formatMoney(total, 'USD')}.`;
 
-  return <section className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-4 sm:p-6" aria-labelledby="treasury-chart-title"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#C7FF00]">Treasury dashboard</p><h2 id="treasury-chart-title" className="mt-1 text-base font-semibold">Transaction volume</h2><p className="mt-1 text-xs text-zinc-500">Completed activity in USD</p></div><div className="grid w-full grid-cols-4 rounded-xl border border-white/[0.08] bg-black/20 p-1 sm:w-auto" aria-label="Chart period">{ranges.map((option) => <button key={option.id} type="button" aria-pressed={range === option.id} onClick={() => setRange(option.id)} className={`min-h-10 min-w-0 rounded-lg px-2 text-xs font-semibold sm:px-3 ${FOCUS} ${range === option.id ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>{option.id}</button>)}</div></div><div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1"><p className="min-w-0 break-all font-mono text-lg font-semibold tabular-nums sm:text-xl">{formatMoney(total, 'USD')}</p><span className="text-[11px] text-zinc-500">completed volume</span></div><div className="mt-4 overflow-hidden rounded-2xl border border-white/[0.06] bg-black/20 p-2 sm:p-3"><svg viewBox="0 0 760 220" role="img" aria-label={summary} className="aspect-[19/7] min-h-36 w-full max-h-56" preserveAspectRatio="xMidYMid meet"><defs><linearGradient id="treasury-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#C7FF00" stopOpacity="0.28" /><stop offset="100%" stopColor="#C7FF00" stopOpacity="0" /></linearGradient></defs>{[40, 80, 120, 160, 200].map((y) => <line key={y} x1="0" x2="760" y1={y} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth="1" />)}<path d={area} fill="url(#treasury-area)" /><path d={line} fill="none" stroke="#C7FF00" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />{coordinates.filter((_, index) => index === 0 || index === coordinates.length - 1 || _.value === max).map((point) => <circle key={point.key} cx={point.x} cy={point.y} r="4" fill="#07090D" stroke="#C7FF00" strokeWidth="3"><title>{`${point.date.toLocaleDateString()}: ${formatMoney(point.value, 'USD')}`}</title></circle>)}</svg><div className="flex justify-between text-[11px] text-zinc-600"><span>{points[0]?.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><span>{points[points.length - 1]?.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span></div></div><p className="sr-only">{summary}</p></section>;
+  return <section className="bp-treasury-card min-w-0 rounded-3xl border border-white/[0.08] bg-[#0D1016] p-4 sm:p-6" aria-labelledby="treasury-chart-title"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#C7FF00]">Treasury dashboard</p><h2 id="treasury-chart-title" className="mt-1 text-base font-semibold">Transaction volume</h2><p className="mt-1 text-xs text-zinc-500">USD-denominated legs in the returned activity</p></div><div className="grid w-full grid-cols-4 rounded-xl border border-white/[0.08] bg-black/20 p-1 sm:w-auto" aria-label="Chart period">{ranges.map((option) => <button key={option.id} type="button" aria-pressed={range === option.id} onClick={() => setRange(option.id)} className={`min-h-10 min-w-0 rounded-lg px-2 text-xs font-semibold sm:px-3 ${FOCUS} ${range === option.id ? 'bg-white text-black' : 'text-zinc-400 hover:text-white'}`}>{option.id}</button>)}</div></div><div className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1"><p className="min-w-0 break-all font-mono text-lg font-semibold tabular-nums sm:text-xl">{formatMoney(total, 'USD')}</p><span className="text-[11px] text-zinc-500">completed volume · returned records only</span></div><div className="mt-4 overflow-hidden rounded-2xl border border-white/[0.06] bg-black/20 p-2 sm:p-3"><svg viewBox="0 0 760 220" role="img" aria-label={summary} className="aspect-[19/7] min-h-36 w-full max-h-56" preserveAspectRatio="xMidYMid meet"><defs><linearGradient id="treasury-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#C7FF00" stopOpacity="0.28" /><stop offset="100%" stopColor="#C7FF00" stopOpacity="0" /></linearGradient></defs>{[40, 80, 120, 160, 200].map((y) => <line key={y} x1="0" x2="760" y1={y} y2={y} stroke="rgba(255,255,255,.06)" strokeWidth="1" />)}<path d={area} fill="url(#treasury-area)" /><path d={line} fill="none" stroke="#C7FF00" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />{coordinates.filter((_, index) => index === 0 || index === coordinates.length - 1 || _.value === max).map((point) => <circle key={point.key} cx={point.x} cy={point.y} r="4" fill="#07090D" stroke="#C7FF00" strokeWidth="3"><title>{`${point.date.toLocaleDateString()}: ${formatMoney(point.value, 'USD')}`}</title></circle>)}</svg><div className="flex justify-between text-[11px] text-zinc-600"><span>{points[0]?.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span><span>{points[points.length - 1]?.date.toLocaleDateString([], { month: 'short', day: 'numeric' })}</span></div></div><p className="sr-only">{summary}</p></section>;
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -505,11 +463,11 @@ function StatusPill({ status }: { status: string }) {
 }
 
 function TransferCards({ transactions, available }: { transactions: BridgeTransfer[]; available: boolean }) {
-  return <div className="mt-4 divide-y divide-white/[0.07]">{transactions.map((transaction) => <article key={transaction.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-medium">{title(transaction.source.payment_rail || 'Treasury')} → {title(transaction.destination.payment_rail || 'Destination')}</p><p className="truncate font-mono text-xs text-zinc-500">{transaction.id}</p></div><div className="flex items-center justify-between gap-6 sm:text-right"><div><p className="font-mono font-semibold tabular-nums">{formatMoney(transaction.source.amount || transaction.destination.amount, transaction.source.currency || transaction.destination.currency || 'USD')}</p><p className="text-xs text-zinc-500">{formatDate(transaction.updated_at || transaction.created_at)}</p></div><StatusPill status={transaction.state} /></div></article>)}{!transactions.length && <EmptyState text={available ? 'No master-account transfers yet.' : 'Live transfer activity is temporarily unavailable.'} />}</div>;
+  return <div className="mt-4 divide-y divide-white/[0.07]">{transactions.map((transaction) => <article key={transaction.id} className="flex flex-col gap-3 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="truncate font-medium">{title(transaction.source.payment_rail || 'Treasury')} → {title(transaction.destination.payment_rail || 'Destination')}</p><p className="truncate font-mono text-xs text-zinc-500">{transaction.id}</p></div><div className="flex items-center justify-between gap-6 sm:text-right"><div><p className="font-mono font-semibold tabular-nums">{formatMoney(transaction.source.amount, transaction.source.currency)}</p><p className="text-xs text-zinc-500">{formatDate(transaction.updated_at || transaction.created_at)}</p></div><StatusPill status={transaction.state} /></div></article>)}{!transactions.length && <EmptyState text={available ? 'No master-account transfers yet.' : 'Live transfer activity is temporarily unavailable.'} />}</div>;
 }
 
 function Detail({ label, value, copyable = false }: { label: string; value: string; copyable?: boolean }) {
-  return <div><dt className="text-xs uppercase tracking-wider text-zinc-600">{label}</dt><dd className="mt-1 flex min-h-8 items-center gap-2 break-all text-zinc-200"><span>{value || '—'}</span>{copyable && value && <button type="button" onClick={() => copy(value, label)} aria-label={`Copy ${label}`} className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg hover:bg-white/[0.06] ${FOCUS}`}><Copy className="h-3.5 w-3.5" /></button>}</dd></div>;
+  return <div><dt className="text-xs uppercase tracking-wider text-zinc-600">{label}</dt><dd className="mt-1 flex min-h-8 items-center gap-2 break-all text-zinc-200"><span>{value || '—'}</span>{copyable && value && <button type="button" onClick={() => copy(value, label)} aria-label={`Copy ${label}`} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-white/[0.06] ${FOCUS}`}><Copy className="h-3.5 w-3.5" /></button>}</dd></div>;
 }
 
 function EmptyState({ text }: { text: string }) {
