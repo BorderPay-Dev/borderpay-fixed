@@ -6,7 +6,7 @@ MIGRATION = (ROOT / "supabase/migrations/20260912170000_operator_bridge_readonly
 WORKER = (ROOT / "supabase/functions/bridge-operator-readonly/index.ts").read_text()
 PROVIDER = (ROOT / "supabase/functions/_shared/providers/bridge.ts").read_text()
 APP = (ROOT / "App.tsx").read_text()
-UI = (ROOT / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
+UI = (ROOT / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text() + (ROOT / "components/business/treasury/values.ts").read_text()
 API = (ROOT / "utils/api/backendAPI.ts").read_text()
 CONFIG = (ROOT / "supabase/config.toml").read_text()
 
