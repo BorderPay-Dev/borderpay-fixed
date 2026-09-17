@@ -1,3 +1,4 @@
+import { renderExternalInvoice, renderPaymentStatus } from "./subscription/maintenance.ts";
 import { render as mobileAppUpdate } from "./mobile-app-update.ts";
 /**
  * Email template registry — single source of truth for every transactional
@@ -64,6 +65,10 @@ import { render as adminSupportHandoff }                from "./admin/support-ha
 import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
 
 export type TemplateName =
+  | "business.subscription_external_invoice"
+  | "individual.subscription_external_invoice"
+  | "business.subscription_payment_status"
+  | "individual.subscription_payment_status"
   | "individual.email_verification"
   | "individual.password_reset"
   | "individual.pin_reset_link"
@@ -119,6 +124,10 @@ export type TemplateName =
 type Renderer = (props: any) => RenderedEmail;
 
 export const TEMPLATES: Record<TemplateName, Renderer> = {
+  "business.subscription_external_invoice": renderExternalInvoice,
+  "individual.subscription_external_invoice": renderExternalInvoice,
+  "business.subscription_payment_status": renderPaymentStatus,
+  "individual.subscription_payment_status": renderPaymentStatus,
   "individual.email_verification":      individualEmailVerification,
   "individual.password_reset":          individualPasswordReset,
   "individual.pin_reset_link":          individualPinResetLink,
