@@ -19,6 +19,8 @@ function assert(value: unknown, message: string): asserts value { if (!value) th
 Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current customer in native browser', async () => {
   const originalFetch = globalThis.fetch;
   let business = false;
+  let partner = false;
+  const appOrigin = () => partner ? 'https://app.partner.example' : 'https://app.borderpayafrica.com';
   let status = 'incomplete';
   let accepted = true;
   let unavailable = false;
@@ -31,6 +33,10 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
       if (url.pathname === '/auth/v1/user') return Response.json({ id: 'owner', email: 'owner@example.invalid', email_confirmed_at: '2026-01-01' });
       if (request.method === 'PATCH') { patches.push(await request.json()); return new Response(null, { status: 204 }); }
       if (url.pathname.endsWith('/bridge_kyc_traces')) return new Response(null, { status: 201 });
+      if (url.pathname.endsWith('/account_origin_provenance')) return Response.json(partner ? [{user_id:'owner',tenant_id:'tenant-a',onboarding_channel:'white_label'}] : []);
+      if (url.pathname.endsWith('/white_label_releases')) return Response.json([{tenant_id:'tenant-a',status:'live',revision:1,domain_verified_at:'2026-09-17',published:{brand_name:'Partner',legal_name:'Partner Ltd',primary_color:'#C7FF00',logo_url:'https://partner.example/logo.png',app_origin:appOrigin(),support_email:'help@partner.example',support_url:'https://partner.example/support',terms_url:'https://partner.example/terms',privacy_url:'https://partner.example/privacy',legal_version:'v1'}}]);
+      if (url.pathname.endsWith('/api_tenants')) return Response.json([{id:'tenant-a',is_active:true,default_mode:'production',metadata:{production_access:true}}]);
+      if (url.pathname.endsWith('/api_partner_approvals')) return Response.json([{tenant_id:'tenant-a',status:'approved',approved_products:['white_label']}]);
       if (url.pathname.endsWith('/user_profiles')) return Response.json([{ id: 'owner', email: 'owner@example.invalid', full_name: 'Test Owner', account_type: business ? 'business' : 'individual', country: 'FR', bridge_customer_id: 'existing-customer', bridge_kyc_link_id: 'original-link', bridge_kyc_status: status, bridge_account_status: status }]);
       if (url.pathname.endsWith('/business_profiles')) return Response.json([{ company_name: 'Test Business', bridge_customer_id: 'existing-customer', bridge_kyb_status: status, bridge_kyb_link_id: 'original-link' }]);
     }
@@ -42,7 +48,7 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
       if (url.pathname.endsWith('/tos_acceptance_link')) return Response.json({ url: 'https://bridge.xyz/terms/test' });
       if (url.pathname.endsWith('/kyc_link')) {
         assert(accepted, 'identity flow must follow accepted terms');
-        assert(new URL(url.searchParams.get('redirect_uri') || '').origin === 'https://app.borderpayafrica.com', 'native callback must be replaced with public HTTPS');
+        assert(new URL(url.searchParams.get('redirect_uri') || '').origin === appOrigin(), 'native callback must be replaced with public HTTPS');
         return Response.json({ url: 'https://bridge.withpersona.com/verify?inquiry-id=current&redirect-uri=capacitor%3A%2F%2Flocalhost' });
       }
     }
@@ -56,6 +62,7 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
     return { status: result.status, body: await result.json() };
   };
   try {
+    for (partner of [false, true]) {
     for (business of [false, true]) {
       for (status of ['incomplete', 'awaiting_ubo', 'needs_ubos']) {
         calls = []; patches.length = 0;
@@ -64,7 +71,7 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
         assert(!response.body.data.tos_link_url, 'accepted terms must not reopen');
         const link = new URL(response.body.data.link_url);
         assert(link.searchParams.get('inquiry-id') === 'current', 'must return current inquiry');
-        assert(new URL(link.searchParams.get('redirect-uri') || '').origin === 'https://app.borderpayafrica.com', 'browser redirect must be public HTTPS');
+        assert(new URL(link.searchParams.get('redirect-uri') || '').origin === appOrigin(), 'browser redirect must be public HTTPS');
         assert(calls.join(',') === 'GET /v0/customers/existing-customer,GET /v0/customers/existing-customer/kyc_link', 'must fetch current customer and current link');
         assert(patches.every(p => !p.bridge_customer_id || p.bridge_customer_id === 'existing-customer'), 'customer identity must remain stable');
         let opened = false;
@@ -85,6 +92,7 @@ Deno.test('accepted-ToS incomplete KYC/KYB and awaiting UBO resume current custo
         assert(failed.status === 502 && calls.length === 1, 'provider failure must not create or return a stale customer link');
         unavailable = false;
       }
+    }
     }
   } finally { globalThis.fetch = originalFetch; }
 });

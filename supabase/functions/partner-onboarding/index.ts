@@ -251,11 +251,14 @@ Deno.serve(async (req) => {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   if (!url || !serviceKey) return json(req, { success: false, error: "Server configuration missing" }, 500);
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const envelope = await readBoundedJson<any>(req, 1_500_000);
+  const logoRequest = new URL(req.url).searchParams.get("action") === "upload_white_label_logo";
+  const envelope = logoRequest
+    ? await readBoundedJson<any>(req, 1_500_000)
+    : await readBoundedJson<any>(req, 65_536);
   if (!envelope.ok) return json(req, { success: false, code: envelope.code, error: envelope.error }, envelope.status);
   const body = envelope.value;
   const action = clean(body?.action, 60);
-  if (action !== "upload_white_label_logo" && JSON.stringify(body).length > 65_536) return json(req, { success: false, error: "Request too large" }, 413);
+  if (logoRequest && action !== "upload_white_label_logo") return json(req, { success: false, error: "Upload action mismatch" }, 400);
 
   try {
     if (action === "request_invite") {
