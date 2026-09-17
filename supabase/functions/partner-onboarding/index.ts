@@ -808,6 +808,8 @@ Deno.serve(async (req) => {
 
     if (!app) return json(req, { success: false, error: "No active application" }, 409);
     if (!editable.has(app.status)) return json(req, { success: false, error: "Application is read-only during review" }, 409);
+    if (!editable.has(org.status)) return json(req, { success: false, error: "Partner organization is not accepting application changes" }, 409);
+    if (!canManage && member.role !== "compliance") return json(req, { success: false, error: "Partner owner, admin or compliance access required" }, 403);
 
     if (action === "save_application") {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -822,10 +824,14 @@ Deno.serve(async (req) => {
       const entity: any = patch.entity_details;
       if (entity) {
         if (entity.country_of_incorporation && !countryOk(entity.country_of_incorporation)) return json(req, { success: false, error: "Country must be ISO-2" }, 400);
-        await db.from("partner_organizations").update({ legal_name: clean(entity.legal_name, 200) || null, trading_name: clean(entity.trading_name, 200) || null, website: clean(entity.website, 500) || null, country_of_incorporation: clean(entity.country_of_incorporation, 2).toUpperCase() || null, registration_number: clean(entity.registration_number, 120) || null, updated_at: new Date().toISOString() }).eq("id", org.id);
       }
-      const { data, error } = await db.from("partner_applications").update(patch).eq("id", app.id).select("*").single();
-      if (error) throw error;
+      const { data, error } = await db.rpc("save_partner_application_draft", {
+        p_application_id: app.id, p_organization_id: org.id, p_actor_user_id: user.id, p_patch: patch,
+      });
+      if (error) {
+        if (error.code === "42501") return json(req, { success: false, error: "Application access or review status changed. Refresh before editing." }, 409);
+        throw error;
+      }
       return json(req, { success: true, application: data });
     }
     if (action === "upsert_person") {
