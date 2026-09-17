@@ -3,6 +3,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 admin = (root / "supabase/functions/admin-signup/index.ts").read_text()
 partner = (root / "supabase/functions/partner-application-admin/index.ts").read_text()
+link_helper = (root / "supabase/functions/_shared/partner-access-invite.ts").read_text()
 mailer = (root / "supabase/functions/send-email/index.ts").read_text()
 registry = (root / "supabase/functions/_shared/email-templates/index.ts").read_text()
 
@@ -14,7 +15,7 @@ checks = {
     "support role maps to the canonical support permission":
         'support: "SUPPORT_AGENT"' in admin,
     "partner access supports existing BorderPay Auth users":
-        'type: "magiclink"' in partner and "isExistingUserError" in partner,
+        'type: "magiclink"' in link_helper and "isExistingUserError" in link_helper,
     "partner invite is not marked sent before email delivery":
         partner.index("await deliverPartnerAccessInvite(email, requestId)") < partner.index('status: "invited"'),
     "one-time invite URL is sent as non-persisted sensitive data":

@@ -1,4 +1,5 @@
-import { assertPartnerInviteRedirect } from "../_shared/partner-invite-link.ts";
+import { createPartnerAccessLink } from "../_shared/partner-access-invite.ts";
+import { resendPartnerInvitation } from "../_shared/partner-invite-resend.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -29,33 +30,6 @@ const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const ilikeLiteral = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 const FLUTTERWAVE_SECRET_KEY = Deno.env.get("FLUTTERWAVE_SECRET_KEY") || "";
 const SEND_EMAIL_TOKEN = Deno.env.get("SEND_EMAIL_INTERNAL_TOKEN") || "";
-
-const isExistingUserError = (error: unknown) => {
-  const message = String((error as { message?: unknown })?.message || error || "").toLowerCase();
-  return message.includes("already been registered") || message.includes("already registered") || message.includes("already exists");
-};
-
-async function createPartnerAccessLink(db: any, email: string, supabaseUrl: string) {
-  const passwordSetupRedirect = "https://portal.borderpayafrica.com/auth/callback?setup=password";
-  const existingAccountRedirect = "https://portal.borderpayafrica.com/auth/callback";
-  const invited = await db.auth.admin.generateLink({
-    type: "invite",
-    email,
-    options: { redirectTo: passwordSetupRedirect },
-  });
-  if (!invited.error && invited.data?.properties?.action_link) {
-    return { actionLink: assertPartnerInviteRedirect(invited.data.properties.action_link, passwordSetupRedirect, supabaseUrl), userId: invited.data.user?.id || null, existingAccount: false };
-  }
-  if (!isExistingUserError(invited.error)) throw invited.error || new Error("Invite link generation failed");
-
-  const existing = await db.auth.admin.generateLink({
-    type: "magiclink",
-    email,
-    options: { redirectTo: existingAccountRedirect },
-  });
-  if (existing.error || !existing.data?.properties?.action_link) throw existing.error || new Error("Existing-user access link generation failed");
-  return { actionLink: assertPartnerInviteRedirect(existing.data.properties.action_link, existingAccountRedirect, supabaseUrl), userId: existing.data.user?.id || null, existingAccount: true };
-}
 
 const sha256 = async (value: string) => Array.from(new Uint8Array(
   await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)),
@@ -164,6 +138,14 @@ Deno.serve(async (req) => {
       return json(req, { success: true, requests: data || [] });
     }
 
+    if (action === "resend_invite") {
+      if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
+      inviteStage = "resending the partner invitation";
+      const result = await resendPartnerInvitation(db, Number(body?.request_id), deliverPartnerAccessInvite);
+      if (result.status === 200) console.info("partner_invite_resent", { request_id: Number(body?.request_id), operator_id: authData.user.id });
+      return json(req, result.body, result.status);
+    }
+
     if (action === "send_direct_invite") {
       if (!canOperate) return json(req, { success: false, error: "Super admin access required" }, 403);
       const email = normalizeEmail(body?.email);
@@ -182,7 +164,7 @@ Deno.serve(async (req) => {
         .ilike("email", emailPattern).order("requested_at", { ascending: false }).limit(1).maybeSingle();
       if (existingError) throw existingError;
       if (existing?.status === "accepted") return json(req, { success: false, error: "This invitation has already been accepted" }, 409);
-      if (existing?.status === "invited") return json(req, { success: false, error: "An active invitation already exists for this email" }, 409);
+      if (existing?.status === "invited") return json(req, { success: false, error: "An active invitation already exists. Use Resend invite in Access requests." }, 409);
 
       let requestId = Number(existing?.id || 0);
       const requestedAt = new Date().toISOString();
@@ -728,11 +710,11 @@ Deno.serve(async (req) => {
     const diagnosticCode = clean((error as { code?: unknown })?.code, 40) || "runtime_error";
     console.error("partner-application-admin", {
       action,
-      invite_stage: action === "send_direct_invite" || action === "approve_invite" ? inviteStage : null,
+      invite_stage: action === "send_direct_invite" || action === "approve_invite" || action === "resend_invite" ? inviteStage : null,
       code: diagnosticCode,
       message: clean((error as { message?: unknown })?.message || error, 500),
     });
-    if (action === "send_direct_invite" || action === "approve_invite") {
+    if (action === "send_direct_invite" || action === "approve_invite" || action === "resend_invite") {
       return json(req, {
         success: false,
         error: `Partner invitation failed while ${inviteStage}. Reference: ${diagnosticCode}`,
