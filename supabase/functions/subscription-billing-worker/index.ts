@@ -1,3 +1,4 @@
+import { prepareInvoiceEmail, confirmedEmailDelivery } from "../_shared/subscription-email-policy.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
@@ -316,15 +317,43 @@ async function sendEmails() {
   if (error) throw error;
   let sent = 0; let failed = 0;
   for (const job of data ?? []) {
+    let props = job.props;
+    if (job.template.endsWith(".subscription_external_invoice")) {
+      const { data: invoice, error: invoiceError } = await db.from("subscription_external_invoices")
+        .select("id,user_id,subscription_id,amount,currency,billing_period,status,paid_at,payment_link,provider_reference")
+        .eq("user_id", job.user_id).eq("provider_reference", String(job.props?.transaction_reference || "")).maybeSingle();
+      if (invoiceError) throw invoiceError;
+      const { data: subscription, error: subscriptionError } = invoice
+        ? await db.from("subscriptions").select("user_id,status,grace_started_at").eq("id", invoice.subscription_id).maybeSingle()
+        : { data: null, error: null };
+      if (subscriptionError) throw subscriptionError;
+      const plan = prepareInvoiceEmail(job, invoice, subscription);
+      if (plan.action === "suppress") {
+        await db.from("subscription_email_jobs").update({ status: "failed", last_error: `suppressed:${plan.reason}` }).eq("id", job.id);
+        continue;
+      }
+      if (plan.action === "defer") {
+        await db.from("subscription_email_jobs").update({ next_attempt_at: plan.nextAttemptAt, last_error: null }).eq("id", job.id);
+        continue;
+      }
+      const { data: billable, error: billableError } = await db.rpc("maintenance_account_is_billable", { p_user_id: job.user_id });
+      if (billableError) throw billableError;
+      if (billable !== true) {
+        await db.from("subscription_email_jobs").update({ status: "failed", last_error: "suppressed:account_not_billable" }).eq("id", job.id);
+        continue;
+      }
+      props = plan.props;
+    }
     const response = await fetch(`${URL}/functions/v1/send-email`, {
       method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${EMAIL_TOKEN}` },
-      body: JSON.stringify({ template: job.template, to: job.recipient, user_id: job.user_id, props: job.props, idempotency_key: job.idempotency_key }),
+      body: JSON.stringify({ template: job.template, to: job.recipient, user_id: job.user_id, props, idempotency_key: job.idempotency_key }),
     });
-    if (response.ok) {
+    const delivery = await response.json().catch(() => ({}));
+    if (confirmedEmailDelivery(response.ok, delivery)) {
       await db.from("subscription_email_jobs").update({ status: "sent", sent_at: new Date().toISOString(), attempt_count: job.attempt_count + 1, last_error: null }).eq("id", job.id);
       sent++;
     } else {
-      const message = (await response.text()).slice(0, 500);
+      const message = String(delivery?.error || `Email delivery not confirmed (${response.status}, ${delivery?.data?.status || "unknown"})`).slice(0, 500);
       const attempts = job.attempt_count + 1;
       const next = new Date(Date.now() + Math.min(86400, 30 * 2 ** attempts) * 1000).toISOString();
       await db.from("subscription_email_jobs").update({ status: attempts >= 8 ? "failed" : "pending", attempt_count: attempts, next_attempt_at: next, last_error: message }).eq("id", job.id);
