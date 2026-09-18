@@ -125,6 +125,8 @@ function newApiKey(mode: "sandbox" | "production") {
 }
 
 const allowedScopes = new Set([
+  "customers:read", "wallets:read", "virtual_accounts:read", "transfers:read",
+  "external_accounts:read", "external_accounts:write",
   "customers:write", "wallets:write", "virtual_accounts:write",
   "transfers:write", "payouts:write", "webhooks:write", "onboarding:write",
 ]);

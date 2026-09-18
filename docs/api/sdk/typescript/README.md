@@ -1,3 +1,7 @@
+# Current integration contract
+
+See [Partner integration](../../PARTNER_INTEGRATION.md) for required customer-session headers, supported routes, SCA and environment configuration. The legacy examples below are historical starter material and must not override that contract.
+
 # BorderPay SDK Starter (TypeScript)
 
 Starter SDK generated for Step 2G, aligned to `docs/api/openapi-v1.yaml` (`v1.0.1`).

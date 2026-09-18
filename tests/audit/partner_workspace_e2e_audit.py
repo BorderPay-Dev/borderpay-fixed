@@ -8,8 +8,9 @@ portal = (root / "supabase/functions/partner-onboarding/index.ts").read_text()
 admin = (root / "supabase/functions/partner-application-admin/index.ts").read_text()
 gateway = (root / "supabase/functions/public-api-gateway/index.ts").read_text()
 worker = (root / "supabase/functions/process-pending-events/index.ts").read_text()
+customer_runtime = (root / "supabase/functions/_shared/api-customer-runtime.ts").read_text()
 registrations = re.findall(r"registerTenantResource\(supa, \{(.*?)\n    \}\);", gateway, re.S)
-registration_source = "\n".join(registrations)
+registration_source = customer_runtime.split('async function register(',1)[1].split('export async function handleCustomerApi',1)[0]
 activation = admin.split('if (action === "activate_sandbox")', 1)[1].split('if (action === "set_pricing")', 1)[0]
 
 checks = {
@@ -33,11 +34,11 @@ checks = {
     "operator detail returns tenant and approval state": "pricing: pricing || [], tenant, approval" in admin,
     "project selection is ownership bounded": 'project.id === requestedProjectId' in portal,
     "workspace resource read is tenant bounded": '.eq("tenant_id", tenantId)' in portal,
-    "gateway records customers": 'resourceType: "customer"' in registration_source,
-    "gateway records wallets": 'resourceType: "wallet"' in registration_source,
-    "gateway records virtual accounts": 'resourceType: "virtual_account"' in registration_source,
-    "gateway records payments": 'routeKey === "POST /v1/payouts" ? "payout" : "transfer"' in gateway,
-    "gateway resource records exclude bank account identifiers": bool(registrations) and "account_number" not in registration_source and "iban" not in registration_source,
+    "gateway records customers": "session,'customer'," in customer_runtime,
+    "gateway records wallets": "session,'wallet'," in customer_runtime,
+    "gateway records virtual accounts": "session,'virtual_account'," in customer_runtime,
+    "gateway records payments": "session,'transfer',transferId" in customer_runtime and "handleCustomerApi" in gateway,
+    "gateway resource records exclude bank account identifiers": "safe_metadata:{}" in registration_source and "account_number" not in registration_source and "iban" not in registration_source,
     "verified webhooks update existing partner resources": "updatePartnerResourceState" in worker and '.eq("provider_resource_id", providerResourceId)' in worker,
     "webhooks cannot create or move partner resources": '.from("api_tenant_resources")\n    .update(' in worker and '.insert(' not in worker[worker.index('async function updatePartnerResourceState'):worker.index('// ── Top-level router')],
     "Bridge match is exact and confirmed": 'VERIFY BRIDGE KYB' in admin and "identity_checks" in admin,

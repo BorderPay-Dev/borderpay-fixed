@@ -40,26 +40,14 @@ export interface BorderPayGatewayHealth {
 
 export type AccountType = "individual" | "business";
 
-export interface CreateCustomerRequest {
-  account_type: AccountType;
-  email: string;
-  country_code: string;
-  full_name?: string;
-  company_name?: string;
-  registration_number?: string;
-  phone_e164?: string;
-  borderpay_user_id: string;
-}
-
-export interface CreateCustomerResponseData {
-  customer_id: string;
-  provider: "borderpay";
-}
+/** Customer data is recorded by hosted onboarding. This resumes that customer's verification. */
+export interface CreateCustomerRequest { customer_id?: string; }
+export interface CreateCustomerResponseData { customer_id: string | null; account_type: AccountType; link_url?: string; tos_link_url?: string; already_approved?: boolean; }
 
 export interface CreateWalletRequest {
-  customer_id: string;
-  symbol: "USDC" | "USDT" | "PYUSD" | "USDB" | "EURC";
-  chain: "ETH" | "SOL" | "BSC" | "POLYGON" | "TRON" | "BASE" | "OPTIMISM" | "ARBITRUM";
+  customer_id?: string;
+  symbol: "USDC" | "USDT" | "EURC";
+  chain: "TRON" | "BASE";
 }
 
 export interface CreateWalletResponseData {
@@ -69,15 +57,7 @@ export interface CreateWalletResponseData {
   chain: string;
 }
 
-export interface CreateVirtualAccountRequest {
-  customer_id: string;
-  currency: "USD" | "EUR" | "GBP";
-  destination: {
-    rail: string;
-    currency: string;
-    address: string;
-  };
-}
+export interface CreateVirtualAccountRequest { customer_id?:string; currency:"USD"|"EUR"|"GBP"; }
 
 export interface CreateVirtualAccountResponseData {
   virtual_account_id: string;
@@ -90,38 +70,27 @@ export interface CreateVirtualAccountResponseData {
 }
 
 export interface TransferParty {
-  payment_rail: string;
-  currency: string;
-  chain?: string;
+  payment_rail: "bridge_wallet"|"base"|"tron"|"ach"|"wire"|"sepa"|"faster_payments";
+  currency: "USDC"|"USDT"|"EURC"|"USD"|"EUR"|"GBP";
   amount?: string;
-  customer_id?: string;
-  from_address?: string;
-  address?: string;
   bridge_wallet_id?: string;
   external_account_id?: string;
-  deposit_id?: string;
-  bank_account?: {
-    account_number?: string;
-    routing_number?: string;
-    iban?: string;
-    bic?: string;
-  };
+  external_wallet_id?: string;
+  address?: string;
 }
-
 export interface CreateTransferRequest {
   source: TransferParty;
   destination: TransferParty;
-  developer_fee?: {
-    percentage?: number;
-    flat_amount?: string;
-  };
-  idempotency_key: string;
+  idempotency_key?: string;
+  sca_authorization_id?: string;
+  /** Non-EEA API payouts use the customer's transaction PIN, without TOTP. */
+  transaction_pin?: string;
 }
 
 export interface CreateTransferResponseData {
   transfer_id: string;
   state: string;
-  provider: "borderpay";
+  provider_state?: string;
 }
 
 export interface CreateWebhookRequest {

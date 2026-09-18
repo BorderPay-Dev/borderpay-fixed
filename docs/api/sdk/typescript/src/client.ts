@@ -20,6 +20,8 @@ export interface BorderPayClientConfig {
   gatewayUrl: string;
   mode?: BorderPayMode;
   fetchImpl?: typeof fetch;
+  /** End-customer Supabase access token. Keep API keys on your server. */
+  customerAccessToken?: string | (() => string | Promise<string>);
 }
 
 export class BorderPayApiError extends Error {
@@ -41,8 +43,10 @@ export class BorderPayClient {
   private readonly gatewayUrl: string;
   private readonly mode: BorderPayMode;
   private readonly fetchImpl: typeof fetch;
+  private readonly customerAccessToken?: BorderPayClientConfig["customerAccessToken"];
 
   constructor(config: BorderPayClientConfig) {
+    this.customerAccessToken = config.customerAccessToken;
     this.apiKey = config.apiKey;
     this.gatewayUrl = config.gatewayUrl.replace(/\/+$/, "");
     this.mode = config.mode ?? "sandbox";
@@ -114,8 +118,40 @@ export class BorderPayClient {
     });
   }
 
+  createOnboardingAuthorization(input: Record<string, unknown>, idempotencyKey: string) {
+    return this.call<Record<string, unknown>>({method:"POST",route:"/v1/onboarding-authorizations",body:input,idempotencyKey});
+  }
+  getCustomer() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/customers"}); }
+  verificationLinks() { return this.call<Record<string, unknown>>({method:"POST",route:"/v1/verification-links"}); }
+  listWallets() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/wallets"}); }
+  balances() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/balances"}); }
+  listVirtualAccounts() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/virtual-accounts"}); }
+  listExternalAccounts() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/external-accounts"}); }
+  saveExternalAccount(account:Record<string,unknown>,idempotencyKey:string,sca_authorization_id?:string) {
+    return this.call<Record<string, unknown>>({method:"POST",route:"/v1/external-accounts",body:{account,sca_authorization_id},idempotencyKey});
+  }
+  deleteExternalAccount(external_account_id:string,idempotencyKey:string,sca_authorization_id?:string) {
+    return this.call<Record<string, unknown>>({method:"DELETE",route:"/v1/external-accounts",body:{external_account_id,sca_authorization_id},idempotencyKey});
+  }
+  listExternalWallets() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/external-wallets"}); }
+  saveExternalWallet(input:{label:string;asset:"USDC"|"USDT"|"EURC";chain:"base"|"tron";address:string},idempotencyKey:string) {
+    return this.call<Record<string, unknown>>({method:"POST",route:"/v1/external-wallets",body:input,idempotencyKey});
+  }
+  deleteExternalWallet(id:string,idempotencyKey:string) {
+    return this.call<Record<string, unknown>>({method:"DELETE",route:"/v1/external-wallets",body:{id},idempotencyKey});
+  }
+  listTransfers(input:{transfer_id?:string;after?:string;limit?:number}={}) {
+    return this.call<Record<string, unknown>>({method:"GET",route:"/v1/transfers",body:input});
+  }
+  authorizePayment(request:CreateTransferRequest,pin:string,totp:string,idempotencyKey:string) {
+    return this.call<{required:boolean;authorization_id?:string;expires_at?:string}>({method:"POST",route:"/v1/payment-authorizations",body:{request,pin,totp},idempotencyKey});
+  }
+  authorizeBeneficiary(request:Record<string,unknown>,pin:string,totp:string) {
+    return this.call<{required:boolean;authorization_id?:string;expires_at?:string}>({method:"POST",route:"/v1/beneficiary-authorizations",body:{request,pin,totp}});
+  }
+
   private async call<T>(input: {
-    method: "GET" | "POST";
+    method: "GET" | "POST" | "DELETE";
     route: string;
     body?: unknown;
     idempotencyKey?: string;
@@ -127,6 +163,9 @@ export class BorderPayClient {
       "x-borderpay-mode": this.mode,
     };
 
+    const customerToken = typeof this.customerAccessToken === "function" ? await this.customerAccessToken() : this.customerAccessToken;
+    if (customerToken) headers["X-BorderPay-Customer-Authorization"] = `Bearer ${customerToken}`;
+
     if (input.idempotencyKey) {
       headers["Idempotency-Key"] = input.idempotencyKey;
     }
@@ -134,7 +173,7 @@ export class BorderPayClient {
     const res = await this.fetchImpl(this.gatewayUrl, {
       method: "POST",
       headers,
-      body: input.body ? JSON.stringify(input.body) : undefined,
+      body: JSON.stringify({ ...(input.body as Record<string, unknown> || {}), method: input.method }),
     });
 
     const parsed = (await res.json().catch(() => ({}))) as
