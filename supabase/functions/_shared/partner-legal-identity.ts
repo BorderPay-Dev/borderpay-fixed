@@ -9,6 +9,15 @@ const country = (value: unknown): string => {
   const code = typeof value === "string" ? value.trim().toUpperCase() : "";
   return ISO2_COUNTRIES.has(code) ? code : ISO3_TO_ISO2[code] || "";
 };
+// Nigerian company numbers may be entered with or without the CAC "RC"
+// prefix (e.g. RC-8048569 and 8048569). Keep all digits, including leading
+// zeroes, and do not strip other registry prefixes or prefixes abroad.
+const registrationNumber = (value: unknown, incorporationCountry: unknown): string => {
+  const normalized = comparable(value);
+  return country(incorporationCountry) === "NG" && /^rc[0-9]+$/.test(normalized)
+    ? normalized.slice(2)
+    : normalized;
+};
 const labels = {
   legal_name: "legal name",
   registration_number: "registration number",
@@ -21,12 +30,12 @@ export function checkPartnerLegalIdentity(
 ) {
   const partner = {
     legal_name: comparable(entity.legal_name),
-    registration_number: comparable(entity.registration_number),
+    registration_number: registrationNumber(entity.registration_number, entity.country_of_incorporation),
     country: country(entity.country_of_incorporation),
   };
   const verified = {
     legal_name: comparable(business.company_name),
-    registration_number: comparable(business.registration_number),
+    registration_number: registrationNumber(business.registration_number, business.country),
     country: country(business.country),
   };
   const fields = Object.keys(labels) as Field[];
