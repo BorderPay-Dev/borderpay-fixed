@@ -13,8 +13,9 @@ endpoint returns 410 and does not create tenants or overwrite settings.
 2. Deploy the changed Edge functions: white-label-config, white-label-branding,
    partner-onboarding, auth-signup, auth-resend-verification, auth-reset-password,
    verify-email-token, bridge-kyc-link, bridge-kyb-link, send-email,
-   public-api-gateway. Keep existing endpoint JWT settings; white-label-config
-   is public and verifies optional customer bearer tokens itself.
+   public-api-gateway. Use the committed endpoint JWT settings; white-label-config
+   verifies optional customer bearer tokens itself, and email verification uses
+   its single-use token as the credential (no existing session required).
 3. Build and deploy the customer app and partner portal from reviewed commits.
    Use one release per Vercel project. Do not retry quota-blocked deployments
    repeatedly or assume failed Git integrations retry automatically.
