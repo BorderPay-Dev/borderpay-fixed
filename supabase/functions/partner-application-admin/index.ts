@@ -1,3 +1,4 @@
+import { deliverPartnerDecisionEmail } from "../_shared/partner-decision-email.ts";
 import { createPartnerAccessLink } from "../_shared/partner-access-invite.ts";
 import { resendPartnerInvitation } from "../_shared/partner-invite-resend.ts";
 import { checkPartnerLegalIdentity } from "../_shared/partner-legal-identity.ts";
@@ -550,26 +551,19 @@ Deno.serve(async (req) => {
       if (!["under_review", "more_information", "approved", "rejected", "suspended"].includes(decision)) return json(req, { success: false, error: "Invalid decision" }, 400);
       const notes = clean(body.notes, 4000);
       if (!notes) return json(req, { success: false, error: "Review notes required" }, 400);
-      const now = new Date().toISOString();
-      let tenantId = application.partner_organizations?.approved_tenant_id || null;
-      if (decision === "approved" && !tenantId) {
-        const { data: tenant, error: tenantError } = await db.from("api_tenants").insert({
-          tenant_name: application.partner_organizations?.legal_name || application.partner_organizations?.primary_email,
-          default_mode: "sandbox",
-          is_active: false,
-          beta_access_enabled: false,
-          metadata: { partner_organization_id: application.organization_id, provisioning_status: "operator_required", pricing_source: "partner_custom_only" },
-        }).select("id").single();
-        if (tenantError) throw tenantError;
-        tenantId = tenant.id;
-      }
-      const orgStatus = decision === "more_information" ? "more_information" : decision;
-      const { error: updateError } = await db.from("partner_applications").update({ status: decision, decision_summary: notes, decided_at: ["approved", "rejected"].includes(decision) ? now : null, updated_at: now }).eq("id", applicationId);
-      if (updateError) throw updateError;
-      await db.from("partner_organizations").update({ status: orgStatus, approved_tenant_id: tenantId, updated_at: now }).eq("id", application.organization_id);
-      await db.from("partner_application_reviews").insert({ application_id: applicationId, reviewer_user_id: authData.user.id, decision, notes });
-      await db.from("partner_portal_audit_log").insert({ organization_id: application.organization_id, application_id: applicationId, actor_user_id: authData.user.id, event_type: `application_${decision}`, metadata: { tenant_id: tenantId } });
-      return json(req, { success: true, status: decision, tenant_id: tenantId, production_access: false });
+      const { data: saved, error: decisionError } = await db.rpc("record_partner_application_decision", {
+        p_application_id: applicationId, p_actor_user_id: authData.user.id, p_decision: decision, p_notes: notes,
+      });
+      if (decisionError) throw decisionError;
+      if (!saved?.review_id) throw new Error("Decision could not be recorded");
+      const email = await deliverPartnerDecisionEmail(saved, { url, token: SEND_EMAIL_TOKEN });
+      const { error: auditError } = await db.from("partner_portal_audit_log").insert({
+        organization_id: saved.organization_id, application_id: applicationId, actor_user_id: authData.user.id,
+        event_type: "partner_decision_email_" + email.status,
+        metadata: { review_id: saved.review_id, email_log_id: email.log_id ?? null, error: email.error ?? null },
+      });
+      if (auditError) console.error("partner_decision_email_audit_failed", { review_id: saved.review_id });
+      return json(req, { success: true, status: decision, review_id: saved.review_id, tenant_id: saved.tenant_id, production_access: false, email });
     }
 
     if (action === "activate_sandbox") {
