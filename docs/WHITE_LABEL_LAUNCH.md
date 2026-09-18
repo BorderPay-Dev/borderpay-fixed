@@ -97,3 +97,7 @@ entity/project, brand/legal assets and a controlled customer cohort are required
 Seven days is a target after those inputs and approvals are complete, not a
 promise of external DNS, KYB or app-store approval timing. This change targets
 partner web/PWA delivery; it does not create partner-branded native store builds.
+
+## Integration release, 18 September
+
+The customer API now delegates provisioning, saved destinations and payments to the core customer endpoints; see `docs/api/PARTNER_INTEGRATION.md`. The release preserves the separately deployed founder treasury and business-name transliteration changes. Production backup comparison found the legacy `verify-email-token` still attempting eager Bridge customer creation; this release uses the hosted verification flow to collect ToS and identity details and retains email confirmation/redirect behavior. A missing Bridge ID before hosted verification is not treated as completed KYC.
