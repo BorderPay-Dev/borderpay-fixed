@@ -31,3 +31,27 @@ Deno.test("non-Latin names remain distinguishable", () => {
   assert(check({ ...entity, legal_name: "公司甲" }, { ...business, company_name: "公司甲" }).ok);
   assert(!check({ ...entity, legal_name: "公司甲" }, { ...business, company_name: "公司乙" }).ok);
 });
+
+Deno.test("Nigerian RC prefix is optional for the same registration digits", () => {
+  for (const entered of ["1234", "RC1234", "RC-1234", "rc 1234"]) {
+    assert(check({ ...entity, registration_number: entered, country_of_incorporation: "NGA" },
+      { ...business, registration_number: "RC-1234" }).ok);
+  }
+  assert(check({ ...entity, registration_number: "RC-1234" },
+    { ...business, registration_number: "1234" }).ok);
+});
+Deno.test("prefix normalization preserves different digits, registry types and leading zeroes", () => {
+  for (const entered of ["1235", "BN1234", "IT1234", "01234"]) {
+    const result = check({ ...entity, registration_number: entered },
+      { ...business, registration_number: "RC-1234" });
+    assert(!result.ok && result.code === "partner_identity_mismatch" && result.fields?.includes("registration_number"));
+  }
+});
+Deno.test("RC prefix normalization never applies outside Nigeria or bypasses other identity checks", () => {
+  for (const jurisdiction of ["GB", "FR", "KE"]) {
+    assert(!check({ ...entity, registration_number: "1234", country_of_incorporation: jurisdiction },
+      { ...business, country: jurisdiction }).ok);
+  }
+  assert(!check({ ...entity, legal_name: "Different Limited", registration_number: "1234" }, business).ok);
+  assert(!check({ ...entity, country_of_incorporation: "GB", registration_number: "1234" }, business).ok);
+});
