@@ -29,7 +29,12 @@ export class BorderPayApiError extends Error {
   status: number;
   details?: Record<string, unknown> | null;
 
-  constructor(code: string, message: string, status: number, details?: Record<string, unknown> | null) {
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    details?: Record<string, unknown> | null,
+  ) {
     super(message);
     this.name = "BorderPayApiError";
     this.code = code;
@@ -43,7 +48,8 @@ export class BorderPayClient {
   private readonly gatewayUrl: string;
   private readonly mode: BorderPayMode;
   private readonly fetchImpl: typeof fetch;
-  private readonly customerAccessToken?: BorderPayClientConfig["customerAccessToken"];
+  private readonly customerAccessToken?:
+    BorderPayClientConfig["customerAccessToken"];
 
   constructor(config: BorderPayClientConfig) {
     this.customerAccessToken = config.customerAccessToken;
@@ -61,7 +67,10 @@ export class BorderPayClient {
     });
   }
 
-  async createCustomer(input: CreateCustomerRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateCustomerResponseData>> {
+  async createCustomer(
+    input: CreateCustomerRequest,
+    idempotencyKey: string,
+  ): Promise<BorderPaySuccessEnvelope<CreateCustomerResponseData>> {
     return this.call<CreateCustomerResponseData>({
       method: "POST",
       route: "/v1/customers",
@@ -70,7 +79,10 @@ export class BorderPayClient {
     });
   }
 
-  async createWallet(input: CreateWalletRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateWalletResponseData>> {
+  async createWallet(
+    input: CreateWalletRequest,
+    idempotencyKey: string,
+  ): Promise<BorderPaySuccessEnvelope<CreateWalletResponseData>> {
     return this.call<CreateWalletResponseData>({
       method: "POST",
       route: "/v1/wallets",
@@ -91,7 +103,10 @@ export class BorderPayClient {
     });
   }
 
-  async createTransfer(input: CreateTransferRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateTransferResponseData>> {
+  async createTransfer(
+    input: CreateTransferRequest,
+    idempotencyKey: string,
+  ): Promise<BorderPaySuccessEnvelope<CreateTransferResponseData>> {
     return this.call<CreateTransferResponseData>({
       method: "POST",
       route: "/v1/transfers",
@@ -100,7 +115,10 @@ export class BorderPayClient {
     });
   }
 
-  async createPayout(input: CreateTransferRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateTransferResponseData>> {
+  async createPayout(
+    input: CreateTransferRequest,
+    idempotencyKey: string,
+  ): Promise<BorderPaySuccessEnvelope<CreateTransferResponseData>> {
     return this.call<CreateTransferResponseData>({
       method: "POST",
       route: "/v1/payouts",
@@ -109,7 +127,10 @@ export class BorderPayClient {
     });
   }
 
-  async createWebhook(input: CreateWebhookRequest, idempotencyKey: string): Promise<BorderPaySuccessEnvelope<CreateWebhookResponseData>> {
+  async createWebhook(
+    input: CreateWebhookRequest,
+    idempotencyKey: string,
+  ): Promise<BorderPaySuccessEnvelope<CreateWebhookResponseData>> {
     return this.call<CreateWebhookResponseData>({
       method: "POST",
       route: "/v1/webhooks",
@@ -118,36 +139,143 @@ export class BorderPayClient {
     });
   }
 
-  createOnboardingAuthorization(input: Record<string, unknown>, idempotencyKey: string) {
-    return this.call<Record<string, unknown>>({method:"POST",route:"/v1/onboarding-authorizations",body:input,idempotencyKey});
+  createOnboardingAuthorization(
+    input: Record<string, unknown>,
+    idempotencyKey: string,
+  ) {
+    return this.call<Record<string, unknown>>({
+      method: "POST",
+      route: "/v1/onboarding-authorizations",
+      body: input,
+      idempotencyKey,
+    });
   }
-  getCustomer() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/customers"}); }
-  verificationLinks() { return this.call<Record<string, unknown>>({method:"POST",route:"/v1/verification-links"}); }
-  listWallets() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/wallets"}); }
-  balances() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/balances"}); }
-  listVirtualAccounts() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/virtual-accounts"}); }
-  listExternalAccounts() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/external-accounts"}); }
-  saveExternalAccount(account:Record<string,unknown>,idempotencyKey:string,sca_authorization_id?:string) {
-    return this.call<Record<string, unknown>>({method:"POST",route:"/v1/external-accounts",body:{account,sca_authorization_id},idempotencyKey});
+  getCustomer() {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/customers",
+    });
   }
-  deleteExternalAccount(external_account_id:string,idempotencyKey:string,sca_authorization_id?:string) {
-    return this.call<Record<string, unknown>>({method:"DELETE",route:"/v1/external-accounts",body:{external_account_id,sca_authorization_id},idempotencyKey});
+  verificationLinks() {
+    return this.call<Record<string, unknown>>({
+      method: "POST",
+      route: "/v1/verification-links",
+    });
   }
-  listExternalWallets() { return this.call<Record<string, unknown>>({method:"GET",route:"/v1/external-wallets"}); }
-  saveExternalWallet(input:{label:string;asset:"USDC"|"USDT"|"EURC";chain:"base"|"tron";address:string},idempotencyKey:string) {
-    return this.call<Record<string, unknown>>({method:"POST",route:"/v1/external-wallets",body:input,idempotencyKey});
+  listWallets() {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/wallets",
+    });
   }
-  deleteExternalWallet(id:string,idempotencyKey:string) {
-    return this.call<Record<string, unknown>>({method:"DELETE",route:"/v1/external-wallets",body:{id},idempotencyKey});
+  balances() {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/balances",
+    });
   }
-  listTransfers(input:{transfer_id?:string;after?:string;limit?:number}={}) {
-    return this.call<Record<string, unknown>>({method:"GET",route:"/v1/transfers",body:input});
+  listVirtualAccounts() {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/virtual-accounts",
+    });
   }
-  authorizePayment(request:CreateTransferRequest,pin:string,totp:string,idempotencyKey:string) {
-    return this.call<{required:boolean;authorization_id?:string;expires_at?:string}>({method:"POST",route:"/v1/payment-authorizations",body:{request,pin,totp},idempotencyKey});
+  listExternalAccounts() {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/external-accounts",
+    });
   }
-  authorizeBeneficiary(request:Record<string,unknown>,pin:string,totp:string) {
-    return this.call<{required:boolean;authorization_id?:string;expires_at?:string}>({method:"POST",route:"/v1/beneficiary-authorizations",body:{request,pin,totp}});
+  saveExternalAccount(
+    account: Record<string, unknown>,
+    idempotencyKey: string,
+    sca_authorization_id?: string,
+  ) {
+    return this.call<Record<string, unknown>>({
+      method: "POST",
+      route: "/v1/external-accounts",
+      body: { account, sca_authorization_id },
+      idempotencyKey,
+    });
+  }
+  deleteExternalAccount(
+    external_account_id: string,
+    idempotencyKey: string,
+    sca_authorization_id?: string,
+  ) {
+    return this.call<Record<string, unknown>>({
+      method: "DELETE",
+      route: "/v1/external-accounts",
+      body: { external_account_id, sca_authorization_id },
+      idempotencyKey,
+    });
+  }
+  listExternalWallets() {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/external-wallets",
+    });
+  }
+  saveExternalWallet(
+    input: {
+      label: string;
+      asset: "USDC" | "USDT" | "EURC";
+      chain: "base" | "tron";
+      address: string;
+    },
+    idempotencyKey: string,
+  ) {
+    return this.call<Record<string, unknown>>({
+      method: "POST",
+      route: "/v1/external-wallets",
+      body: input,
+      idempotencyKey,
+    });
+  }
+  deleteExternalWallet(id: string, idempotencyKey: string) {
+    return this.call<Record<string, unknown>>({
+      method: "DELETE",
+      route: "/v1/external-wallets",
+      body: { id },
+      idempotencyKey,
+    });
+  }
+  listTransfers(
+    input: { transfer_id?: string; after?: string; limit?: number } = {},
+  ) {
+    return this.call<Record<string, unknown>>({
+      method: "GET",
+      route: "/v1/transfers",
+      body: input,
+    });
+  }
+  authorizePayment(
+    request: CreateTransferRequest,
+    pin: string,
+    totp: string,
+    idempotencyKey: string,
+  ) {
+    return this.call<
+      { required: boolean; authorization_id?: string; expires_at?: string }
+    >({
+      method: "POST",
+      route: "/v1/payment-authorizations",
+      body: { request, pin, totp },
+      idempotencyKey,
+    });
+  }
+  authorizeBeneficiary(
+    request: Record<string, unknown>,
+    pin: string,
+    totp: string,
+  ) {
+    return this.call<
+      { required: boolean; authorization_id?: string; expires_at?: string }
+    >({
+      method: "POST",
+      route: "/v1/beneficiary-authorizations",
+      body: { request, pin, totp },
+    });
   }
 
   private async call<T>(input: {
@@ -163,8 +291,12 @@ export class BorderPayClient {
       "x-borderpay-mode": this.mode,
     };
 
-    const customerToken = typeof this.customerAccessToken === "function" ? await this.customerAccessToken() : this.customerAccessToken;
-    if (customerToken) headers["X-BorderPay-Customer-Authorization"] = `Bearer ${customerToken}`;
+    const customerToken = typeof this.customerAccessToken === "function"
+      ? await this.customerAccessToken()
+      : this.customerAccessToken;
+    if (customerToken) {
+      headers["X-BorderPay-Customer-Authorization"] = `Bearer ${customerToken}`;
+    }
 
     if (input.idempotencyKey) {
       headers["Idempotency-Key"] = input.idempotencyKey;
@@ -173,7 +305,10 @@ export class BorderPayClient {
     const res = await this.fetchImpl(this.gatewayUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify({ ...(input.body as Record<string, unknown> || {}), method: input.method }),
+      body: JSON.stringify({
+        ...(input.body as Record<string, unknown> || {}),
+        method: input.method,
+      }),
     });
 
     const parsed = (await res.json().catch(() => ({}))) as
@@ -187,7 +322,8 @@ export class BorderPayClient {
 
     const err = parsed as BorderPayErrorEnvelope;
     const code = err?.error?.code ?? "internal_error";
-    const message = err?.error?.message ?? `Request failed with status ${res.status}`;
+    const message = err?.error?.message ??
+      `Request failed with status ${res.status}`;
     const details = err?.error?.details ?? null;
     throw new BorderPayApiError(code, message, res.status, details);
   }

@@ -17,16 +17,11 @@ import {
   sha256Hex,
 } from "../_shared/public-api-v258/api-gateway.ts";
 import {
-  bridgeProvider,
   BridgeProviderError,
-} from "../_shared/public-api-v258/providers/bridge.ts";
+} from "../_shared/providers/bridge.ts";
 import {
-  validateCustomerCreate,
   validateOnboardingAuthorization,
   validateIdempotencyHeader,
-  validateTransferOrPayout,
-  validateVirtualAccountCreate,
-  validateWalletCreate,
   validateWebhookCreate,
 } from "../_shared/public-api-v258/api-gateway-validators.ts";
 import {
@@ -40,30 +35,15 @@ import {
   readApiReleaseGateEnvironment,
 } from "../_shared/public-api-v258/api-release-gates.ts";
 import {
-  assertTenantResource,
-  providerReferencesForTransfer,
-  registerTenantResource,
-  resolveCustomerForTenantEndUser,
-  resolveTenantEndUser,
-  resolveTenantEndUserById,
   TenantOwnershipError,
-  type OwnedResource,
-  type ProviderReference,
 } from "../_shared/public-api-v258/api-tenant-ownership.ts";
 import {
   ApiFinancialAuthorizationError,
-  assertSpendableWalletBalance,
-  authorizeSingleTransferAmount,
-  fixedFeeForPercent,
 } from "../_shared/public-api-v258/api-financial-authorization.ts";
 import {
   encryptApiWebhookSecret,
   newApiWebhookSecret,
 } from "../_shared/public-api-v258/api-webhook-security.ts";
-import {
-  enqueueApiResourceEvent,
-} from "../_shared/public-api-v258/api-partner-events.ts";
-import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/public-api-v258/fees/schedule.ts";
 
 const ROUTE_SCOPE_MAP: Record<string, string | null> = {
   ...CUSTOMER_API_SCOPES,

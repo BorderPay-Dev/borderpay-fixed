@@ -41,8 +41,16 @@ export interface BorderPayGatewayHealth {
 export type AccountType = "individual" | "business";
 
 /** Customer data is recorded by hosted onboarding. This resumes that customer's verification. */
-export interface CreateCustomerRequest { customer_id?: string; }
-export interface CreateCustomerResponseData { customer_id: string | null; account_type: AccountType; link_url?: string; tos_link_url?: string; already_approved?: boolean; }
+export interface CreateCustomerRequest {
+  customer_id?: string;
+}
+export interface CreateCustomerResponseData {
+  customer_id: string | null;
+  account_type: AccountType;
+  link_url?: string;
+  tos_link_url?: string;
+  already_approved?: boolean;
+}
 
 export interface CreateWalletRequest {
   customer_id?: string;
@@ -57,7 +65,10 @@ export interface CreateWalletResponseData {
   chain: string;
 }
 
-export interface CreateVirtualAccountRequest { customer_id?:string; currency:"USD"|"EUR"|"GBP"; }
+export interface CreateVirtualAccountRequest {
+  customer_id?: string;
+  currency: "USD" | "EUR" | "GBP";
+}
 
 export interface CreateVirtualAccountResponseData {
   virtual_account_id: string;
@@ -70,8 +81,15 @@ export interface CreateVirtualAccountResponseData {
 }
 
 export interface TransferParty {
-  payment_rail: "bridge_wallet"|"base"|"tron"|"ach"|"wire"|"sepa"|"faster_payments";
-  currency: "USDC"|"USDT"|"EURC"|"USD"|"EUR"|"GBP";
+  payment_rail:
+    | "bridge_wallet"
+    | "base"
+    | "tron"
+    | "ach"
+    | "wire"
+    | "sepa"
+    | "faster_payments";
+  currency: "USDC" | "USDT" | "EURC" | "USD" | "EUR" | "GBP";
   amount?: string;
   bridge_wallet_id?: string;
   external_account_id?: string;
