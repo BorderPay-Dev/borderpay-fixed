@@ -3,8 +3,9 @@
  * No customer identity, storage object, invoice row, provider account or approval is written.
  * Fixture policy and verified hashes are test inputs only, never production approvals.
  */
-import { buildAssessment, azureConfig } from "./predeposit-worker.ts";
+import { buildAssessment } from "./predeposit-worker.ts";
 import { canonicalJson, sha256, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
+import { loadInvoiceAiConfig } from "./predeposit-ai-config.ts";
 import { screenInvoice } from "./predeposit-azure.ts";
 import { generateBankPaymentInstructions } from "./predeposit-payment-instructions.ts";
 function pdf(lines:string[]):Uint8Array{
@@ -18,6 +19,7 @@ function pdf(lines:string[]):Uint8Array{
 }
 export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssessment=buildAssessment){
  const configResponse=await realDb.rpc("predeposit_ocr_config");
+ const aiConfigResponse=assess===buildAssessment?await realDb.rpc("predeposit_ai_config"):{data:{},error:null};
  if(configResponse.error||!configResponse.data?.endpoint||!configResponse.data?.apiKey)throw Error("OCR configuration unavailable");
  const owner="00000000-0000-4000-8000-000000000001",account="synthetic-receiving-account";
  const policy={config:{jurisdiction_policy:{version:"TEST-ONLY",known_countries:["GB"],review_countries:[]},structuring:{max_invoices_30d:20,aggregate_review_minor:{GBP:100000000}}}};
@@ -41,7 +43,7 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
  const results:any[]=[];
  let modelDiagnostic:any=null;
  if(assess===buildAssessment){
-  const config=azureConfig();let host:string|null=null;try{host=new URL(config.endpoint).hostname;}catch{}
+  const config=await loadInvoiceAiConfig(realDb);let host:string|null=null;try{host=new URL(config.endpoint).hostname;}catch{}
   modelDiagnostic={endpoint_present:!!config.endpoint,endpoint_host:host,deployment:config.deployment,api_version:config.apiVersion,key_present:!!config.apiKey,request_sent:false};
   const probe=await screenInvoice(base,context,config,async(input,init)=>{
    modelDiagnostic.request_sent=true;
@@ -70,7 +72,7 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
   const assets=invoice.documents.map(d=>({...d,owner_user_id:owner,storage_path:d.id,mime_type:"application/pdf",size_bytes:d.id==="synthetic-contract"?contract.length:1,scan_status:"clean",verification_status:"verified"}));
   let jobs:any=cachedContractJob&&invoice.contract_path==="custom"?{"synthetic-contract":structuredClone(cachedContractJob)}:{};
   const db={
-   rpc:async(name:string)=>{if(name!=="predeposit_ocr_config")throw Error("Unexpected test RPC");return configResponse;},
+   rpc:async(name:string)=>{if(name==="predeposit_ocr_config")return configResponse;if(name==="predeposit_ai_config")return aiConfigResponse;throw Error("Unexpected test RPC");},
    storage:{from:(bucket:string)=>({download:async(path:string)=>{if(bucket!=="predeposit-evidence"||path!=="synthetic-contract")throw Error("Unexpected test document");return {data:new Blob([contract as BlobPart]),error:null};}})},
    from:(table:string)=>{
     let mutation:any;const q:any={

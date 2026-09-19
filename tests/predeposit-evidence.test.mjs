@@ -146,4 +146,15 @@ try {
  await assert.rejects(()=>db.query("select predeposit_ocr_config()"),/Invalid OCR provider/);
  console.log('PASS: explicit OCR provider selection, service-only Vault credentials and no invalid-provider fallback');
 
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920080000_predeposit_dedicated_ai_config.sql',import.meta.url),'utf8'));
+ await db.exec("insert into vault.decrypted_secrets values('borderpay_predeposit_ai_endpoint','https://test.openai.azure.com/'),('borderpay_predeposit_ai_deployment','invoice-gpt4o'),('borderpay_predeposit_ai_key','fixture-key')");
+ await db.exec("set role service_role");
+ assert.equal((await db.query("select predeposit_ai_config() config")).rows[0].config.deployment,'invoice-gpt4o');
+ await db.exec("reset role;set role authenticated");
+ await assert.rejects(()=>db.query("select predeposit_ai_config()"),/permission denied/);
+ await db.exec("reset role;set role anon");
+ await assert.rejects(()=>db.query("select predeposit_ai_config()"),/permission denied/);
+ await db.exec("reset role");
+ console.log('PASS: invoice-specific AI credentials are service-only');
+
 }finally{await db.close();}

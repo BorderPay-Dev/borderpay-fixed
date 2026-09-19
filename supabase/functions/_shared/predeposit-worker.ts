@@ -2,12 +2,13 @@ import { checked, loadPolicy, loadAssetBytes, BUCKET, invoiceDossier } from "./p
 import { evaluateInvoice, assessedDigest, canonicalJson, sha256, type ReviewContext } from "./predeposit-policy.ts";
 import { screenInvoice, assessWithAi } from "./predeposit-azure.ts";
 import { loadEvidenceOcrConfig, startEvidenceOcr, pollEvidenceOcr } from "./predeposit-evidence-ocr.ts";
+import { loadInvoiceAiConfig } from "./predeposit-ai-config.ts";
 import { extractCommercialEvidence } from "./predeposit-extract.ts";
-export function azureConfig(){return {endpoint:Deno.env.get("AZURE_OPENAI_ENDPOINT")||"",deployment:Deno.env.get("AZURE_OPENAI_DEPLOYMENT_NAME")||"",apiVersion:Deno.env.get("AZURE_OPENAI_API_VERSION")||"2024-10-21",apiKey:Deno.env.get("AZURE_OPENAI_API_KEY")||""};}
 export async function buildAssessment(db:any,row:any,manualContext?:Partial<ReviewContext>){
  const policy=await loadPolicy(db),context:ReviewContext=structuredClone(row.review_context);
  context.now=new Date().toISOString();
  if(row.review_context.config_sha256!==await sha256(canonicalJson(policy.config)))return {pending:false,context,assessment:{...evaluateInvoice(row.payload,context),status:"review_required",reasons:["policy_changed"],payload_sha256:row.payload_sha256,policy_version:row.policy_version}};
+ const aiConfig=await loadInvoiceAiConfig(db);
  const docs=row.payload.documents;
  const assets:any[]=docs.length?checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",row.owner_user_id).in("id",docs.map((d:any)=>d.id))):[];
  if(assets.length!==docs.length||assets.some(a=>!docs.some((d:any)=>d.id===a.id&&d.sha256===a.sha256)))throw Error("Evidence integrity mismatch");
@@ -25,7 +26,7 @@ export async function buildAssessment(db:any,row:any,manualContext?:Partial<Revi
    const result=await pollEvidenceOcr(job.ocr,ocrConfig);
    if(result.status==="pending")pending=true;else job.result=result;
   }
-  if(job?.result?.status==="succeeded"&&!job.extractionAttempted){job.extracted=await extractCommercialEvidence(job.result,kind,azureConfig());job.extractionAttempted=true;}
+  if(job?.result?.status==="succeeded"&&!job.extractionAttempted){job.extracted=await extractCommercialEvidence(job.result,kind,aiConfig);job.extractionAttempted=true;}
   if(job?.extracted){if(kind==="contract")context.contractEvidence=job.extracted;else context.orderEvidence=job.extracted;}
  }
  checked(await db.from("predeposit_processing_jobs").upsert({invoice_id:row.id,jobs,updated_at:new Date().toISOString()},{onConflict:"invoice_id"}));
@@ -39,7 +40,7 @@ export async function buildAssessment(db:any,row:any,manualContext?:Partial<Revi
   if(manualContext.trackingVerifications)context.trackingVerifications=manualContext.trackingVerifications;
  }
  const deterministic=evaluateInvoice(row.payload,context);
- const ai=await screenInvoice(row.payload,context,azureConfig());
+ const ai=await screenInvoice(row.payload,context,aiConfig);
  const result=await assessWithAi(row.payload,context,ai);
  return {pending:false,context,assessment:{...result,payload_sha256:row.payload_sha256,assessed_sha256:await assessedDigest(row.payload,context),review_context:context,config_sha256:row.review_context.config_sha256,deterministic_status:deterministic.status}};
 }
