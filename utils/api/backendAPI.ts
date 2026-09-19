@@ -80,6 +80,7 @@ async function getWalletAssetScope(explicitUserId?: string): Promise<WalletAsset
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-transfer') return 60000;
+  if (endpoint === 'predeposit-hub') return 120000;
   // Endpoints that can legitimately take longer because they trigger
   // provider-side orchestration and/or email delivery.
   if (endpoint === 'auth-signup') return 45000;

@@ -23,7 +23,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Validate rules, Azure failures, CRM matching and OCR boundaries
-        run: deno test --no-config tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts
+        run: deno test --no-config tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts tests/predeposit-provider-capabilities.test.ts
       - name: Typecheck invoice endpoints
         run: deno check --no-config supabase/functions/predeposit-hub/index.ts supabase/functions/predeposit-worker/index.ts
       - name: Render invoice PDF fixtures
@@ -37,6 +37,7 @@ jobs:
           pdftotext /tmp/predeposit-pdf-qa/pending.pdf /tmp/predeposit-pdf-qa/pending.txt
           python3 tests/predeposit-pdf-text.test.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: invoice-pdf-review
           path: /tmp/predeposit-pdf-qa
@@ -69,6 +70,7 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4173 >/dev/null && break; sleep 1; done
           PLAYWRIGHT_MODULE=file:///tmp/predeposit-browser/node_modules/playwright/index.mjs node tests/predeposit-ui.test.mjs
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: invoice-ui-review
           path: /tmp/predeposit-pdf-qa

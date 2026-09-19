@@ -96,6 +96,8 @@ Deno.serve(async req=>{
     const result=await buildAssessment(db,row);
     if(result.pending)throw Error("Document extraction is still processing");
     const a:any=result.assessment;let dossier:any=null;
+    const feedback=String(body.merchant_feedback||"").trim();if(decision==="action_required"&&feedback.length<15)throw Error("Review feedback must explain the corrections required");
+    a.merchant_feedback=feedback.slice(0,4000);
     if(decision==="approved"){
      await loadInvoiceAccounts(db,row.owner_user_id);
      // Manual approval can resolve review flags, but cannot override missing data or GBP B2B.
@@ -147,7 +149,7 @@ Deno.serve(async req=>{
    const row=await ownInvoice(uuid(body.invoice_id),owner);
    if(["queued","screening"].includes(row.status))launch(row.id);
    return reply({success:true,data:{id:row.id,invoice_number:row.invoice_number,revision:row.revision,status:row.status,
-    reasons:row.assessment?.reasons||[],required_documents:row.assessment?.required_documents||[],findings:row.assessment?.ai?.findings||[],approval_expires_at:row.approval_expires_at}});
+    merchant_feedback:row.assessment?.merchant_feedback||"",reasons:row.assessment?.reasons||[],required_documents:row.assessment?.required_documents||[],findings:row.assessment?.ai?.findings||[],approval_expires_at:row.approval_expires_at}});
   }
   if(action==="download"){
    const row=await ownInvoice(uuid(body.invoice_id),owner);if(row.status!=="approved")return reply({success:false,error:"Invoice approval is required before bank details can be shared"},409);

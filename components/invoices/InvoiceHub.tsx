@@ -115,10 +115,11 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  </>}
  </fieldset>
  <section className="ih-card"><div className="ih-section-heading"><h2>Your invoices</h2><button type="button" disabled={busy} onClick={()=>run(async()=>{await refresh();})} aria-label="Refresh invoices"><RefreshCw size={18}/></button></div>
- {data.invoices.length===0?<p className="ih-muted">Your submitted invoices will appear here.</p>:data.invoices.map((i:any)=><button className="ih-invoice-row" key={i.id} type="button" disabled={busy} onClick={()=>run(async()=>setSelected(await call('get_invoice',{invoice_id:i.id})))}><span>{i.invoice_number}<small>Revision {i.revision} · {i.currency}</small></span><span>{i.status.replaceAll('_',' ')}</span></button>)}
- {selected&&<div className="ih-review" aria-live="polite"><h3>{selected.invoice_number||number} · {selected.status.replaceAll('_',' ')}</h3>
+ {data.invoices.length===0?<p className="ih-muted">Your submitted invoices will appear here.</p>:data.invoices.map((i:any)=><button className="ih-invoice-row" key={i.id} type="button" disabled={busy} onClick={()=>run(async()=>setSelected(await call('get_invoice',{invoice_id:i.id})))}><span>{i.invoice_number}<small>Revision {i.revision} · {i.currency}</small></span><span>{i.status.replace(/_/g,' ')}</span></button>)}
+ {selected&&<div className="ih-review" aria-live="polite"><h3>{selected.invoice_number||number} · {selected.status.replace(/_/g,' ')}</h3>
  {['queued','screening'].includes(selected.status)&&<p>Review is processing. You can leave this screen and return later.</p>}
- {(selected.reasons||[]).length>0&&<ul>{selected.reasons.map((r:string)=><li key={r}>{reasonText[r]||r.replaceAll('_',' ')}</li>)}</ul>}
+ {selected.merchant_feedback&&<p>{selected.merchant_feedback}</p>}
+ {(selected.reasons||[]).length>0&&<ul>{selected.reasons.map((r:string)=><li key={r}>{reasonText[r]||r.replace(/_/g,' ')}</li>)}</ul>}
  {(selected.findings||[]).map((f:any,n:number)=><p key={n}>{f.explanation}</p>)}
  {selected.status==='approved'?<><p><CheckCircle2 size={18}/> Approved for this invoice revision.</p><button type="button" className="ih-primary" disabled={busy} onClick={()=>run(download)}><Download size={18}/> Download invoice & payment details</button></>:<p className="ih-muted"><LockKeyhole size={16}/> Payment details are locked. Correct the draft and submit a new revision when requested.</p>}
  </div>}</section></>}
