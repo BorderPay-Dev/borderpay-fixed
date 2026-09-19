@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { evaluateInvoice, invoiceTotalMinor, assessedDigest, compareOrderEvidence, type Invoice, type ReviewContext, type OrderEvidence } from "../supabase/functions/_shared/predeposit-policy.ts";
 import { screenInvoice, assessWithAi } from "../supabase/functions/_shared/predeposit-azure.ts";
+import {generateBankPaymentInstructions} from "../supabase/functions/_shared/predeposit-payment-instructions.ts";
 const h=(c:string)=>c.repeat(64);
 function fixture():{invoice:Invoice;context:ReviewContext}{
  return {invoice:{
- id:"invoice-1",revision:1,currency:"GBP",
+ id:"invoice-1",revision:1,currency:"GBP",receiving_account_id:"va-gbp-1",
  merchant:{legal_name:"Example Merchant Ltd",incorporation_country:"GB"},
  buyer:{legal_name:"Example Buyer Ltd",type:"company",address:"10 Example Street, London",country:"GB",tax_id:"GB123456789"},
  remitter:{legal_name:"Example Buyer Ltd",type:"company",relationship:"Corporate buyer paying its contracted subscription invoice."},
@@ -17,6 +18,7 @@ function fixture():{invoice:Invoice;context:ReviewContext}{
  documents:[{id:"agreement-1",kind:"signed_agreement",sha256:h("c")}],
  instalments:{expected_count:1,commercial_reason:""}
  },context:{
+ merchantUserId:"merchant-1",receivingAccount:{id:"va-gbp-1",owner_user_id:"merchant-1",currency:"GBP",status:"active"},
  verifiedMerchant:{legal_name:"Example Merchant Ltd",incorporation_country:"GB",active:true,approved:true},
  jurisdictionPolicy:{version:"approved-test-policy",known_countries:["GB","FR","LV"],review_countries:[]},
  approvedAgreementVersions:["counsel-approved-v1"],
@@ -117,4 +119,37 @@ Deno.test("Azure JSON cannot overwrite audit binding; model-detected physical go
  });
  assert.equal(ai.model,"gpt4o-test");assert.equal(ai.payload_sha256,await assessedDigest(invoice,context));
  const result=await assessWithAi(invoice,context,ai);assert.ok(result.reasons.includes("document_classification_conflict"));assert.ok(result.reasons.includes("logistics_missing"));
+});
+
+Deno.test("receiving account must be the selected active merchant VA in the invoice currency",()=>{
+ const {invoice,context}=fixture();assert.equal(evaluateInvoice(invoice,context).status,"ready_for_ai");
+ for(const patch of [{id:"other-va"},{owner_user_id:"another-merchant"},{currency:"EUR"},{status:"paused"}]){
+  const changed=structuredClone(context);Object.assign(changed.receivingAccount!,patch);
+  assert.ok(evaluateInvoice(invoice,changed).reasons.includes("receiving_account_invalid"));
+ }
+ context.receivingAccount=null;assert.ok(evaluateInvoice(invoice,context).reasons.includes("receiving_account_invalid"));
+});
+Deno.test("GBP bank instructions are strictly corporate B2B",()=>{
+ for(const type of ["individual","sole_proprietor","government"] as const){
+  const {invoice,context}=fixture();invoice.buyer.type=type;invoice.remitter.type=type;
+  const result=evaluateInvoice(invoice,context);
+  assert.equal(result.status,"action_required");assert.ok(result.reasons.includes("gbp_b2b_only"));
+ }
+ const {invoice,context}=fixture();invoice.remitter.type="individual";
+ assert.ok(evaluateInvoice(invoice,context).reasons.includes("gbp_b2b_only"));
+});
+
+Deno.test("approved invoice formats the selected GBP account including sort code without initiating payment",async()=>{
+ const {invoice,context}=fixture();
+ const approval={status:"approved",payload_sha256:await assessedDigest(invoice,context),policy_version:"borderpay-predeposit-2.4.0",approval_expires_at:"2026-09-21T09:00:00Z",dossier_sha256:h("e")};
+ const account={id:"va-gbp-1",owner_user_id:"merchant-1",currency:"GBP",status:"active",beneficiary_name:"Verified GBP Beneficiary",bank_name:"Example Bank",account_number:"12345678",sort_code:"12-34-56",required_payment_reference:"PROVIDER-REF"};
+ const result=await generateBankPaymentInstructions("merchant-1",invoice,context,approval,account);
+ assert.equal(result.amount,"125.00");assert.equal(result.sort_code,"12-34-56");assert.equal(result.beneficiary_name,"Verified GBP Beneficiary");assert.equal(result.required_payment_reference,"PROVIDER-REF");
+ await assert.rejects(()=>generateBankPaymentInstructions("other-user",invoice,context,approval,account));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,{...approval,status:"review_required"},account));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,{...account,status:"paused"}));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,{...account,sort_code:""}));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,{...approval,approval_expires_at:"2026-09-19T00:00:00Z"},account));
+ invoice.remitter.type="individual";approval.payload_sha256=await assessedDigest(invoice,context);
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,account));
 });

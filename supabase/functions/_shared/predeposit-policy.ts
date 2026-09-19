@@ -13,6 +13,7 @@ export type Reason =
  | "business_proof_missing" | "end_use_missing" | "executed_contract_missing"
  | "government_buyer" | "jurisdiction_review" | "jurisdiction_policy_missing"
  | "possible_structuring" | "history_unavailable" | "evidence_unverified"
+ | "receiving_account_invalid" | "gbp_b2b_only"
  | "order_source_missing" | "order_proof_missing" | "order_extraction_unavailable" | "order_mismatch" | "order_context_missing" | "fulfillment_proof_missing"
  | "ai_unavailable" | "ai_flagged" | "document_classification_conflict";
 export type DocumentKind = "signed_agreement" | "executed_contract" | "purchase_order"
@@ -20,7 +21,7 @@ export type DocumentKind = "signed_agreement" | "executed_contract" | "purchase_
  | "order_dashboard" | "platform_order_export" | "warehouse_receipt" | "dispatch_log";
 export type Evidence = { id: string; kind: DocumentKind; sha256: string; };
 export type Invoice = {
- id: string; revision: number; currency: "USD" | "EUR" | "GBP";
+ id: string; revision: number; currency: "USD" | "EUR" | "GBP"; receiving_account_id: string;
  merchant: { legal_name: string; incorporation_country: string };
  buyer: { legal_name: string; type: "company" | "sole_proprietor" | "individual" | "government"; address: string; country: string; tax_id: string };
  remitter: { legal_name: string; type: "company" | "sole_proprietor" | "individual" | "government"; relationship: string };
@@ -36,6 +37,8 @@ export type Invoice = {
 };
 export type ReviewContext = {
  // Must be loaded by the service, never accepted from the client payload.
+ merchantUserId: string;
+ receivingAccount: { id: string; owner_user_id: string; currency: string; status: string } | null;
  verifiedMerchant: { legal_name: string; incorporation_country: string; active: boolean; approved: boolean };
  jurisdictionPolicy: { version: string; review_countries: string[]; known_countries: string[] } | null;
  approvedAgreementVersions: string[];
@@ -92,7 +95,7 @@ const meaningful = (s: unknown, min = 1): s is string => typeof s === "string" &
 const hash = (s: unknown) => typeof s === "string" && /^[a-f0-9]{64}$/.test(s);
 export const normalizedLegalName = (s: string) => s.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleUpperCase("en-US");
 const vague = /^(services?|consulting|consultancy|it|goods?|payment|invoice|miscellaneous|professional services|business services|software|other)[.!\s]*$/i;
-export function invoiceTotalMinor(items: Invoice["items"]): number | null {
+export function invoiceTotalMinor(items: Pick<Invoice["items"][number], "quantity" | "unit_amount_minor">[]): number | null {
  if (!Array.isArray(items) || !items.length || items.length > 100) return null;
  let total = 0;
  for (const item of items) {
@@ -106,6 +109,10 @@ export function invoiceTotalMinor(items: Invoice["items"]): number | null {
 export function evaluateInvoice(invoice: Invoice, context: ReviewContext, ai: AiReview | null = null): Assessment {
  const actions = new Set<Reason>(); const review = new Set<Reason>(); const required = new Set<DocumentKind>(["signed_agreement"]);
  const total = invoiceTotalMinor(invoice.items);
+ const account=context.receivingAccount;
+ if(!account || !meaningful(invoice.receiving_account_id) || account.id!==invoice.receiving_account_id
+  || account.owner_user_id!==context.merchantUserId || account.currency!==invoice.currency || account.status!=="active")actions.add("receiving_account_invalid");
+ if(invoice.currency==="GBP" && (invoice.buyer.type!=="company" || invoice.remitter.type!=="company"))actions.add("gbp_b2b_only");
  const country = invoice.buyer.country?.trim().toUpperCase();
  const merchantCountry = context.verifiedMerchant.incorporation_country.trim().toUpperCase();
  const crossBorder = country !== merchantCountry;

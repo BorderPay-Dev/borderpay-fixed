@@ -71,6 +71,21 @@ Physical fulfillment:
 - Persist verification source and checked time. Stale, unverified or not-found tracking cannot unlock details.
 - Prepayment orders need possession/warehouse evidence when dispatch has not occurred; do not fabricate shipment status.
 
+## Selected merchant VA and automatic bank-payment instructions (September 20, 2026)
+- Invoice Builder must offer the merchant's existing active USD, EUR and GBP receiving accounts.
+- Selecting a VA sets the invoice currency; show a non-sensitive account label while review is pending.
+- Confirm ownership, currency and active status on the server; never trust a submitted account number or create duplicate VAs for invoices.
+- Freeze the selected VA ID into the invoice revision and evidence digest.
+- Once the exact invoice revision is approved, generate its payment-instruction block automatically and include it in the printable branded PDF:
+  beneficiary name, currency, amount, invoice/payment reference and applicable routing fields.
+- USD: show the bank details actually returned for the selected account and its supported rails.
+- EUR: show IBAN/BIC and the correct merchant beneficiary name from the existing verified VA presentation.
+- GBP: show beneficiary name, account number and SORT CODE; GBP is strictly B2B.
+- GBP requires corporate buyer and corporate remitter types; individual, personal or uncertain/sole-proprietor remitter cases cannot unlock GBP instructions.
+- Revalidate VA status and ownership when exporting/sharing details; an expired approval, paused VA, changed currency, changed buyer or changed selected account requires review.
+- Generated instructions are for the buyer to initiate a bank transfer. This flow does not initiate a payout, debit a balance, or create a new VA.
+- The approval gate takes precedence over “print account details”: selecting an account must not disclose bank identifiers before clearance.
+
 ## Decision and evidence controls
 - Required-document and account checks are deterministic and cannot be overridden by GPT output.
 - Individual remitters, name mismatches, government/municipal buyers, policy-designated jurisdictions and possible structuring require compliance review.
