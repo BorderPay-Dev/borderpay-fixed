@@ -1,7 +1,7 @@
 import { checked, loadPolicy, loadAssetBytes, BUCKET, invoiceDossier } from "./predeposit-runtime.ts";
 import { evaluateInvoice, assessedDigest, canonicalJson, sha256, type ReviewContext } from "./predeposit-policy.ts";
 import { screenInvoice, assessWithAi } from "./predeposit-azure.ts";
-import { startDocumentOcr, pollDocumentOcr } from "./predeposit-document-intelligence.ts";
+import { loadEvidenceOcrConfig, startEvidenceOcr, pollEvidenceOcr } from "./predeposit-evidence-ocr.ts";
 import { extractCommercialEvidence } from "./predeposit-extract.ts";
 export function azureConfig(){return {endpoint:Deno.env.get("AZURE_OPENAI_ENDPOINT")||"",deployment:Deno.env.get("AZURE_OPENAI_DEPLOYMENT_NAME")||"",apiVersion:Deno.env.get("AZURE_OPENAI_API_VERSION")||"2024-10-21",apiKey:Deno.env.get("AZURE_OPENAI_API_KEY")||""};}
 export async function buildAssessment(db:any,row:any,manualContext?:Partial<ReviewContext>){
@@ -14,19 +14,15 @@ export async function buildAssessment(db:any,row:any,manualContext?:Partial<Revi
  context.verifiedEvidenceHashes=assets.filter(a=>a.scan_status==="clean"&&a.verification_status==="verified").map(a=>a.sha256);
  const saved=checked<any>(await db.from("predeposit_processing_jobs").select("jobs").eq("invoice_id",row.id).maybeSingle());
  const jobs:any=saved?.jobs||{};
- let ocrConfig={endpoint:Deno.env.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")||"",apiKey:Deno.env.get("AZURE_DOCUMENT_INTELLIGENCE_KEY")||""};
- if(!ocrConfig.endpoint||!ocrConfig.apiKey){
-  const config=await db.rpc("predeposit_ocr_config");
-  if(!config.error&&config.data)ocrConfig={endpoint:String(config.data.endpoint||""),apiKey:String(config.data.apiKey||"")};
- }
+ const ocrConfig=await loadEvidenceOcrConfig(db);
  let pending=false;
  for(const asset of assets.filter(a=>["executed_contract","order_dashboard","platform_order_export"].includes(a.kind))){
   if(asset.scan_status==="rejected")continue;
   const kind=asset.kind==="executed_contract"?"contract":"order";
   let job=jobs[asset.id];
-  if(!job && ocrConfig.endpoint&&ocrConfig.apiKey){job={ocr:await startDocumentOcr(await loadAssetBytes(db,asset),asset.mime_type,ocrConfig)};jobs[asset.id]=job;}
+  if(!job && ocrConfig.endpoint&&ocrConfig.apiKey){job={ocr:await startEvidenceOcr(await loadAssetBytes(db,asset),asset.mime_type,ocrConfig)};jobs[asset.id]=job;}
   if(job?.ocr?.status==="pending"&&!job.result){
-   const result=await pollDocumentOcr(job.ocr,ocrConfig);
+   const result=await pollEvidenceOcr(job.ocr,ocrConfig);
    if(result.status==="pending")pending=true;else job.result=result;
   }
   if(job?.result?.status==="succeeded"&&!job.extractionAttempted){job.extracted=await extractCommercialEvidence(job.result,kind,azureConfig());job.extractionAttempted=true;}

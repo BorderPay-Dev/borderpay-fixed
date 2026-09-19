@@ -133,4 +133,17 @@ try {
  await db.exec("reset role");
  console.log('PASS: durable queue dispatcher requires a server credential and is inaccessible to merchant sessions');
 
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920070000_predeposit_content_understanding.sql',import.meta.url),'utf8'));
+ assert.equal((await db.query("select predeposit_ocr_config() config")).rows[0].config.provider,'document_intelligence');
+ await db.exec("insert into vault.decrypted_secrets values('borderpay_predeposit_ocr_provider','content_understanding'),('borderpay_content_understanding_endpoint','https://test.services.ai.azure.com'),('borderpay_content_understanding_key','test-key')");
+ await db.exec("set role service_role");
+ assert.deepEqual((await db.query("select predeposit_ocr_config() config")).rows[0].config,{provider:'content_understanding',endpoint:'https://test.services.ai.azure.com',apiKey:'test-key'});
+ await db.exec("reset role;set role authenticated");
+ await assert.rejects(()=>db.query("select predeposit_ocr_config()"),/permission denied/);
+ await db.exec("reset role;set role anon");
+ await assert.rejects(()=>db.query("select predeposit_ocr_config()"),/permission denied/);
+ await db.exec("reset role;update vault.decrypted_secrets set decrypted_secret='typo' where name='borderpay_predeposit_ocr_provider'");
+ await assert.rejects(()=>db.query("select predeposit_ocr_config()"),/Invalid OCR provider/);
+ console.log('PASS: explicit OCR provider selection, service-only Vault credentials and no invalid-provider fallback');
+
 }finally{await db.close();}
