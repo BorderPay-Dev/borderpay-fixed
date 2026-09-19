@@ -9,7 +9,7 @@ Deno.test("synthetic worker probe uses only credential RPC and never writes prod
   const assets=await fake.from("predeposit_assets").select("*").eq("owner_user_id",row.owner_user_id);
   context.verifiedEvidenceHashes=assets.data.map((a:any)=>a.sha256);
   const ai={status:"passed" as const,findings:[],provider_request_id:null,model:"test",prompt_version:"test",payload_sha256:await assessedDigest(row.payload,context),physical_goods_detected:false};
-  return {pending:false,context,assessment:evaluateInvoice(row.payload,context,ai)};
+  return {pending:false,context,assessment:{...evaluateInvoice(row.payload,context,ai),payload_sha256:row.payload_sha256,assessed_sha256:ai.payload_sha256,review_context:context,config_sha256:row.review_context.config_sha256,deterministic_status:"ready_for_ai"}};
  });
  assert.equal(report.production_records_written,0);assert.equal(report.provider_accounts_called,0);
  assert.equal(report.all_expected,true);assert.equal(report.results.length,5);
