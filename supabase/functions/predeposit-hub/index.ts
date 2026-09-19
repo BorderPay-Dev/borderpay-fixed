@@ -49,7 +49,13 @@ Deno.serve(async req=>{
   const bytes=await readLimited(req,1024*1024);const body=JSON.parse(new TextDecoder().decode(bytes));const action=String(body.action||"");
   if(action.startsWith("admin_")){
    if(!canReview)return reply({success:false,error:"Compliance operator access required"},403);
-   if(action==="admin_list"){return reply({success:true,data:checked(await db.from("predeposit_invoices").select("id,owner_user_id,invoice_number,currency,total_minor,status,created_at,assessment").in("status",["action_required","review_required","queued","screening"]).order("created_at").limit(200))});}
+   if(action==="admin_list"){
+    const statuses=body.status==="all"?["action_required","review_required","queued","screening","approved","rejected","expired"]:
+     body.status==="approved"?["approved"]:body.status==="rejected"?["rejected"]:["action_required","review_required","queued","screening"];
+    let q=db.from("predeposit_invoices").select("id,owner_user_id,invoice_number,currency,total_minor,status,created_at").in("status",statuses).order("created_at",{ascending:false}).limit(200);
+    const reference=String(body.reference||"").trim();if(reference)q=q.eq("invoice_number",reference.slice(0,100));
+    return reply({success:true,data:checked(await q)});
+   }
    if(action==="admin_get"){
     const row=checked<any>(await db.from("predeposit_invoices").select("*").eq("id",uuid(body.invoice_id)).single());
     const documents=checked(await db.from("predeposit_assets").select("id,kind,sha256,mime_type,scan_status,verification_status").eq("owner_user_id",row.owner_user_id).in("id",row.payload.documents.map((d:any)=>d.id)));
