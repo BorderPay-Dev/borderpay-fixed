@@ -1,0 +1,26 @@
+name: Partner key approval reconciliation
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/api-gateway-admin/**'
+      - 'supabase/functions/_shared/api-*.ts'
+      - 'supabase/migrations/20260919210000_partner_key_approval_reconciliation.sql'
+      - 'tests/partner-key-reconciliation.test.mjs'
+      - '.github/workflows/partner-key-reconciliation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno check --no-config --node-modules-dir=auto supabase/functions/api-gateway-admin/index.ts
+      - run: npm install --prefix /tmp/partner-db-test --no-save --package-lock=false @electric-sql/pglite@0.3.14
+      - run: PGLITE_MODULE=file:///tmp/partner-db-test/node_modules/@electric-sql/pglite/dist/index.js node tests/partner-key-reconciliation.test.mjs
