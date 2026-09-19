@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+const {PGlite}=await import(process.env.PGLITE_MODULE||'@electric-sql/pglite');
+const db=new PGlite();
+try {
+ await db.exec(`
+ create role anon;create role authenticated;create role service_role bypassrls;
+ create schema auth;create schema storage;
+ create table auth.users(id uuid primary key);
+ create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+ grant usage on schema auth to authenticated;
+ create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+ `);
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920010000_predeposit_evidence_foundation.sql',import.meta.url),'utf8'));
+ const owner='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002';
+ await db.query('insert into auth.users values($1),($2)',[owner,other]);
+ const add=async(user,no)=>(await db.query("insert into predeposit_invoices(owner_user_id,invoice_number,revision,currency,total_minor,buyer_identity_hash,payload,payload_sha256,policy_version) values($1,$2,1,'GBP',12500,$3,'{}',$3,'borderpay-predeposit-2.4.0') returning id",[user,no,'a'.repeat(64)])).rows[0].id;
+ const first=await add(owner,'INV-1');const second=await add(other,'INV-2');
+ await assert.rejects(db.query("update predeposit_invoices set total_minor=1 where id=$1",[first]),/immutable/);
+ await assert.rejects(db.query("delete from predeposit_invoices where id=$1",[first]),/cannot be deleted/);
+ await assert.rejects(db.query("insert into predeposit_documents(invoice_id,owner_user_id,kind,storage_path,sha256,mime_type,size_bytes) values($1,$2,'order_dashboard','bad',$3,'application/pdf',10)",[first,other,'b'.repeat(64)]),/owner/);
+ await db.query("insert into predeposit_documents(invoice_id,owner_user_id,kind,storage_path,sha256,mime_type,size_bytes) values($1,$2,'order_dashboard','safe',$3,'application/pdf',10)",[first,owner,'b'.repeat(64)]);
+ await assert.rejects(db.query("update predeposit_documents set sha256=$1",['c'.repeat(64)]),/append-only/);
+ const claim=(await db.query('select claim_predeposit_invoice($1) x',[first])).rows[0].x;
+ assert.equal(claim.status,'screening');assert.ok(claim.lease_id);
+ assert.equal((await db.query('select claim_predeposit_invoice($1) x',[first])).rows[0].x,null);
+ const assessment={status:'approved',payload_sha256:'a'.repeat(64),policy_version:'borderpay-predeposit-2.4.0',reasons:[]};
+ assert.equal((await db.query('select finish_predeposit_screening($1,$2,$3) x',[first,crypto.randomUUID(),assessment])).rows[0].x,false);
+ await assert.rejects(db.query('select finish_predeposit_screening($1,$2,$3)',[first,claim.lease_id,{...assessment,payload_sha256:'c'.repeat(64)}]),/does not match/);
+ assert.equal((await db.query('select finish_predeposit_screening($1,$2,$3) x',[first,claim.lease_id,assessment])).rows[0].x,true);
+ assert.equal((await db.query('select status from predeposit_invoices where id=$1',[first])).rows[0].status,'review_required');
+ await assert.rejects(db.query('delete from predeposit_reviews'),/append-only/);
+ assert.equal((await db.query('select finish_predeposit_screening($1,$2,$3) x',[first,claim.lease_id,assessment])).rows[0].x,false);
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);await db.exec('set role authenticated');
+ assert.equal((await db.query('select count(*)::int n from predeposit_invoices')).rows[0].n,1);
+ assert.equal((await db.query('select count(*)::int n from predeposit_invoices where id=$1',[second])).rows[0].n,0);
+ await assert.rejects(db.query('select claim_predeposit_invoice($1)',[first]),/permission denied/);
+ await assert.rejects(db.query("update predeposit_invoices set status='approved'"),/permission denied/);
+ await db.exec('reset role');
+ assert.equal((await db.query('select mode from predeposit_policy')).rows[0].mode,'disabled');
+ assert.equal((await db.query("select public from storage.buckets where id='predeposit-evidence'")).rows[0].public,false);
+ console.log('PASS: private evidence, tenant RLS, immutable snapshots, append-only audit, scoped documents, worker leases, digest binding, no automatic final approval, disabled rollout');
+}finally{await db.close();}

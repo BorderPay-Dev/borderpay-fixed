@@ -1,0 +1,30 @@
+name: Pre-deposit compliance gate
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/predeposit-*.ts'
+      - 'supabase/migrations/*predeposit*.sql'
+      - 'tests/predeposit-*'
+      - 'docs/PREDEPOSIT_GATE_V24_BUILD_SPEC.md'
+      - '.github/workflows/predeposit-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rules-and-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Validate rules, Azure failures, CRM matching and OCR boundaries
+        run: deno test --no-config tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install isolated database test runtime
+        run: npm install --prefix /tmp/predeposit-db-test --no-save --package-lock=false @electric-sql/pglite@0.3.14
+      - name: Validate evidence access and worker state transitions
+        run: PGLITE_MODULE=file:///tmp/predeposit-db-test/node_modules/@electric-sql/pglite/dist/index.js node tests/predeposit-evidence.test.mjs
