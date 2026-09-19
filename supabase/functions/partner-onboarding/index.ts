@@ -441,7 +441,8 @@ Deno.serve(async (req) => {
         .select("draft,published,status,revision,app_origin,domain_challenge,domain_verified_at,published_at,review_requested_at,updated_at")
         .eq("tenant_id", tenantId).maybeSingle();
       if (releaseError) throw releaseError;
-      const isApiPartner = approvedProducts.length === 1 && approvedProducts[0] === "api";
+      const isApiPartner = approvedProducts.includes("api");
+      const hasIntegrationAccess = approvedProducts.some((product: string) => product === "api" || product === "white_label");
       const whiteLabelResources = approvedProducts.includes("white_label")
         ? await db.rpc("white_label_workspace_resources",{p_tenant_id:tenantId}) : {data:[],error:null};
       if(whiteLabelResources.error) throw whiteLabelResources.error;
@@ -454,9 +455,9 @@ Deno.serve(async (req) => {
         tenant: tenantQ.data,
         approval: approvalQ.data,
         white_label_release: whiteLabelRelease,
-        api_keys: isApiPartner ? (keysQ.data || []) : [],
-        ip_allowlist: isApiPartner ? (ipsQ.data || []) : [],
-        webhooks: isApiPartner ? (hooksQ.data || []) : [],
+        api_keys: hasIntegrationAccess ? (keysQ.data || []) : [],
+        ip_allowlist: hasIntegrationAccess ? (ipsQ.data || []) : [],
+        webhooks: hasIntegrationAccess ? (hooksQ.data || []) : [],
         activity: activityQ.data || [],
         pricing: pricingQ.data || [],
         members: safeMembers,
@@ -705,7 +706,7 @@ Deno.serve(async (req) => {
       if (approval?.status !== "approved" || !Array.isArray(approval.approved_products)) {
         return json(req, { success: false, error: "Partner product approval is required before creating keys" }, 403);
       }
-      const scopeAllowed = approval.approved_products.length === 1 && approval.approved_products[0] === "api";
+      const scopeAllowed = approval.approved_products.includes("api") || (approval.approved_products.includes("white_label") && scopes.every((scope: string) => scope.endsWith(":read") || scope === "onboarding:write"));
       if (!scopeAllowed) return json(req, { success: false, error: "The selected scopes exceed this project's approved products" }, 403);
       const key = newApiKey(tenant.default_mode === "production" ? "production" : "sandbox");
       const { data, error } = await db.from("api_keys").insert({
@@ -727,7 +728,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "API keys are available only to API partners" }, 403);
+      if (approval?.status !== "approved" || !approval.approved_products?.some((product: string) => product === "api" || product === "white_label")) return json(req, { success: false, error: "API keys require approved API or white-label access" }, 403);
       const keyId = clean(body.key_id, 40);
       const { data, error } = await db.from("api_keys").update({ is_active: false, revoked_at: new Date().toISOString() })
         .eq("id", keyId).eq("tenant_id", tenantId).select("id,key_prefix,is_active,revoked_at").single();
@@ -740,7 +741,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "IP allowlists are available only to API partners" }, 403);
+      if (approval?.status !== "approved" || !approval.approved_products?.some((product: string) => product === "api" || product === "white_label")) return json(req, { success: false, error: "IP allowlists require approved API or white-label access" }, 403);
       const cidr = clean(body.cidr_block, 80);
       if (!cidr || !/^[0-9a-f:.]+(?:\/\d{1,3})?$/i.test(cidr)) return json(req, { success: false, error: "Valid IPv4/IPv6 CIDR required" }, 400);
       const { data, error } = await db.from("api_ip_allowlist").insert({ tenant_id: tenantId, cidr_block: cidr, note: clean(body.note, 200) || null })
@@ -754,7 +755,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "IP allowlists are available only to API partners" }, 403);
+      if (approval?.status !== "approved" || !approval.approved_products?.some((product: string) => product === "api" || product === "white_label")) return json(req, { success: false, error: "IP allowlists require approved API or white-label access" }, 403);
       const id = clean(body.id, 40);
       const { error } = await db.from("api_ip_allowlist").update({ is_active: false }).eq("id", id).eq("tenant_id", tenantId);
       if (error) throw error;
@@ -766,7 +767,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "Webhooks are available only to API partners" }, 403);
+      if (approval?.status !== "approved" || !approval.approved_products?.some((product: string) => product === "api" || product === "white_label")) return json(req, { success: false, error: "Webhooks require approved API or white-label access" }, 403);
       let endpointUrl: string;
       try { endpointUrl = validateApiWebhookEndpointUrl(clean(body.endpoint_url, 500)); }
       catch (error) { return json(req, { success: false, error: (error as Error).message }, 400); }
@@ -791,7 +792,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canDevelop) return json(req, { success: false, error: "Developer access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "Webhooks are available only to API partners" }, 403);
+      if (approval?.status !== "approved" || !approval.approved_products?.some((product: string) => product === "api" || product === "white_label")) return json(req, { success: false, error: "Webhooks require approved API or white-label access" }, 403);
       const id = clean(body.webhook_id, 40);
       const { data: current, error: currentError } = await db.from("api_webhook_endpoints").select("id,signing_secret_version").eq("id", id).eq("tenant_id", tenantId).maybeSingle();
       if (currentError) throw currentError;
@@ -815,7 +816,7 @@ Deno.serve(async (req) => {
       requireOperationalTenant();
       if (!canManage) return json(req, { success: false, error: "Owner or admin access required" }, 403);
       const approval = await loadTenantApproval();
-      if (approval?.approved_products?.length !== 1 || approval.approved_products[0] !== "api") return json(req, { success: false, error: "Webhooks are available only to API partners" }, 403);
+      if (approval?.status !== "approved" || !approval.approved_products?.some((product: string) => product === "api" || product === "white_label")) return json(req, { success: false, error: "Webhooks require approved API or white-label access" }, 403);
       const id = clean(body.webhook_id, 40);
       const { error } = await db.from("api_webhook_endpoints").update({ is_active: false, delivery_enabled: false }).eq("id", id).eq("tenant_id", tenantId);
       if (error) throw error;
