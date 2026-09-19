@@ -13,6 +13,7 @@ export type Reason =
  | "business_proof_missing" | "end_use_missing" | "executed_contract_missing"
  | "government_buyer" | "jurisdiction_review" | "jurisdiction_policy_missing"
  | "possible_structuring" | "history_unavailable" | "evidence_unverified"
+ | "contract_path_missing" | "contract_extraction_unavailable" | "contract_entity_mismatch" | "contract_value_mismatch" | "contract_scope_missing" | "contract_signatures_missing" | "contract_execution_unverified"
  | "receiving_account_invalid" | "gbp_b2b_only"
  | "order_source_missing" | "order_proof_missing" | "order_extraction_unavailable" | "order_mismatch" | "order_context_missing" | "fulfillment_proof_missing"
  | "ai_unavailable" | "ai_flagged" | "document_classification_conflict";
@@ -31,7 +32,8 @@ export type Invoice = {
  items: { description: string; quantity: number; unit_amount_minor: number; deliverable_reference: string }[];
  source_of_funds: string; fund_utilization: string;
  discovery_channel: string; cross_border_justification: string; commercial_end_use: string;
- agreement: { version: string; terms_sha256: string; signature_sha256: string; signed_by: string; signed_at: string };
+ contract_path: "generated" | "custom";
+ agreement: { version: string; terms_sha256: string; signature_sha256: string; signed_by: string; signed_at: string; signature_consent: boolean };
  documents: Evidence[];
  instalments: { expected_count: number; commercial_reason: string };
 };
@@ -48,9 +50,27 @@ export type ReviewContext = {
  structuring: { max_invoices_30d: number; aggregate_review_minor: Partial<Record<Invoice["currency"], number>> } | null;
  verifiedEvidenceHashes: string[];
  orderEvidence: OrderEvidence | null;
+ contractEvidence: ContractEvidence | null;
  trackingVerifications: { number: string; status: "active" | "delivered" | "unverified" | "not_found"; checked_at: string; verified_by: "carrier_api" | "compliance" }[];
  now: string;
 };
+export type ContractEvidence = {
+ document_sha256: string; extraction_status: "succeeded" | "pending" | "failed";
+ confidence: number; seller_name: string; buyer_name: string; currency: string; total_minor: number;
+ commercial_scope: string; seller_signature_present: boolean; buyer_signature_present: boolean;
+ execution_verified: boolean; verification_source: "digital_signature_validation" | "compliance" | "unverified";
+};
+export function compareContractEvidence(invoice: Invoice,evidence:ContractEvidence):Reason[]{
+ if(evidence.extraction_status!=="succeeded" || !Number.isFinite(evidence.confidence) || evidence.confidence<0.98 || evidence.confidence>1)return ["contract_extraction_unavailable"];
+ const reasons:Reason[]=[];
+ if(normalizedLegalName(evidence.seller_name)!==normalizedLegalName(invoice.merchant.legal_name)
+  || normalizedLegalName(evidence.buyer_name)!==normalizedLegalName(invoice.buyer.legal_name)) reasons.push("contract_entity_mismatch");
+ if(evidence.currency.trim().toUpperCase()!==invoice.currency || evidence.total_minor!==invoiceTotalMinor(invoice.items)) reasons.push("contract_value_mismatch");
+ if(!meaningful(evidence.commercial_scope,40) || vague.test(evidence.commercial_scope.trim()))reasons.push("contract_scope_missing");
+ if(!evidence.seller_signature_present || !evidence.buyer_signature_present)reasons.push("contract_signatures_missing");
+ if(!evidence.execution_verified || !["digital_signature_validation","compliance"].includes(evidence.verification_source))reasons.push("contract_execution_unverified");
+ return reasons;
+}
 export type OrderEvidence = {
  document_sha256: string; extraction_status: "succeeded" | "failed" | "pending";
  confidence: number; buyer_name: string; order_id: string; currency: string; total_minor: number;
@@ -107,7 +127,7 @@ export function invoiceTotalMinor(items: Pick<Invoice["items"][number], "quantit
  return total;
 }
 export function evaluateInvoice(invoice: Invoice, context: ReviewContext, ai: AiReview | null = null): Assessment {
- const actions = new Set<Reason>(); const review = new Set<Reason>(); const required = new Set<DocumentKind>(["signed_agreement"]);
+ const actions = new Set<Reason>(); const review = new Set<Reason>(); const required = new Set<DocumentKind>(invoice.contract_path==="custom"?["executed_contract"]:["signed_agreement"]);
  const total = invoiceTotalMinor(invoice.items);
  const account=context.receivingAccount;
  if(!account || !meaningful(invoice.receiving_account_id) || account.id!==invoice.receiving_account_id
@@ -146,10 +166,21 @@ export function evaluateInvoice(invoice: Invoice, context: ReviewContext, ai: Ai
  else if ([country,merchantCountry].some(c=>context.jurisdictionPolicy!.review_countries.includes(c))) {
   review.add("jurisdiction_review"); required.add("executed_contract");
  }
- const agreement = invoice.agreement;
- if (!context.approvedAgreementVersions.includes(agreement.version) || !hash(agreement.terms_sha256)) actions.add("agreement_missing");
- const signedTime = Date.parse(agreement.signed_at);const now = Date.parse(context.now);
- if (!hash(agreement.signature_sha256) || !meaningful(agreement.signed_by,2) || !Number.isFinite(signedTime) || !Number.isFinite(now) || signedTime > now) actions.add("signature_missing");
+ if(!["generated","custom"].includes(invoice.contract_path))actions.add("contract_path_missing");
+ if(invoice.contract_path==="generated"){
+  const agreement = invoice.agreement;
+  if (!context.approvedAgreementVersions.includes(agreement.version) || !hash(agreement.terms_sha256)) actions.add("agreement_missing");
+  const signedTime = Date.parse(agreement.signed_at);const now = Date.parse(context.now);
+  if (!hash(agreement.signature_sha256) || !meaningful(agreement.signed_by,2) || !Number.isFinite(signedTime) || !Number.isFinite(now) || signedTime > now || agreement.signature_consent!==true) actions.add("signature_missing");
+ }else if(invoice.contract_path==="custom"){
+  const contract=invoice.documents.find(d=>d.kind==="executed_contract" && hash(d.sha256));
+  if(!contract)actions.add("executed_contract_missing");
+  else if(!context.contractEvidence || context.contractEvidence.document_sha256!==contract.sha256)review.add("contract_extraction_unavailable");
+  else compareContractEvidence(invoice,context.contractEvidence).forEach(reason=>{
+   if(["contract_entity_mismatch","contract_value_mismatch","contract_scope_missing","contract_signatures_missing"].includes(reason))actions.add(reason);
+   else review.add(reason);
+  });
+ }
  if (!context.history.available || !context.structuring) review.add("history_unavailable");
  else {
   const threshold=context.structuring.aggregate_review_minor[invoice.currency];

@@ -14,7 +14,7 @@ function fixture():{invoice:Invoice;context:ReviewContext}{
  source_of_funds:"Buyer's operating revenue from its declared commercial activities.",
  fund_utilization:"Settlement for the September 2026 enterprise software subscription.",
  discovery_channel:"",cross_border_justification:"",commercial_end_use:"",
- agreement:{version:"counsel-approved-v1",terms_sha256:h("a"),signature_sha256:h("b"),signed_by:"Example Director",signed_at:"2026-09-19T09:00:00Z"},
+ contract_path:"generated",agreement:{signature_consent:true,version:"counsel-approved-v1",terms_sha256:h("a"),signature_sha256:h("b"),signed_by:"Example Director",signed_at:"2026-09-19T09:00:00Z"},
  documents:[{id:"agreement-1",kind:"signed_agreement",sha256:h("c")}],
  instalments:{expected_count:1,commercial_reason:""}
  },context:{
@@ -24,7 +24,7 @@ function fixture():{invoice:Invoice;context:ReviewContext}{
  approvedAgreementVersions:["counsel-approved-v1"],
  history:{available:true,buyer_invoice_count_30d:0,same_currency_total_minor_30d:0},
  structuring:{max_invoices_30d:4,aggregate_review_minor:{USD:1000000,EUR:1000000,GBP:1000000}},
- verifiedEvidenceHashes:[h("c")],orderEvidence:null,trackingVerifications:[],
+ verifiedEvidenceHashes:[h("c")],orderEvidence:null,contractEvidence:null,trackingVerifications:[],
  now:"2026-09-20T09:00:00Z"
  }};
 }
@@ -166,4 +166,42 @@ Deno.test("USD and EUR instruction blocks expose only the selected account's cur
   else{assert.equal(result.iban,account.iban);assert.equal(result.bic,account.bic);assert.equal(result.routing_number,undefined);assert.equal(result.account_number,undefined);}
   await assert.rejects(()=>generateBankPaymentInstructions(context.merchantUserId,invoice,context,approval,account,"2026-09-22T00:00:00Z"));
  }
+});
+
+function customContract(){
+ const {invoice,context}=fixture();invoice.contract_path="custom";
+ invoice.documents=[{id:"custom-contract",kind:"executed_contract",sha256:h("d")}];context.verifiedEvidenceHashes=[h("d")];
+ context.approvedAgreementVersions=[];
+ context.contractEvidence={document_sha256:h("d"),extraction_status:"succeeded",confidence:0.999,seller_name:invoice.merchant.legal_name,buyer_name:invoice.buyer.legal_name,currency:invoice.currency,total_minor:12500,
+ commercial_scope:"Provision of the September 2026 enterprise SaaS licence with 20 seats under the documented commercial agreement.",
+ seller_signature_present:true,buyer_signature_present:true,execution_verified:true,verification_source:"digital_signature_validation"};
+ return {invoice,context};
+}
+Deno.test("custom contract can satisfy the contract requirement without a generated template",async()=>{
+ const {invoice,context}=customContract();assert.equal(evaluateInvoice(invoice,context).status,"ready_for_ai");
+ const ai={status:"passed" as const,findings:[],provider_request_id:"request",model:"configured-gpt4o",prompt_version:"v1",payload_sha256:await assessedDigest(invoice,context),physical_goods_detected:false};
+ assert.equal((await assessWithAi(invoice,context,ai)).status,"approved");
+});
+Deno.test("custom contract mismatches give specific correction reasons",()=>{
+ for(const [patch,reason] of [
+  [{seller_name:"Wrong Seller"},"contract_entity_mismatch"],[{buyer_name:"Wrong Buyer"},"contract_entity_mismatch"],
+  [{total_minor:12501},"contract_value_mismatch"],[{currency:"EUR"},"contract_value_mismatch"],
+  [{commercial_scope:"Services"},"contract_scope_missing"],[{seller_signature_present:false},"contract_signatures_missing"],
+  [{buyer_signature_present:false},"contract_signatures_missing"]
+ ] as const){
+  const {invoice,context}=customContract();Object.assign(context.contractEvidence!,patch);
+  const result=evaluateInvoice(invoice,context);assert.equal(result.status,"action_required");assert.ok(result.reasons.includes(reason));
+ }
+});
+Deno.test("OCR signature detection alone cannot establish execution or approve mismatched evidence",()=>{
+ const {invoice,context}=customContract();context.contractEvidence!.execution_verified=false;context.contractEvidence!.verification_source="unverified";
+ assert.ok(evaluateInvoice(invoice,context).reasons.includes("contract_execution_unverified"));
+ context.contractEvidence!.document_sha256=h("e");assert.ok(evaluateInvoice(invoice,context).reasons.includes("contract_extraction_unavailable"));
+ context.contractEvidence=null;assert.ok(evaluateInvoice(invoice,context).reasons.includes("contract_extraction_unavailable"));
+});
+Deno.test("saved signature requires consent for each generated agreement; contract pass never bypasses GBP",()=>{
+ const {invoice,context}=fixture();invoice.agreement.signature_consent=false;
+ assert.ok(evaluateInvoice(invoice,context).reasons.includes("signature_missing"));
+ const custom=customContract();custom.invoice.remitter.type="individual";
+ assert.ok(evaluateInvoice(custom.invoice,custom.context).reasons.includes("gbp_b2b_only"));
 });

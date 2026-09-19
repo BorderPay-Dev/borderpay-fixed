@@ -71,6 +71,28 @@ Physical fulfillment:
 - Persist verification source and checked time. Stale, unverified or not-found tracking cannot unlock details.
 - Prepayment orders need possession/warehouse evidence when dispatch has not occurred; do not fabricate shipment status.
 
+## Dual contract workflow (September 20, 2026)
+**Pathway A — Generate B2B agreement**
+- Populate a versioned, Compliance-approved standard agreement with verified seller, buyer, line items, invoice amount and currency.
+- Show the populated terms before generation. The Generate & Sign action must explicitly authorize use of the merchant's saved signature for that exact invoice revision.
+- Bind signer name, consent, signature image hash, terms hash and signing timestamp to the immutable revision.
+- Merge branded invoice and signed agreement into the final evidence PDF after required checks pass.
+- A profile signature alone is not authorization to sign all future agreements.
+
+**Pathway B — Upload custom PDF contract / SOW**
+- Require a PDF tied to the exact invoice revision and immutable file hash; validate bytes, size and malware-scan outcome before processing.
+- Run Document Intelligence OCR, followed by structured GPT-4o commercial-document inspection.
+- Reconcile seller and buyer legal names, currency and financial value deterministically against the invoice.
+- Require clear, specific commercial scope. AI must explain any contradiction with the invoice line items.
+- Require visible execution evidence for the required parties, with field/page citations. Independently verify execution through signature-validation evidence or recorded Compliance review.
+- OCR/GPT may detect a signature mark; this alone does not authenticate the signer or prove valid execution.
+- Master agreements, schedules, multi-invoice caps or currency differences that cannot be matched directly need human review; AI must not invent a prorated allocation.
+- A custom contract substitutes for the generated agreement; it does not require the standard template to be approved.
+- Contract clearance is only one part of invoice approval. Remitter mismatch, strict GBP B2B, logistics, CRM, source-of-funds, account state and all other requirements still apply.
+
+Customer feedback must identify the exact issue: seller/buyer name mismatch, amount/currency mismatch, missing commercial scope, missing signatures, unclear execution or unavailable extraction. Display FLAGGED with actionable correction details for action-required findings and a distinct compliance-review state when verification is needed.
+A passing audit may advance the invoice to APPROVED only after all independent checks, verified evidence and dossier prerequisites succeed. Changes require a new revision and fresh audit.
+
 ## Selected merchant VA and automatic bank-payment instructions (September 20, 2026)
 - Invoice Builder must offer the merchant's existing active USD, EUR and GBP receiving accounts.
 - Selecting a VA sets the invoice currency; show a non-sensitive account label while review is pending.
@@ -141,7 +163,7 @@ Create a server-generated, versioned dossier with:
 Bridge's exact current RFI examples/submission format must be supplied or verified before claiming compatibility. Dossier assembly is automated; submission must follow the actual provider workflow and Compliance authority. This does not guarantee zero delays, no holds or provider acceptance.
 
 ## Implemented in this branch
-- Deterministic v2.4 rule engine, including CRM and fulfillment checks.
+- Deterministic v2.4 rule engine, including CRM, fulfillment, generated-agreement consent and custom-contract reconciliation checks.
 - Bank-instruction formatter bound to approved invoice revision, selected merchant VA, currency, current account status and approval expiry; GBP corporate B2B and sort-code checks.
 - Azure OpenAI structured-output screening adapter with fail-closed behavior and digest binding.
 - Azure Document Intelligence asynchronous layout adapter with file-byte validation and same-origin operation checks.
