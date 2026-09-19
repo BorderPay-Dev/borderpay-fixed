@@ -88,26 +88,10 @@ Deno.serve(async (req) => {
   }
 
   const accountType = String(profile.account_type || "individual").trim().toLowerCase();
-  if (accountType !== "business") {
-    return json(req, {
-      success: false,
-      code: "business_account_required",
-      error: "The BorderPay Business Referral Program is available to verified Business accounts only",
-    }, 403);
-  }
-  const { data: business, error: businessError } = await db.from("business_profiles")
-    .select("bridge_customer_id,bridge_kyb_status,status")
-    .eq("user_id", user.id).maybeSingle();
-  if (businessError || !business) return json(req, { success: false, error: "Business verification could not be confirmed" }, 403);
-  const businessStatus = String(business.status || "").trim().toLowerCase();
-  if (LOCKED_STATUSES.has(businessStatus) || businessStatus === "rejected") {
-    return json(req, { success: false, code: "business_inactive", error: "This Business account cannot access the referral portal" }, 403);
-  }
-  const verificationStatus = String(business.bridge_kyb_status || "").trim().toLowerCase();
-  const bridgeCustomerId = business.bridge_customer_id || profile.bridge_customer_id || null;
-  if (!verified(verificationStatus)) {
-    return json(req, { success: false, code: "verification_required", error: "Complete BorderPay verification before accessing the affiliate portal" }, 403);
-  }
+  const { data: eligible, error: eligibleError } = await db.rpc("affiliate_member_eligible", { p_user_id: user.id });
+  if (eligibleError) return json(req,{success:false,error:"Affiliate access is temporarily unavailable"},503);
+  if (eligible !== true) return json(req,{success:false,code:"verification_required",error:"An active, verified BorderPay account is required"},403);
+  const bridgeCustomerId = profile.bridge_customer_id || null;
 
   const now = Math.floor(Date.now() / 1000);
   const ttlSeconds = Math.min(Math.max(Number(Deno.env.get("AFFILIATE_SSO_TTL_SECONDS") || 300), 60), 300);

@@ -258,3 +258,7 @@ verify_jwt = true
 
 [functions.flutterwave-webhook]
 verify_jwt = false
+
+# Internal affiliate fee lifecycle. Dedicated worker bearer checked in code.
+[functions.affiliate-reward-worker]
+verify_jwt = false

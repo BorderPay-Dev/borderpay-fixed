@@ -1,5 +1,6 @@
 import { createPartnerAccessLink } from "../_shared/partner-access-invite.ts";
 import { resendPartnerInvitation } from "../_shared/partner-invite-resend.ts";
+import { checkPartnerLegalIdentity } from "../_shared/partner-legal-identity.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -24,7 +25,6 @@ const cors = (req: Request) => ({
 });
 const json = (req: Request, body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors(req), "Content-Type": "application/json" } });
 const clean = (value: unknown, max = 2000) => String(value ?? "").trim().slice(0, max);
-const comparable = (value: unknown) => clean(value, 300).toLowerCase().replace(/[^a-z0-9]/g, "");
 const normalizeEmail = (value: unknown) => clean(value, 254).toLowerCase();
 const validEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const ilikeLiteral = (value: string) => value.replace(/[\\%_]/g, "\\$&");
@@ -525,13 +525,10 @@ Deno.serve(async (req) => {
         return json(req, { success: false, error: "Bridge business KYB is not approved and active" }, 409);
       }
       const entity = application.entity_details || {};
-      const checks = {
-        legal_name: comparable(entity.legal_name) === comparable(business.company_name),
-        registration_number: comparable(entity.registration_number) === comparable(business.registration_number),
-        country: clean(entity.country_of_incorporation, 2).toUpperCase() === clean(business.country, 2).toUpperCase(),
-      };
-      if (!checks.legal_name || !checks.registration_number || !checks.country) {
-        return json(req, { success: false, error: "Partner legal identity does not exactly match the verified Bridge business", checks }, 409);
+      const identity = checkPartnerLegalIdentity(entity, business);
+      const checks = identity.checks;
+      if (!identity.ok) {
+        return json(req, { success: false, error: identity.error, code: identity.code, fields: identity.fields, checks }, 409);
       }
       const now = new Date().toISOString();
       const { error: updateError } = await db.from("partner_organizations").update({

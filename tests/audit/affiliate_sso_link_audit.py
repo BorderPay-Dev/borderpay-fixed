@@ -8,10 +8,12 @@ migration = (root / "supabase/migrations/20260905144500_affiliate_sso_single_use
 banner = (root / "components/referral/AffiliateBanner.tsx").read_text()
 screen = (root / "components/referral/ReferralScreen.tsx").read_text()
 
+policy = (root / "supabase/migrations/20260917190000_affiliate_reward_lifecycle.sql").read_text()
+
 checks = {
     "auth identity email is authoritative": "canonicalEmail = user.email" in worker and "profile?.email" not in worker,
-    "individual accounts are denied": 'accountType !== "business"' in worker and 'business_account_required' in worker,
-    "business KYB comes from business_profiles": 'from("business_profiles")' in worker and 'bridge_kyb_status' in worker,
+    "verified existing accounts use server eligibility": 'affiliate_member_eligible' in worker and "up.account_type='individual'" in policy,
+    "business KYB comes from business_profiles": "public.business_profiles" in policy and "bp.bridge_kyb_status" in policy,
     "frozen accounts are denied": "LOCKED_STATUSES" in worker and 'code: "account_frozen"' in worker,
     "secret misconfiguration fails closed": "secret.length < 32" in worker and "}, 503)" in worker,
     "SSO is audience and issuer bound": 'iss: "borderpay-app"' in worker and 'aud: "borderpay-affiliate"' in worker,

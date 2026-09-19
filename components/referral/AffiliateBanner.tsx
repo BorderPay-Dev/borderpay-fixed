@@ -44,7 +44,7 @@ export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
         }}
       >
         <p className={`${tc.text} text-[12px] font-medium min-w-0 flex-1 truncate`}>
-          Affiliate Program Beta
+          Earn 30 days of reduced incoming fees
         </p>
 
         <button
@@ -52,7 +52,7 @@ export function AffiliateBanner({ kycStatus }: AffiliateBannerProps) {
           className="shrink-0 px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors hover:opacity-90 whitespace-nowrap"
           style={{ backgroundColor: '#C7FF00', color: '#06080C' }}
         >
-          Join beta
+          Referrals
         </button>
 
         <button

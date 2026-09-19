@@ -3,11 +3,12 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
 sql = (root / "supabase/migrations/20260909090000_b2b_affiliate_fee_discount.sql").read_text()
+current = (root / "supabase/migrations/20260917190000_affiliate_reward_lifecycle.sql").read_text()
 worker = (root / "supabase/functions/affiliate-sso-link/index.ts").read_text()
 
 checks = {
-    "affiliate access is Business-only": 'accountType !== "business"' in worker,
-    "Bridge KYB approval is required": 'business.bridge_kyb_status' in worker and 'verified(verificationStatus)' in worker,
+    "affiliate access requires a verified existing account": 'affiliate_member_eligible' in worker and "up.account_type='individual'" in current,
+    "referred Business approval is required": "account_type='business'" in current and "qualify_b2b_affiliate_referral" in current,
     "no second affiliate Auth identity": "createUser" not in worker,
     "existing Business identity is persisted as membership": "join_verified_business_affiliate" in sql and "affiliate_accounts" in sql,
     "new referral attribution resolves verified Business members only": "create or replace function public.resolve_borderpay_referrer_id" in sql and "from public.affiliate_accounts aa" in sql,
