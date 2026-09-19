@@ -3,8 +3,9 @@
  * No customer identity, storage object, invoice row, provider account or approval is written.
  * Fixture policy and verified hashes are test inputs only, never production approvals.
  */
-import { buildAssessment } from "./predeposit-worker.ts";
+import { buildAssessment, azureConfig } from "./predeposit-worker.ts";
 import { canonicalJson, sha256, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
+import { screenInvoice } from "./predeposit-azure.ts";
 import { generateBankPaymentInstructions } from "./predeposit-payment-instructions.ts";
 function pdf(lines:string[]):Uint8Array{
  const stream="BT /F1 12 Tf 40 790 Td "+lines.map((s,i)=>(i?"0 -22 Td ":"")+"("+s.replace(/[\\()]/g,"\\$&")+") Tj").join("\n")+" ET";
@@ -38,6 +39,19 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
   approvedAgreementVersions:["TEST-ONLY"],history:{available:true,buyer_invoice_count_30d:0,same_currency_total_minor_30d:0},
   structuring:policy.config.structuring,verifiedEvidenceHashes:[hash],orderEvidence:null,contractEvidence:null,trackingVerifications:[],now};
  const results:any[]=[];
+ let modelDiagnostic:any=null;
+ if(assess===buildAssessment){
+  const config=azureConfig();let host:string|null=null;try{host=new URL(config.endpoint).hostname;}catch{}
+  modelDiagnostic={endpoint_present:!!config.endpoint,endpoint_host:host,deployment:config.deployment,api_version:config.apiVersion,key_present:!!config.apiKey,request_sent:false};
+  const probe=await screenInvoice(base,context,config,async(input,init)=>{
+   modelDiagnostic.request_sent=true;
+   const response=await fetch(input,init);modelDiagnostic.http_status=response.status;
+   if(!response.ok){try{const data=await response.clone().json();modelDiagnostic.error_code=data?.error?.code||null;modelDiagnostic.error_param=data?.error?.param||null;}catch{}}
+   return response;
+  });
+  modelDiagnostic.result=probe.status;
+ }
+
  const contract=pdf(["SYNTHETIC TEST CONTRACT - NOT PAYABLE","Seller: Example Software Limited","Buyer: Example Buyer Limited","Currency: GBP","Total contract value: GBP 1250.00","Enterprise software subscription September 2026 for 10 seats","Delivery reference: LICENSE-SEP-2026","Seller signature: Synthetic Test Signer","Buyer signature: Synthetic Buyer Signer"]);
  const contractHash=await sha256(contract);
  const definitions=[
@@ -90,6 +104,6 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
    evidence_confidence:outcome.context?.contractEvidence?.confidence??null,
    bank_details_locked:locked});
  }
- return {synthetic:true,production_records_written:0,provider_accounts_called:0,policy_source:"isolated_test_fixture",
+ return {model_diagnostic:modelDiagnostic,synthetic:true,production_records_written:0,provider_accounts_called:0,policy_source:"isolated_test_fixture",
   all_expected:results.every(r=>r.bank_details_locked&&(r.expected==="not_approved"?r.status!=="approved":r.status===r.expected)),results};
 }
