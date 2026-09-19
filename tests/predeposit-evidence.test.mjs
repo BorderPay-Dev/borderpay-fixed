@@ -6,12 +6,13 @@ try {
  await db.exec(`
  create role anon;create role authenticated;create role service_role bypassrls;
  create schema auth;create schema storage;
- create table auth.users(id uuid primary key);
+ create table auth.users(id uuid primary key);create table public.admin_users(user_id uuid primary key,role text);
  create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
  grant usage on schema auth to authenticated;
  create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
  `);
  await db.exec(await readFile(new URL('../supabase/migrations/20260920010000_predeposit_evidence_foundation.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920020000_predeposit_workflow.sql',import.meta.url),'utf8'));
  const owner='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002';
  await db.query('insert into auth.users values($1),($2)',[owner,other]);
  const add=async(user,no)=>(await db.query("insert into predeposit_invoices(owner_user_id,invoice_number,revision,currency,total_minor,buyer_identity_hash,payload,payload_sha256,policy_version) values($1,$2,1,'GBP',12500,$3,'{}',$3,'borderpay-predeposit-2.4.0') returning id",[user,no,'a'.repeat(64)])).rows[0].id;
@@ -39,5 +40,47 @@ try {
  await db.exec('reset role');
  assert.equal((await db.query('select mode from predeposit_policy')).rows[0].mode,'disabled');
  assert.equal((await db.query("select public from storage.buckets where id='predeposit-evidence'")).rows[0].public,false);
+
+ const operator='10000000-0000-4000-8000-000000000003';
+ await db.query("insert into auth.users values($1)",[operator]);await db.query("insert into admin_users values($1,'COMPLIANCE')",[operator]);
+ const draft=(await db.query("insert into predeposit_drafts(owner_user_id,invoice_number) values($1,'DRAFT-1') returning id",[owner])).rows[0].id;
+ const asset=(await db.query("insert into predeposit_assets(owner_user_id,kind,storage_path,sha256,mime_type,size_bytes) values($1,'executed_contract','owner/contract',$2,'application/pdf',10) returning *",[owner,'d'.repeat(64)])).rows[0];
+ const document={...asset};
+ const submit=async(version,currency='EUR',buyerType='company')=>{
+  const payload={id:crypto.randomUUID(),revision:version,currency,buyer:{type:buyerType},remitter:{type:'company'}};
+  return (await db.query("select submit_predeposit_draft($1,$2,$3,$4,$5,$6,$7,$8,'bridge') x",[owner,draft,version,payload,{total_minor:20000,history:{available:false}},'e'.repeat(64),'f'.repeat(64),[document]])).rows[0].x;
+ };
+ await assert.rejects(db.query("select submit_predeposit_draft($1,$2,1,'{}','{}',$3,$3,'[]','bridge')",[other,draft,'e'.repeat(64)]),/Draft changed/);
+ const snapshot=await submit(1);assert.equal(snapshot.review_context.history.available,true);
+ assert.equal((await submit(1)).id,snapshot.id,'repeated submission is idempotent');
+ await assert.rejects(db.query("update predeposit_invoices set review_context='{}' where id=$1",[snapshot.id]),/immutable/);
+ const claimed=(await db.query("select claim_predeposit_invoice($1) x",[snapshot.id])).rows[0].x;
+ const review={status:'approved',payload_sha256:snapshot.payload_sha256,assessed_sha256:'7'.repeat(64),policy_version:snapshot.policy_version,reasons:[]};
+ const finish=async(id,lease,actor,decision,assessment=review,path='owner/dossier',sha='6'.repeat(64))=>(await db.query("select complete_predeposit_review($1,$2,$3,$4,$5,$6,$7,'Reviewed evidence and payment details') x",[id,lease,actor,decision,assessment,path,sha])).rows[0].x;
+ assert.equal(await finish(snapshot.id,crypto.randomUUID(),null,'approved'),false,'wrong lease cannot approve');
+ await assert.rejects(finish(snapshot.id,claimed.lease_id,null,'approved',review,'owner/dossier',null),/dossier/);
+ assert.equal(await finish(snapshot.id,claimed.lease_id,null,'approved'),true);
+ await db.query("update predeposit_drafts set version=2 where id=$1",[draft]);
+ const next=await submit(2);assert.equal((await db.query("select status from predeposit_invoices where id=$1",[snapshot.id])).rows[0].status,'expired');
+ const c2=(await db.query("select claim_predeposit_invoice($1) x",[next.id])).rows[0].x;
+ await db.query("update predeposit_drafts set version=3 where id=$1",[draft]);const newest=await submit(3,'GBP','individual');
+ await assert.rejects(finish(next.id,c2.lease_id,null,'approved'),/newer invoice revision/);
+ const c3=(await db.query("select claim_predeposit_invoice($1) x",[newest.id])).rows[0].x;
+ await assert.rejects(finish(newest.id,c3.lease_id,null,'approved'),/GBP/);
+ assert.equal(await finish(newest.id,c3.lease_id,null,'review_required',{...review,status:'review_required'}),true);
+ await assert.rejects(finish(newest.id,null,owner,'approved'),/Compliance operator/);
+ await assert.rejects(finish(newest.id,null,operator,'approved'),/GBP/);
+ await db.query("insert into predeposit_agreement_templates(version,title,body,status,approved_by,approved_at) values('v1','Terms','Original terms','approved',$1,now())",[operator]);
+ await assert.rejects(db.exec("update predeposit_agreement_templates set body='Changed terms' where version='v1'"),/immutable/);
+ await db.exec("update predeposit_agreement_templates set status='retired' where version='v1'");
+ await db.query("insert into predeposit_evidence_verifications(invoice_id,actor_user_id,patch,rationale) values($1,$2,'{}','Reviewed originals')",[newest.id,operator]);
+ await assert.rejects(db.exec("delete from predeposit_evidence_verifications"),/append-only/);
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[other]);await db.exec("set role authenticated");
+ assert.equal((await db.query("select count(*)::int n from predeposit_drafts")).rows[0].n,0);
+ assert.equal((await db.query("select count(*)::int n from predeposit_assets")).rows[0].n,0);
+ await assert.rejects(db.query("select complete_predeposit_review($1,null,null,'approved','{}',null,null,'bypass')",[newest.id]),/permission denied/);
+ await db.exec("reset role");
+ console.log('PASS: workflow submission, idempotency, revision invalidation, ownership, approval leases, GBP invariant, immutable terms and operator evidence');
+
  console.log('PASS: private evidence, tenant RLS, immutable snapshots, append-only audit, scoped documents, worker leases, digest binding, no automatic final approval, disabled rollout');
 }finally{await db.close();}

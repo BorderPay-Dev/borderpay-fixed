@@ -1,4 +1,4 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+declare const EdgeRuntime: {waitUntil(promise:Promise<unknown>):void};
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {processInvoice} from "../_shared/predeposit-worker.ts";
 import {sha256} from "../_shared/predeposit-policy.ts";

@@ -11,7 +11,7 @@ export async function renderInvoiceDocument(args:{
  const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
  const font=await doc.embedFont(args.fontBytes,{subset:true});
  const money=(n:number)=>{const v=BigInt(n);return String(v/100n)+"."+String(v%100n).padStart(2,"0");};
- const inv=args.invoice;let page:PDFPage;let y=0;const width=595,height=842,margin=46;
+ const inv=args.invoice;let page!:PDFPage;let y=0;const width=595,height=842,margin=46;
  const ink=rgb(.08,.1,.11),muted=rgb(.37,.41,.43),green=rgb(.68,.85,0);
  const newPage=()=>{page=doc.addPage([width,height]);y=height-52;};
  newPage();
