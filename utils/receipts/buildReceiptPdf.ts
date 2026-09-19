@@ -1,3 +1,4 @@
+import { getCustomerBrand } from "../branding/brand";
 export type ReceiptPdfLine = { label?: string; value: string; large?: boolean };
 
 function pdfText(value: unknown) {
@@ -20,7 +21,7 @@ export function buildReceiptPdf(lines: ReceiptPdfLine[]) {
   const details = lines.filter((line) => line !== headline);
   const content: string[] = [
     '0.05 0.07 0.09 rg',
-    'BT /F2 16 Tf 56 744 Td (BorderPay) Tj ET',
+    `BT /F2 16 Tf 56 744 Td (${pdfText(getCustomerBrand()?.brand.brand_name || 'BorderPay')}) Tj ET`,
     '0.38 0.41 0.45 rg',
     `BT /F1 10 Tf 56 710 Td (${pdfText(headline?.label || 'Money out receipt')}) Tj ET`,
     '0.05 0.07 0.09 rg',

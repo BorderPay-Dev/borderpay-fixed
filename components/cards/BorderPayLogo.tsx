@@ -1,3 +1,4 @@
+import { getCustomerBrand } from "../../utils/branding/brand";
 /**
  * BorderPay Logo — geometric "b" mark
  * Left: vertical rounded pill, Right: half-circle
@@ -13,6 +14,8 @@ interface BorderPayLogoProps {
 }
 
 export function BorderPayLogo({ color = '#000000', size = 36, className, showRegistered = true }: BorderPayLogoProps) {
+  const brand = getCustomerBrand()?.brand;
+  if (brand) return <img src={brand.logo_url} alt={brand.brand_name} width={size} height={size} className={className} style={{objectFit:"contain",flexShrink:0}} />;
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

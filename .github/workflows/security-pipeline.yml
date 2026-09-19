@@ -114,6 +114,11 @@ jobs:
       - name: Type-check operator treasury Edge Function
         run: deno check --node-modules-dir=auto supabase/functions/bridge-operator-readonly/index.ts
 
+      - name: Test white-label ownership, signup and email contracts
+        run: |
+          deno test --node-modules-dir=auto tests/white-label-runtime.test.ts
+          node --test tests/brand-theme.test.mjs
+
       - name: Test Firebase App Check JWT verification
         run: deno test --node-modules-dir=auto tests/firebase-app-check.test.ts
 

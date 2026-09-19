@@ -18,6 +18,7 @@ screens = "\n".join((ROOT / path).read_text() for path in [
 ])
 
 checks = {
+    "callback origin is resolved from recorded customer ownership": "customerAppOrigin(supa, user.id, APP_URL)" in kyb,
     "native runtime is explicit": "isNativeRuntime()" in kyc_ui,
     "native KYB opens outside WebView": "openBrowser: options => Browser.open(options)" in kyc_ui,
     "native handoff uses official Browser plugin": "import { Browser } from '@capacitor/browser'" in kyc_ui,
@@ -25,10 +26,10 @@ checks = {
     "web/PWA retains browser navigation": "navigateWeb: target => window.location.assign(target)" in kyc_ui,
     "Persona is never sent to the ToS iframe": "openHostedVerificationUrl(r.data.link_url" not in kyc_ui,
     "client always requests public HTTPS callback": "https://app.borderpayafrica.com/?screen=kyc" in kyc_ui,
-    "KYB request rejects native callbacks": "verificationRedirectUrl(APP_URL, body.redirect_url)" in kyb,
-    "KYC request rejects native callbacks": "verificationRedirectUrl(APP_URL, body.redirect_url)" in kyc,
-    "KYB response rewrites stale callbacks": "verifiedHostedLink(APP_URL, link.link_url)" in kyb,
-    "KYC response rewrites stale callbacks": "verifiedHostedLink(APP_URL, links.kyc_link_url)" in kyc,
+    "KYB request rejects native callbacks": "verificationRedirectUrl(customerOrigin, body.redirect_url)" in kyb,
+    "KYC request rejects native callbacks": "verificationRedirectUrl(customerOrigin, body.redirect_url)" in kyc,
+    "KYB response rewrites stale callbacks": "verifiedHostedLink(customerOrigin, link.link_url)" in kyb,
+    "KYC response rewrites stale callbacks": "verifiedHostedLink(customerOrigin, links.kyc_link_url)" in kyc,
     "KYB persists normalized URL": "bridge_kyb_link_url: clientLinkUrl" in kyb,
     "KYC persists normalized URL": "bridge_kyc_link_url: clientLinkUrl" in kyc,
     "native schemes are rejected centrally": "Native origins such as capacitor://localhost are intentionally rejected" in guard,

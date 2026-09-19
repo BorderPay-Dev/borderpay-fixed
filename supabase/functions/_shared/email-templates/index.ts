@@ -62,6 +62,7 @@ import { render as businessPartnerInvoice } from "./business/partner-invoice.ts"
 import { render as businessOwnershipReview } from "./business/ownership-review.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 import { render as adminSupportHandoff }                from "./admin/support-handoff.ts";
+import { render as partnerApplicationDecision } from "./partner/application-decision.ts";
 import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
 
 export type TemplateName =
@@ -119,6 +120,7 @@ export type TemplateName =
   | "business.ownership_review"
   | "admin.incident_alert"
   | "admin.support_handoff"
+  | "partner.application_decision"
   | "partner.access_invite";
 
 type Renderer = (props: any) => RenderedEmail;
@@ -178,6 +180,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.ownership_review":         businessOwnershipReview,
   "admin.incident_alert":                adminIncidentAlert,
   "admin.support_handoff":               adminSupportHandoff,
+  "partner.application_decision": partnerApplicationDecision,
   "partner.access_invite":               partnerAccessInvite,
 };
 
