@@ -10,10 +10,9 @@ templates = (root / "supabase/functions/_shared/email-templates/index.ts").read_
 checks = {
     "application allows exactly one partner model": "enforce_single_partner_product" in migration and "cardinality" in migration,
     "approval allows exactly one partner model": "enforce_single_approved_partner_product" in migration,
-    "API credentials require approved integrations": "API keys require approved API or white-label access" in portal,
-    "webhooks require approved integrations": "Webhooks require approved API or white-label access" in portal,
-    "IP allowlists require approved integrations": "IP allowlists require approved API or white-label access" in portal,
-    "white-label key scopes remain bounded": 'scope.endsWith(":read") || scope === "onboarding:write"' in portal,
+    "API credentials are API-only": "API keys are available only to API partners" in portal,
+    "webhooks are API-only": "Webhooks are available only to API partners" in portal,
+    "IP allowlists are API-only": "IP allowlists are available only to API partners" in portal,
     "white-label email is BorderPay-managed": "BorderPay manages white-label delivery" in portal,
     "signed NDA and Treasury Agreement are required": "Both NDA and Treasury Agreement references are required" in migration,
     "provider costs require explicit allocation": "partner_provider_cost_allocations" in migration and "allocation_basis" in migration,
