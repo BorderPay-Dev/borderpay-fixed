@@ -124,6 +124,13 @@ try {
  await db.exec("set role authenticated");
  await assert.rejects(()=>db.query("select invoke_predeposit_worker()"),/permission denied/);
  await db.exec("rollback");
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920060000_predeposit_vault_credentials.sql',import.meta.url),'utf8'));
+ assert.equal((await db.query("select authorize_predeposit_worker('test-only-not-a-real-credential-1234567890') ok")).rows[0].ok,true);
+ assert.equal((await db.query("select authorize_predeposit_worker('wrong-credential-long-enough-1234567890') ok")).rows[0].ok,false);
+ await db.exec("set role authenticated");
+ await assert.rejects(()=>db.query("select predeposit_ocr_config()"),/permission denied/);
+ await assert.rejects(()=>db.query("select authorize_predeposit_worker('test-only-not-a-real-credential-1234567890')"),/permission denied/);
+ await db.exec("reset role");
  console.log('PASS: durable queue dispatcher requires a server credential and is inaccessible to merchant sessions');
 
 }finally{await db.close();}

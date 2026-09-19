@@ -7,20 +7,20 @@ The initial runtime receiving-account adapter reads Bridge. Conduit/Borderless p
 
 ## Required configuration
 - AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION (existing project values).
-- AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY for OCR.
-- PREDEPOSIT_WORKER_TOKEN: a random secret of at least 32 characters. It is never sent to a merchant or included in an app bundle.
+- OCR: AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT and AZURE_DOCUMENT_INTELLIGENCE_KEY, or Vault secrets borderpay_document_intelligence_endpoint and borderpay_document_intelligence_key. The project is at its Edge secret limit, so use Vault.
+- Vault secret borderpay_predeposit_worker_token: a random server credential. The worker checks it through a service-role-only digest comparison RPC. It is never sent to a merchant or included in an app bundle.
 - Approved agreement template version and compliance-owned jurisdiction/structuring policy. Proposed terms are seeded as a draft.
 - Private predeposit-render-assets/NotoSans-Regular.ttf. SHA-256: b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5. Source: https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf (SIL Open Font License).
 
 ## Apply reviewed SQL
-Apply 20260920010000_predeposit_evidence_foundation.sql, then 20260920020000_predeposit_workflow.sql 20260920030000_predeposit_draft_agreement.sql, then 20260920040000_predeposit_instruction_read_boundary.sql. The final migration adds restrictive instruction-read policies. With mode disabled/observe, legacy bank reads remain unchanged; with enforce, business VA coordinates are gated while crypto balance reads remain available.
+Apply 20260920010000_predeposit_evidence_foundation.sql, then 20260920020000_predeposit_workflow.sql 20260920030000_predeposit_draft_agreement.sql, then 20260920040000_predeposit_instruction_read_boundary.sql. Then apply 20260920050000_predeposit_worker_dispatch.sql and 20260920060000_predeposit_vault_credentials.sql. The instruction boundary migration adds restrictive read policies. With mode disabled/observe, legacy bank reads remain unchanged; with enforce, business VA coordinates are gated while crypto balance reads remain available.
 
 Deploy predeposit-hub and predeposit-worker from the tested commit. Neither endpoint initiates a transfer or creates/deactivates a receiving account.
 
 Keep predeposit_policy.mode='disabled' until the coordinated instruction-read rollout below is complete. hub_enabled is a separate feature switch for the new hub only.
 
 ## Durable worker schedule
-Invoke predeposit-worker once per minute with POST and X-Predeposit-Worker-Token from a server scheduler. It claims at most four jobs per invocation using five-minute leases. A job waiting for OCR resumes after 30 seconds. Thirty unsuccessful claims route to manual review. Never embed this token in frontend code.
+Run scripts/predeposit/install-worker-schedule.sql after deployment and Vault setup. It schedules invoke_predeposit_worker once per minute; the function reads the Vault credential and POSTs with X-Predeposit-Worker-Token. It makes no HTTP request for an empty queue. It claims at most four jobs per invocation using five-minute leases. A job waiting for OCR resumes after 30 seconds. Thirty unsuccessful claims route to manual review. Never embed this token in frontend code.
 
 The database queue is durable; waitUntil is only a prompt first attempt. Without the server schedule, returning to the invoice also resumes processing, but unattended processing is not guaranteed.
 

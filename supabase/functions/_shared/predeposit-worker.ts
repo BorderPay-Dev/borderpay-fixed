@@ -14,7 +14,11 @@ export async function buildAssessment(db:any,row:any,manualContext?:Partial<Revi
  context.verifiedEvidenceHashes=assets.filter(a=>a.scan_status==="clean"&&a.verification_status==="verified").map(a=>a.sha256);
  const saved=checked<any>(await db.from("predeposit_processing_jobs").select("jobs").eq("invoice_id",row.id).maybeSingle());
  const jobs:any=saved?.jobs||{};
- const ocrConfig={endpoint:Deno.env.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")||"",apiKey:Deno.env.get("AZURE_DOCUMENT_INTELLIGENCE_KEY")||""};
+ let ocrConfig={endpoint:Deno.env.get("AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT")||"",apiKey:Deno.env.get("AZURE_DOCUMENT_INTELLIGENCE_KEY")||""};
+ if(!ocrConfig.endpoint||!ocrConfig.apiKey){
+  const config=await db.rpc("predeposit_ocr_config");
+  if(!config.error&&config.data)ocrConfig={endpoint:String(config.data.endpoint||""),apiKey:String(config.data.apiKey||"")};
+ }
  let pending=false;
  for(const asset of assets.filter(a=>["executed_contract","order_dashboard","platform_order_export"].includes(a.kind))){
   if(asset.scan_status==="rejected")continue;
