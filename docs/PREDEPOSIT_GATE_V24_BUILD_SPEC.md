@@ -142,6 +142,7 @@ Bridge's exact current RFI examples/submission format must be supplied or verifi
 
 ## Implemented in this branch
 - Deterministic v2.4 rule engine, including CRM and fulfillment checks.
+- Bank-instruction formatter bound to approved invoice revision, selected merchant VA, currency, current account status and approval expiry; GBP corporate B2B and sort-code checks.
 - Azure OpenAI structured-output screening adapter with fail-closed behavior and digest binding.
 - Azure Document Intelligence asynchronous layout adapter with file-byte validation and same-origin operation checks.
 - SQL migration draft for immutable invoice snapshots, private evidence metadata, review audit, deposit matching and worker leases.

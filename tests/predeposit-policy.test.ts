@@ -153,3 +153,17 @@ Deno.test("approved invoice formats the selected GBP account including sort code
  invoice.remitter.type="individual";approval.payload_sha256=await assessedDigest(invoice,context);
  await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,account));
 });
+
+Deno.test("USD and EUR instruction blocks expose only the selected account's currency fields",async()=>{
+ for(const currency of ["USD","EUR"] as const){
+  const {invoice,context}=fixture();invoice.currency=currency;invoice.receiving_account_id="va-"+currency;
+  context.receivingAccount={id:invoice.receiving_account_id,owner_user_id:context.merchantUserId,currency,status:"active"};
+  const approval={status:"approved",payload_sha256:await assessedDigest(invoice,context),policy_version:"borderpay-predeposit-2.4.0",approval_expires_at:"2026-09-21T09:00:00Z",dossier_sha256:h("e")};
+  const account={id:invoice.receiving_account_id,owner_user_id:context.merchantUserId,currency,status:"active",beneficiary_name:"Correct Account Beneficiary",bank_name:"Example Bank",account_number:"123456789",routing_number:"123456789",iban:"GB00EXAMPLE00000000000000",bic:"EXAMPLEXXX",sort_code:"123456"};
+  const result=await generateBankPaymentInstructions(context.merchantUserId,invoice,context,approval,account,context.now);
+  assert.equal(result.currency,currency);assert.equal(result.account_id,invoice.receiving_account_id);assert.equal(result.sort_code,undefined);
+  if(currency==="USD"){assert.equal(result.routing_number,"123456789");assert.equal(result.iban,undefined);}
+  else{assert.equal(result.iban,account.iban);assert.equal(result.bic,account.bic);assert.equal(result.routing_number,undefined);assert.equal(result.account_number,undefined);}
+  await assert.rejects(()=>generateBankPaymentInstructions(context.merchantUserId,invoice,context,approval,account,"2026-09-22T00:00:00Z"));
+ }
+});
