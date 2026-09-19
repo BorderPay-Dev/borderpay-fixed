@@ -3035,7 +3035,12 @@ export const affiliateAPI = {
     }),
 };
 
+export const predepositAPI = {
+ request: async (action:string,body:Record<string,unknown>={})=>apiCall<any>('predeposit-hub',{method:'POST',body:JSON.stringify({...body,action})}),
+ upload: async (file:File,kind:string)=>{const form=new FormData();form.append('file',file);form.append('kind',kind);return apiCall<any>('predeposit-hub',{method:'POST',body:form});},
+};
 export const backendAPI = {
+ predeposit: predepositAPI,
   auth: authSecurityAPI,
   user: userAPI,
   financial: financialReadModelAPI,

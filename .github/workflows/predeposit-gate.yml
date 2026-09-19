@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'supabase/functions/_shared/predeposit-*.ts'
+      - 'supabase/functions/predeposit-*/**'
+      - 'components/invoices/**'
+      - 'utils/api/backendAPI.ts'
       - 'supabase/migrations/*predeposit*.sql'
       - 'tests/predeposit-*'
       - 'docs/PREDEPOSIT_GATE_V24_BUILD_SPEC.md'
@@ -21,6 +24,8 @@ jobs:
           deno-version: v2.x
       - name: Validate rules, Azure failures, CRM matching and OCR boundaries
         run: deno test --no-config tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts
+      - name: Typecheck invoice endpoints
+        run: deno check --no-config supabase/functions/predeposit-hub/index.ts supabase/functions/predeposit-worker/index.ts
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -28,3 +33,15 @@ jobs:
         run: npm install --prefix /tmp/predeposit-db-test --no-save --package-lock=false @electric-sql/pglite@0.3.14
       - name: Validate evidence access and worker state transitions
         run: PGLITE_MODULE=file:///tmp/predeposit-db-test/node_modules/@electric-sql/pglite/dist/index.js node tests/predeposit-evidence.test.mjs
+
+  merchant-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --legacy-peer-deps
+      - run: npx tsc --noEmit
+      - run: npx vite build

@@ -705,6 +705,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
         <section className="px-5 sm:px-6">
           <div className="grid grid-cols-4 md:grid-cols-8 gap-2">
             <BizChip label="Send"    Icon={Send}     onPrefetch={() => prefetchScreen('send-money')}       onClick={() => navigate('send-money')}    tc={tc} />
+            <BizChip label="Create Invoice & Contract" Icon={FileText} onClick={() => navigate('invoice-hub')} tc={tc} />
             <BizChip label="Receive" Icon={Download} onPrefetch={() => prefetchScreen('receive-money')}    onClick={() => navigate('receive-money')} tc={tc} />
             <BizChip label="Activity" Icon={FileText} onPrefetch={() => prefetchScreen('transactions')}    onClick={() => navigate('transactions')} tc={tc} />
             <BizChip label="Payouts" Icon={Banknote} onPrefetch={() => prefetchScreen('bulk-payout')}      onClick={() => navigate('bulk-payout')}   tc={tc} primary />
