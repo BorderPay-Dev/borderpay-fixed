@@ -5,6 +5,7 @@ on:
       - 'supabase/functions/api-gateway-admin/**'
       - 'supabase/functions/_shared/api-*.ts'
       - 'supabase/migrations/20260919210000_partner_key_approval_reconciliation.sql'
+      - 'supabase/migrations/20260919220000_all_partner_approval_sync.sql'
       - 'tests/partner-key-reconciliation.test.mjs'
       - '.github/workflows/partner-key-reconciliation.yml'
   workflow_dispatch:
