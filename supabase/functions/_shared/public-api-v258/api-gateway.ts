@@ -28,7 +28,7 @@ export interface ApiGatewayContext {
 export const GATEWAY_CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, idempotency-key, x-borderpay-route",
+    "authorization, x-client-info, apikey, content-type, idempotency-key, x-borderpay-route, x-borderpay-mode, x-borderpay-customer-authorization",
   "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 };
 

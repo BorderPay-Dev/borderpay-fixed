@@ -9,10 +9,19 @@ try {
  create table auth.users(id uuid primary key);create table public.admin_users(user_id uuid primary key,role text);
  create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
  grant usage on schema auth to authenticated;
+ create table user_profiles(id uuid primary key,account_type text);
+ create table bridge_virtual_accounts(id uuid primary key default gen_random_uuid(),user_id uuid,business_user_id uuid,account_details jsonb);
+ create table wallets(id uuid primary key default gen_random_uuid(),user_id uuid,currency text,bridge_virtual_account_id text,virtual_account_number text,asset_type text);
+ alter table bridge_virtual_accounts enable row level security;alter table wallets enable row level security;
+ create policy original_owner on bridge_virtual_accounts for select to authenticated using(auth.uid()=coalesce(business_user_id,user_id));
+ create policy original_owner on wallets for select to authenticated using(auth.uid()=user_id);
+ grant select on bridge_virtual_accounts,wallets to authenticated;
+ create function public.is_borderpay_admin() returns boolean language sql stable security definer as $$select exists(select 1 from admin_users where user_id=auth.uid())$$;
  create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
  `);
  await db.exec(await readFile(new URL('../supabase/migrations/20260920010000_predeposit_evidence_foundation.sql',import.meta.url),'utf8'));
  await db.exec(await readFile(new URL('../supabase/migrations/20260920020000_predeposit_workflow.sql',import.meta.url),'utf8'));
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920040000_predeposit_instruction_read_boundary.sql',import.meta.url),'utf8'));
  const owner='10000000-0000-4000-8000-000000000001',other='10000000-0000-4000-8000-000000000002';
  await db.query('insert into auth.users values($1),($2)',[owner,other]);
  const add=async(user,no)=>(await db.query("insert into predeposit_invoices(owner_user_id,invoice_number,revision,currency,total_minor,buyer_identity_hash,payload,payload_sha256,policy_version) values($1,$2,1,'GBP',12500,$3,'{}',$3,'borderpay-predeposit-2.4.0') returning id",[user,no,'a'.repeat(64)])).rows[0].id;
@@ -80,6 +89,22 @@ try {
  assert.equal((await db.query("select count(*)::int n from predeposit_assets")).rows[0].n,0);
  await assert.rejects(db.query("select complete_predeposit_review($1,null,null,'approved','{}',null,null,'bypass')",[newest.id]),/permission denied/);
  await db.exec("reset role");
+
+ await db.query("insert into user_profiles values($1,'business'),($2,'individual')",[owner,other]);
+ await db.query("insert into bridge_virtual_accounts(user_id,account_details) values($1,'{\"iban\":\"TEST\"}'),($2,'{\"iban\":\"OTHER\"}')",[owner,other]);
+ await db.query("insert into wallets(user_id,currency,asset_type,virtual_account_number) values($1,'USD','fiat_virtual_account','1234'),($1,'USDC','crypto',null)",[owner]);
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);await db.exec("set role authenticated");
+ assert.equal((await db.query("select count(*)::int n from bridge_virtual_accounts")).rows[0].n,1,'disabled gate preserves owner VA reads');
+ await db.exec("reset role;update predeposit_policy set mode='enforce'");
+ await db.exec("set role authenticated");
+ assert.equal((await db.query("select predeposit_instruction_policy() p")).rows[0].p.required,true);
+ assert.equal((await db.query("select count(*)::int n from bridge_virtual_accounts")).rows[0].n,0,'direct VA details hidden under enforcement');
+ assert.deepEqual((await db.query("select currency from wallets")).rows.map(r=>r.currency),['USDC'],'fiat coordinates hidden without hiding stablecoin balances');
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[other]);
+ assert.equal((await db.query("select count(*)::int n from bridge_virtual_accounts")).rows[0].n,1,'business-only scope preserves individual reads');
+ await db.exec("reset role;update predeposit_policy set mode='disabled'");
+ console.log('PASS: mandatory instruction RLS preserves legacy behavior while disabled and blocks direct business bank reads when enforced');
+
  console.log('PASS: workflow submission, idempotency, revision invalidation, ownership, approval leases, GBP invariant, immutable terms and operator evidence');
 
  console.log('PASS: private evidence, tenant RLS, immutable snapshots, append-only audit, scoped documents, worker leases, digest binding, no automatic final approval, disabled rollout');

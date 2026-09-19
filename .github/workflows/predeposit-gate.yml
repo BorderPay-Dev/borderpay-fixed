@@ -23,9 +23,9 @@ jobs:
         with:
           deno-version: v2.x
       - name: Validate rules, Azure failures, CRM matching and OCR boundaries
-        run: deno test --no-config tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts tests/predeposit-provider-capabilities.test.ts
+        run: deno test --no-config --allow-env tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts tests/predeposit-provider-capabilities.test.ts tests/predeposit-access.test.ts tests/api-customer-runtime.test.ts tests/providers/bridge-business-name.test.ts
       - name: Typecheck invoice endpoints
-        run: deno check --no-config supabase/functions/predeposit-hub/index.ts supabase/functions/predeposit-worker/index.ts
+        run: deno check --no-config supabase/functions/predeposit-hub/index.ts supabase/functions/predeposit-worker/index.ts supabase/functions/bridge-sync-accounts/index.ts supabase/functions/public-api-gateway/index.ts
       - name: Render invoice PDF fixtures
         run: |
           curl -fsSL https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf -o /tmp/predeposit-font.ttf

@@ -55,6 +55,15 @@ Deno.serve(async req=>{
     const documents=checked(await db.from("predeposit_assets").select("id,kind,sha256,mime_type,scan_status,verification_status").eq("owner_user_id",row.owner_user_id).in("id",row.payload.documents.map((d:any)=>d.id)));
     return reply({success:true,data:{invoice:row,documents,reviews:checked(await db.from("predeposit_reviews").select("*").eq("invoice_id",row.id).order("created_at"))}});
    }
+   if(action==="admin_rfi_dossier"){
+    const row=checked<any>(await db.from("predeposit_invoices").select("*").eq("id",uuid(body.invoice_id)).single());
+    if(!row.dossier_path||!row.dossier_sha256)throw Error("Review must complete before a dossier is available");
+    const bytes=checked<Blob>(await db.storage.from(BUCKET).download(row.dossier_path));
+    if(await sha256(new Uint8Array(await bytes.arrayBuffer()))!==row.dossier_sha256)throw Error("Stored evidence integrity check failed");
+    checked(await db.from("predeposit_access_log").insert({invoice_id:row.id,actor_user_id:owner,action:"operator_rfi_dossier_exported",metadata:{sha256:row.dossier_sha256}}));
+    const signed=checked<any>(await db.storage.from(BUCKET).createSignedUrl(row.dossier_path,60,{download:"RFI-"+row.invoice_number.replace(/[^A-Za-z0-9_-]/g,"_")+".pdf"}));
+    return reply({success:true,data:{url:signed.signedUrl,sha256:row.dossier_sha256}});
+   }
    if(action==="admin_document"){
     const row=checked<any>(await db.from("predeposit_invoices").select("owner_user_id,payload").eq("id",uuid(body.invoice_id)).single());
     const asset=checked<any>(await db.from("predeposit_assets").select("*").eq("id",uuid(body.asset_id)).eq("owner_user_id",row.owner_user_id).single());
@@ -101,10 +110,10 @@ Deno.serve(async req=>{
     if(decision==="approved"){
      await loadInvoiceAccounts(db,row.owner_user_id);
      // Manual approval can resolve review flags, but cannot override missing data or GBP B2B.
-     if(evaluateInvoice(row.payload,result.context).status==="action_required")throw Error("Required evidence or invoice corrections are still missing");
+     if(evaluateInvoice(row.payload,result.context,a.ai).status==="action_required")throw Error("Required evidence or invoice corrections are still missing");
      if(a.reasons.includes("policy_changed"))throw Error("Submit a new revision under the current policy");
      a.status="approved";a.operator_override=true;a.review_context=result.context;a.assessed_sha256=await assessedDigest(row.payload,result.context);
-     dossier=await invoiceDossier(db,row,result.context);
+     dossier=await invoiceDossier(db,{...row,assessment:a},result.context);
     }else a.status=decision;
     const completed=checked(await db.rpc("complete_predeposit_review",{p_invoice:row.id,p_lease:null,p_actor:owner,p_decision:decision,p_assessment:a,p_dossier_path:dossier?.path||null,p_dossier_sha:dossier?.sha256||null,p_rationale:rationale}));
     if(!completed)throw Error("Review state changed; reload the invoice");

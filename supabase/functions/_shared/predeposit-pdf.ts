@@ -6,7 +6,7 @@ export type PdfAttachment={name:string;mime:string;bytes:Uint8Array;sha256:strin
 export async function renderInvoiceDocument(args:{
  invoice:Invoice;invoiceNumber:string;fontBytes:Uint8Array;templateBody?:string;
  logo?:Uint8Array;signature?:Uint8Array;bank?:BankPaymentInstructions;
- attachments?:PdfAttachment[];agreementOnly?:boolean;approved?:boolean;
+ attachments?:PdfAttachment[];agreementOnly?:boolean;approved?:boolean;complianceReview?:{assessment:unknown;recorded_at:string};
 }):Promise<Uint8Array>{
  const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
  const font=await doc.embedFont(args.fontBytes,{subset:true});
@@ -59,15 +59,17 @@ export async function renderInvoiceDocument(args:{
   text(terms);text("Agreement version: "+inv.agreement.version,9,muted);
   if(args.signature){title("Merchant execution");await image(args.signature,220,70);text(inv.agreement.signed_by);text("Accepted: "+inv.agreement.signed_at,9,muted);}
  }
- if(!args.agreementOnly){
-  title("Commercial context");
+ if(!args.agreementOnly && !args.bank){
+  title("1. Sender and commercial relationship");
   text("Expected remitter: "+inv.remitter.legal_name);text("Relationship: "+inv.remitter.relationship);
-  text("Source of funds: "+inv.source_of_funds);text("Use of funds: "+inv.fund_utilization);
+  title("2. Payment purpose and fund utilization");text("Use of funds: "+inv.fund_utilization);
   if(inv.discovery_channel)text("Buyer acquisition: "+inv.discovery_channel);
   if(inv.cross_border_justification)text("Cross-border rationale: "+inv.cross_border_justification);
   if(inv.commercial_end_use)text("Commercial end use: "+inv.commercial_end_use);
   text("Order source: "+inv.order_source+(inv.order_platform?" / "+inv.order_platform:""));
   if(inv.order_reference)text("Order reference: "+inv.order_reference);
+  title("3. Source of funds and supporting evidence");text("Source of funds: "+inv.source_of_funds);
+  if(args.complianceReview){text("Review recorded: "+args.complianceReview.recorded_at,9,muted);text("Evidence assessment: "+JSON.stringify(args.complianceReview.assessment),8,muted);}
  }
  if(args.bank){
   title("Bank payment instructions");const b=args.bank;

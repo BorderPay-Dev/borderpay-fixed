@@ -6,6 +6,7 @@ import { extractCommercialEvidence } from "./predeposit-extract.ts";
 export function azureConfig(){return {endpoint:Deno.env.get("AZURE_OPENAI_ENDPOINT")||"",deployment:Deno.env.get("AZURE_OPENAI_DEPLOYMENT_NAME")||"",apiVersion:Deno.env.get("AZURE_OPENAI_API_VERSION")||"2024-10-21",apiKey:Deno.env.get("AZURE_OPENAI_API_KEY")||""};}
 export async function buildAssessment(db:any,row:any,manualContext?:Partial<ReviewContext>){
  const policy=await loadPolicy(db),context:ReviewContext=structuredClone(row.review_context);
+ context.now=new Date().toISOString();
  if(row.review_context.config_sha256!==await sha256(canonicalJson(policy.config)))return {pending:false,context,assessment:{...evaluateInvoice(row.payload,context),status:"review_required",reasons:["policy_changed"],payload_sha256:row.payload_sha256,policy_version:row.policy_version}};
  const docs=row.payload.documents;
  const assets:any[]=docs.length?checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",row.owner_user_id).in("id",docs.map((d:any)=>d.id))):[];
@@ -50,7 +51,7 @@ export async function processInvoice(db:any,id:string){
    checked(await db.from("predeposit_invoices").update({lease_id:null,lease_until:new Date(Date.now()+30000).toISOString()}).eq("id",row.id).eq("lease_id",row.lease_id));return;
   }
   const a:any=result.assessment;let dossier:{path:string;sha256:string}|null=null;
-  if(a.status==="approved")dossier=await invoiceDossier(db,row,result.context);
+  if(a.status==="approved")dossier=await invoiceDossier(db,{...row,assessment:a},result.context);
   checked(await db.rpc("complete_predeposit_review",{p_invoice:row.id,p_lease:row.lease_id,p_actor:null,p_decision:a.status==="ready_for_ai"?"review_required":a.status,
    p_assessment:a,p_dossier_path:dossier?.path||null,p_dossier_sha:dossier?.sha256||null,p_rationale:"Automated evidence assessment for this invoice revision"}));
  }catch{

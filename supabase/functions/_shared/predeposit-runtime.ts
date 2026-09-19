@@ -73,11 +73,12 @@ export async function submitInvoice(db:any,owner:string,draftId:string,version:n
 export async function invoiceDossier(db:any,row:any,context:ReviewContext,bank?:any){
  const assets=checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",row.owner_user_id).in("id",row.payload.documents.map((d:any)=>d.id)));
  if(assets.some(a=>a.scan_status==="rejected"||a.verification_status==="rejected"))throw Error("Evidence has been rejected; submit a corrected revision");
- const attachments=[];for(const a of assets)attachments.push({name:a.kind+" - "+a.id,mime:a.mime_type,bytes:await loadAssetBytes(db,a),sha256:a.sha256});
+ const included=bank?assets.filter(a=>["signed_agreement","executed_contract"].includes(a.kind)):assets;
+ const attachments=[];for(const a of included)attachments.push({name:a.kind+" - "+a.id,mime:a.mime_type,bytes:await loadAssetBytes(db,a),sha256:a.sha256});
  const branding=row.review_context.branding;
  let logo:Uint8Array|undefined;
  if(branding?.logo_asset_id){const a=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.logo_asset_id).eq("owner_user_id",row.owner_user_id).single());logo=await loadAssetBytes(db,a);}
- const bytes=await renderInvoiceDocument({invoice:row.payload,invoiceNumber:row.invoice_number,fontBytes:await fontBytes(db),attachments,logo,bank,approved:!!bank});
+ const bytes=await renderInvoiceDocument({invoice:row.payload,invoiceNumber:row.invoice_number,fontBytes:await fontBytes(db),attachments,logo,bank,approved:!!bank||row.assessment?.status==="approved",...(!bank?{complianceReview:{assessment:row.assessment||{status:"screening"},recorded_at:new Date().toISOString()}}:{})});
  const hash=await sha256(bytes),path=row.owner_user_id+"/dossiers/"+row.id+"/"+crypto.randomUUID()+".pdf";
  checked(await db.storage.from(BUCKET).upload(path,bytes,{contentType:"application/pdf",upsert:false}));
  return {path,sha256:hash};

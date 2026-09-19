@@ -59,6 +59,12 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  };
  const types=[['company','Company'],['sole_proprietor','Sole proprietor'],['individual','Individual'],['government','Government / public body']];
  const updateItem=(index:number,key:string,value:any)=>setForm((f:any)=>({...f,items:f.items.map((i:any,n:number)=>n===index?{...i,[key]:value}:i)}));
+ const requiredKinds=new Set<string>();
+ if(form.contract_path==='custom'||form.buyer.type!=='company'||form.remitter.legal_name!==form.buyer.legal_name)requiredKinds.add('executed_contract');
+ if(form.category==='physical_goods'){requiredKinds.add('logistics');requiredKinds.add('warehouse_receipt');requiredKinds.add('dispatch_log');}
+ if(form.order_source!=='direct_b2b'){requiredKinds.add('order_dashboard');requiredKinds.add('platform_order_export');}
+ if(['individual','sole_proprietor'].includes(form.buyer.type)){requiredKinds.add('buyer_business_proof');requiredKinds.add('end_use_declaration');}
+ const uploadSlot=([kind,label]:[string,string])=><label key={kind} className="ih-upload">{label}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,kind);});e.target.value='';}}/></label>;
  const total=form.items.reduce((a:number,i:any)=>a+i.quantity*i.unit_amount_minor,0);
  return <main className={'invoice-hub '+tc.bg+' '+tc.text} data-light={tc.isLight}><FloatingBackButton onBack={onBack}/>
  <header className="ih-header"><p className="ih-eyebrow">BUSINESS TOOLS</p><h1>Invoice & Agreement Hub</h1><p className="ih-muted">Prepare your invoice and evidence, then share approved payment instructions.</p></header>
@@ -100,7 +106,8 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  </section><section className="ih-card"><h2>Order evidence</h2><Select label="Order source" value={form.order_source} onChange={(v:string)=>set('order_source',v)} options={[['direct_b2b','Direct B2B contract'],['ecommerce','E-commerce / online store'],['crm','CRM invoice']]}/>
  {form.order_source!=='direct_b2b'&&<><div className="ih-grid"><Field label="Platform / store name" value={form.order_platform} onChange={(v:string)=>set('order_platform',v)}/><Field label="Order reference" value={form.order_reference} onChange={(v:string)=>set('order_reference',v)}/></div><p className="ih-muted">Upload a dashboard screenshot or official export with the buyer, items, total, currency, order history, checkout time, payment and fulfillment status, and IP/device context.</p></>}
  {form.category==='physical_goods'&&<><p className="ih-notice">Physical goods require logistics or possession proof and warehouse/dispatch evidence or verified tracking.</p><Field label="Carrier tracking numbers (one per line)" multiline value={form.tracking_numbers.join('\n')} onChange={(v:string)=>set('tracking_numbers',v.split('\n').map(s=>s.trim()).filter(Boolean))}/></>}
- <div className="ih-grid">{Object.entries(labels).map(([kind,label])=><label key={kind} className="ih-upload">{label}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,kind);});e.target.value='';}}/></label>)}</div>
+ <div className="ih-grid">{Object.entries(labels).filter(([k])=>requiredKinds.has(k)).map(uploadSlot)}</div>
+ <details className="ih-more"><summary>Additional supporting documents</summary><div className="ih-grid">{Object.entries(labels).filter(([k])=>!requiredKinds.has(k)).map(uploadSlot)}</div></details>
  <p className="ih-muted">PDF, PNG or JPEG · up to 20 MB per file. Attach only evidence needed for this invoice.</p>
  {data.assets.filter((a:any)=>!['logo','signature','signed_agreement'].includes(a.kind)).map((a:any)=><label className="ih-check" key={a.id}><input type="checkbox" checked={form.document_ids.includes(a.id)} onChange={e=>set('document_ids',e.target.checked?[...form.document_ids,a.id]:form.document_ids.filter((id:string)=>id!==a.id))}/>{labels[a.kind]||a.kind} · {new Date(a.created_at).toLocaleDateString()} · {a.id.slice(0,8)}</label>)}
  </section></>}

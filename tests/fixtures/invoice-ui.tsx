@@ -1,4 +1,5 @@
 import React from 'react';
+import '../../styles/globals.css';
 import {createRoot} from 'react-dom/client';
 import InvoiceHub from '../../components/invoices/InvoiceHub';
 import {backendAPI} from '../../utils/api/backendAPI';
@@ -10,5 +11,5 @@ backendAPI.predeposit.request=async(action,body)=>{calls.push({action,body});if(
  if(action==='get_invoice')return {success:true,data:{id:'invoice-1',invoice_number:'TEST-001',status,reasons:status==='action_required'?['contract_value_mismatch']:[]}} as any;
  throw Error('Unexpected action '+action);};
 (window as any).__setInvoiceStatus=(value:string)=>{status=value;};
-document.body.style.cssText='margin:0;background:#0b0e11;color:white;font-family:Arial,sans-serif';
+document.body.style.cssText='margin:0;background:#0b0e11;color:white';
 createRoot(document.getElementById('root')!).render(<InvoiceHub onBack={()=>{}}/>);

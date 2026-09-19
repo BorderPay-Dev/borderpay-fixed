@@ -11,6 +11,7 @@
 // Contract rule: response is sourced from BorderPay internal tables only.
 // We never expose provider response shape directly to product surfaces.
 
+import {redactBankCoordinates,requiresInvoiceInstructions} from "../_shared/predeposit-access.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { selectVaLinkedBaseWallet } from "../../../utils/financial/vaLinkedWalletPresentation.ts";
@@ -21,7 +22,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
-const json = (b: unknown, s = 200) =>
+const baseJson = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
 
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
@@ -50,6 +51,7 @@ function normalizeDeveloperFeePercent(value: unknown): number | null {
 }
 
 Deno.serve(async (req) => {
+ let invoiceRequired=false;const json=(b:unknown,s=200)=>baseJson(invoiceRequired?redactBankCoordinates(b):b,s);
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
 
@@ -58,6 +60,7 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  try { invoiceRequired=await requiresInvoiceInstructions(supa,user.id); }catch{return json({success:false,error:"Receiving instruction policy is unavailable"},503);}
 
   const { data: profile } = await supa
     .from("user_profiles")
