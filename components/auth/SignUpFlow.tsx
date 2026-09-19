@@ -1,3 +1,4 @@
+import { brandName, getCustomerBrand, signupBrandContext, openBrandLink } from "../../utils/branding/brand";
 import { BorderPayLogo } from '../cards/BorderPayLogo';
 /**
  * BorderPay Africa - Complete Signup Flow
@@ -124,7 +125,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
     confirmPassword: '',
     selectedCountry: null, // No default - user must explicitly select their country
     agreedToTerms: false,
-    accountType: 'business',
+    accountType: getCustomerBrand()?.allowed_account_types[0] || 'business',
     companyName: '',
     registrationNumber: '',
     dateOfBirth: '',
@@ -214,6 +215,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       // user_profiles.account_type via trigger, but having the meta on
       // auth.users gives us a second, immutable source of truth for audits.
       const result = await backendAPI.auth.signup({
+        ...signupBrandContext(),
         email,
         password,
         full_name:    fullName,
@@ -236,6 +238,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
       // Attribution has been accepted by auth-signup. Clear it only after a
       // successful account creation so failed/retried signups retain the code.
       clearStoredReferralCode();
+      sessionStorage.removeItem("bp_onboarding_token");
 
       // Store signup data temporarily for after email confirmation. We
       // include account_type + business fields so MainApp can finalize the
@@ -354,8 +357,8 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                 signupCountries={bridgeSignupCountries}
                 countriesLoading={bridgeCountriesLoading}
                 onNavigateToLogin={onNavigateToLogin}
-                onShowTerms={() => setShowTerms(true)}
-                onShowPrivacy={() => setShowPrivacy(true)}
+                onShowTerms={() => { if(!openBrandLink("terms")) setShowTerms(true); }}
+                onShowPrivacy={() => { if(!openBrandLink("privacy")) setShowPrivacy(true); }}
                 formError={formError}
                 onClearError={() => setFormError('')}
               />
@@ -365,7 +368,7 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
               <StepConfirmEmail
                 email={formData.email}
                 fullName={formData.fullName}
-                isBusiness={true}
+                isBusiness={formData.accountType === 'business'}
                 onEmailConfirmed={async () => {
                   // Try to sign in now that email is confirmed
                   try {
@@ -473,6 +476,10 @@ export function SignUpFlow({ onSignUpSuccess, onNavigateToLogin }: SignUpFlowPro
                         return;
                       }
 
+                      if (getCustomerBrand()?.allowed_account_types.includes('individual') && formData.accountType === 'individual') {
+                        onSignUpSuccess(data.user);
+                        return;
+                      }
                       // Direct signup is Business-only. Never route a user
                       // into the legacy Individual multi-step flow.
                       throw new Error('Business account setup could not be verified. Please contact support@borderpayafrica.com.');
@@ -729,8 +736,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         <div className="w-16 h-16 rounded-2xl bg-[#C7FF00] flex items-center justify-center mx-auto mb-4">
           <BorderPayLogo size={28} color="#000000" />
         </div>
-        <h1 className="text-2xl font-bold mb-1">Create Business Account</h1>
-        <p className="text-sm text-gray-400">Join BorderPay Africa as a business</p>
+        <h1 className="text-2xl font-bold mb-1">{formData.accountType === 'business' ? 'Create Business Account' : 'Create Personal Account'}</h1>
+        <p className="text-sm text-gray-400">Join {brandName()}</p>
       </div>
 
       {/* Inline Error Banner */}
@@ -747,6 +754,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
       )}
 
       <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="space-y-3.5">
+        {getCustomerBrand() && <label className="block text-sm">Account type<select className="block w-full bg-black p-3" value={formData.accountType} onChange={e=>updateForm({accountType:e.target.value as 'business'|'individual'})}>{getCustomerBrand()!.allowed_account_types.map(type=><option key={type} value={type}>{type==='business'?'Business':'Personal'}</option>)}</select></label>}
         <FormInput
           label="Full Name (as on ID)"
           icon={User}
@@ -755,6 +763,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           placeholder="John Doe"
         />
 
+        {formData.accountType === 'business' && <>
         <FormInput
           label="Company Name"
           icon={Building}
@@ -770,6 +779,8 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
           placeholder="Company registration number"
         />
 
+        </>}
+
         <FormInput
           label="Email Address"
           icon={Mail}
@@ -782,7 +793,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
         {/* Business incorporation country drives onboarding and compliance. */}
         <div>
           <label className="block text-xs text-gray-400 uppercase tracking-[0.15em] font-semibold mb-2">
-            Country of Incorporation <span className="text-[#C7FF00]">*</span>
+            {formData.accountType === 'business' ? 'Country of Incorporation' : 'Country of Residence'} <span className="text-[#C7FF00]">*</span>
           </label>
           <button
             type="button"
@@ -1010,7 +1021,7 @@ function StepPersonalInfo({ formData, updateForm, onNext, isLoading, signupCount
             className="w-5 h-5 mt-0.5 rounded border-white/[0.08] bg-white/[0.04] text-[#C7FF00] focus:ring-[#C7FF00] cursor-pointer"
           />
           <label htmlFor="terms-flow" className="text-xs text-gray-400 leading-relaxed">
-            I agree to BorderPay's{' '}
+            I agree to {getCustomerBrand()?.brand.legal_name || 'BorderPay'}’s{' '}
             <button type="button" onClick={onShowTerms} className="text-[#C7FF00] font-semibold underline">
               Terms & Conditions
             </button>

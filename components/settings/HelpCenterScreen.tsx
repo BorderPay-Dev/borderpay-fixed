@@ -1,3 +1,4 @@
+import { brandName, getCustomerBrand, openBrandLink } from "../../utils/branding/brand";
 /**
  * BorderPay Africa - Help Center Screen
  */
@@ -85,11 +86,11 @@ export function HelpCenterScreen({ onBack, onNavigate }: HelpCenterScreenProps) 
         <div className={`${tc.card} border ${tc.cardBorder} rounded-2xl p-5`}>
           <h2 className={`text-base font-bold ${tc.text} mb-1`}>Need Help?</h2>
           <p className={`text-sm ${tc.textSecondary} mb-4`}>
-            Contact BorderPay support directly in-app.
+            Contact {brandName()} support.
           </p>
 
           <button
-            onClick={() => onNavigate?.('support')}
+            onClick={() => {if(!openBrandLink('support')) onNavigate?.('support');}}
             className="flex items-center gap-3 p-3 rounded-xl bg-[#C7FF00]/10 border border-[#C7FF00]/20"
           >
             <div className="w-10 h-10 rounded-full bg-[#C7FF00]/20 flex items-center justify-center">
@@ -117,7 +118,7 @@ export function HelpCenterScreen({ onBack, onNavigate }: HelpCenterScreenProps) 
             Frequently Asked Questions
           </h2>
           <div className="space-y-2">
-            {faqItems.map((faq, index) => (
+            {(getCustomerBrand() ? [] : faqItems).map((faq, index) => (
               <button
                 key={index}
                 onClick={() => setExpandedFaq(expandedFaq === index ? null : index)}

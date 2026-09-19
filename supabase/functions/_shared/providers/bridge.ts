@@ -1,3 +1,4 @@
+import { bridgeBusinessNameFields } from "./bridge-business-name.ts";
 import { transferInitiation, type WalletInitiationRequirement } from "../bridge-transfer-initiation.ts";
 /**
  * BridgeProvider — implements PaymentProvider against Bridge's REST API.
@@ -68,7 +69,7 @@ export class BridgeProvider implements PaymentProvider {
       body.last_name  = rest.join(" ") || "Unknown";
       if (input.phone_e164) body.phone = input.phone_e164;
     } else {
-      body.business_legal_name = input.company_name;
+      Object.assign(body, bridgeBusinessNameFields(input.company_name));
       if (input.registration_number) body.business_registration_number = input.registration_number;
     }
     body.metadata = { borderpay_user_id: input.borderpay_user_id };

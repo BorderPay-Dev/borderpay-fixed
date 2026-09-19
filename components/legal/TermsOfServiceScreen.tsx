@@ -1,3 +1,4 @@
+import { getCustomerBrand } from "../../utils/branding/brand";
 /**
  * BorderPay Africa - Terms of Service Screen
  * Full scrollable terms with sections, beautiful typography
@@ -16,6 +17,9 @@ interface TermsOfServiceScreenProps {
 }
 
 export function TermsOfServiceScreen({ onBack, onAccept, showAcceptButton = false }: TermsOfServiceScreenProps) {
+  const partnerBrand = getCustomerBrand()?.brand;
+  if (partnerBrand) return <main className="p-6 text-white"><button onClick={onBack}>Back</button><h1 className="text-2xl my-6">{partnerBrand.legal_name}</h1><a href={partnerBrand.terms_url} target="_blank" rel="noopener noreferrer">Open Terms policy</a></main>;
+
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['overview']));
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
 

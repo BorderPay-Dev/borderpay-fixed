@@ -1,3 +1,5 @@
+import { applyWhiteLabelEmail, escapeBrand } from "../_shared/white-label-email.ts";
+import { loadPublishedWhiteLabel } from "../_shared/white-label-config.ts";
 // send-email — unified transactional email entrypoint.
 //
 // Single send path for every BorderPay email. Renders one of the registered
@@ -113,6 +115,8 @@ type WhiteLabelEmailContext = {
   senderName: string;
   replyTo: string | null;
   deliveryMode: "borderpay_managed" | "partner_webhook";
+  appOrigin: string;
+  legalName: string; termsUrl: string; privacyUrl: string;
 };
 
 const DEFAULT_LOGO_URL = "https://orwrcpwsffjlvzuraxjc.supabase.co/storage/v1/object/public/email-logo.png/assets/borderpay-email-logo.png";
@@ -122,10 +126,16 @@ const safeHttps = (value: unknown) => {
   try { const parsed = new URL(value.trim()); return parsed.protocol === "https:" && !parsed.username && !parsed.password ? parsed.toString() : null; } catch { return null; }
 };
 const safeLabel = (value: unknown) => String(value || "").replace(/[\u0000-\u001F\u007F<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
-const escapeBrand = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
 
 async function loadWhiteLabelEmailContext(body: SendEmailBody): Promise<WhiteLabelEmailContext | null> {
-  const tenantId = String(body.tenant_id || "").trim();
+  const { data: origin, error: originError } = body.user_id
+    ? await supabaseAdmin.from("account_origin_provenance").select("tenant_id,onboarding_channel").eq("user_id",body.user_id).maybeSingle()
+    : {data:null,error:null};
+  if(originError) throw new Error("Email recipient origin unavailable");
+  const derived = origin?.onboarding_channel === "white_label" ? origin.tenant_id : null;
+  if(body.tenant_id && body.tenant_id !== derived) throw new Error("Email recipient tenant mismatch");
+  const tenantId = String(derived || "").trim();
   if (!tenantId) return null;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tenantId)) throw new Error("Invalid tenant_id");
   const [{ data: tenant }, { data: approval }] = await Promise.all([
@@ -139,26 +149,11 @@ async function loadWhiteLabelEmailContext(body: SendEmailBody): Promise<WhiteLab
   const { data: provenance } = await supabaseAdmin.from("account_origin_provenance")
     .select("tenant_id").eq("user_id", body.user_id).eq("tenant_id", tenantId).maybeSingle();
   if (!provenance) throw new Error("Email recipient is not owned by this partner tenant");
-  const white = tenant.metadata?.white_label && typeof tenant.metadata.white_label === "object" ? tenant.metadata.white_label as Record<string, unknown> : {};
-  const brandName = safeLabel(white.app_name || white.brand_name);
-  if (white.enabled !== true || !brandName) throw new Error("White-label email branding is not published");
-  const primaryColor = typeof white.primary_color === "string" && /^#[0-9a-f]{6}$/i.test(white.primary_color.trim()) ? white.primary_color.trim().toUpperCase() : "#C7FF00";
-  const deliveryMode = white.email_delivery_mode === "partner_webhook" ? "partner_webhook" : "borderpay_managed";
-  return { tenantId, brandName, primaryColor, logoUrl: safeHttps(white.logo_url), supportEmail: safeEmail(white.support_email), senderName: safeLabel(white.email_sender_name || brandName), replyTo: safeEmail(white.email_reply_to), deliveryMode };
-}
-
-function applyWhiteLabelEmail(rendered: { subject: string; html: string; text: string }, brand: WhiteLabelEmailContext) {
-  const htmlName = escapeBrand(brand.brandName);
-  let html = rendered.html.replace(/BorderPay Africa|BorderPay/g, () => htmlName)
-    .replaceAll("#C7FF00", brand.primaryColor).replaceAll("#c7ff00", brand.primaryColor);
-  if (brand.logoUrl) html = html.replaceAll(DEFAULT_LOGO_URL, escapeBrand(brand.logoUrl));
-  if (brand.supportEmail) html = html.replaceAll("support@borderpayafrica.com", escapeBrand(brand.supportEmail));
-  return {
-    subject: rendered.subject.replace(/BorderPay Africa|BorderPay/g, () => brand.brandName),
-    html,
-    text: rendered.text.replace(/BorderPay Africa|BorderPay/g, () => brand.brandName)
-      .replaceAll("support@borderpayafrica.com", brand.supportEmail || "support@borderpayafrica.com"),
-  };
+  const release = await loadPublishedWhiteLabel(supabaseAdmin,{tenantId});
+  if(!release) throw new Error("White-label email branding is not published");
+  const white = release.brand;
+  const brandName = safeLabel(white.brand_name);
+  return {tenantId,brandName,primaryColor:white.primary_color,logoUrl:white.logo_url,supportEmail:white.support_email,senderName:white.email_sender_name || brandName,replyTo:white.email_reply_to || white.support_email,deliveryMode:"borderpay_managed",appOrigin:white.app_origin,legalName:white.legal_name,termsUrl:white.terms_url,privacyUrl:white.privacy_url};
 }
 
 Deno.serve(async (req: Request) => {

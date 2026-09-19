@@ -43,6 +43,7 @@ jobs:
           tests/maintenance-invoice-email.test.ts
           tests/affiliate-reward-sync.test.ts
           tests/partner-legal-identity.test.ts
+          tests/partner-decision-email.test.ts
           tests/sca-payment-runtime.test.ts
           tests/sca-authorization-http.test.ts
           tests/usdt-transfer-http.test.ts

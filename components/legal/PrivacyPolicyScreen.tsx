@@ -1,3 +1,4 @@
+import { getCustomerBrand } from "../../utils/branding/brand";
 /**
  * BorderPay Africa - Privacy Policy Screen
  * Global data-protection aligned, mobile-optimized
@@ -12,6 +13,9 @@ interface PrivacyPolicyScreenProps {
 }
 
 export function PrivacyPolicyScreen({ onBack }: PrivacyPolicyScreenProps) {
+  const partnerBrand = getCustomerBrand()?.brand;
+  if (partnerBrand) return <main className="p-6 text-white"><button onClick={onBack}>Back</button><h1 className="text-2xl my-6">{partnerBrand.legal_name}</h1><a href={partnerBrand.privacy_url} target="_blank" rel="noopener noreferrer">Open Privacy policy</a></main>;
+
   return (
     <div className="min-h-full bg-black text-white">
       <FloatingBackButton onBack={onBack} />

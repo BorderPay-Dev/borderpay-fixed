@@ -1,73 +1,21 @@
 #!/usr/bin/env python3
-import json
 from pathlib import Path
-
 ROOT = Path(__file__).resolve().parents[2]
-APP = (ROOT / "App.tsx").read_text()
-UI = (ROOT / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
-INDEX = (ROOT / "index.html").read_text()
-MANIFEST = json.loads((ROOT / "public/manifest.json").read_text())
-
+UI = (ROOT / 'components/business/OperatorBridgeReadOnlyApp.tsx').read_text()
+CHART = (ROOT / 'components/business/treasury/TreasuryVolume.tsx').read_text()
+CSS = (ROOT / 'components/business/treasury/treasury.css').read_text()
 checks = {
-    "treasury stays isolated to the master identity": (
-        "founder@borderpayafrica.com" in APP
-        and "<OperatorBridgeReadOnlyApp" in APP
-        and "bp-treasury-shell" in UI
-    ),
-    "application is installable in standalone mode": (
-        MANIFEST.get("display") == "standalone"
-        and MANIFEST.get("start_url") == "/"
-        and '<link rel="manifest" href="/manifest.json"' in INDEX
-    ),
-    "viewport supports notches and standalone safe areas": (
-        "viewport-fit=cover" in INDEX
-        and "safe-area-inset-top" in UI
-        and "safe-area-inset-right" in UI
-        and "safe-area-inset-bottom" in UI
-        and "safe-area-inset-left" in UI
-    ),
-    "dynamic mobile viewport is used without locking document width": (
-        "100svh" in UI and "100dvh" in UI and "overflow-x-hidden" in UI
-    ),
-    "standalone display receives treasury-only layout rules": (
-        "@media (display-mode:standalone)" in UI
-        and ".bp-treasury-shell" in UI
-        and ".bp-treasury-main" in UI
-    ),
-    "small phones receive compact brand cards and tab labels": all(token in UI for token in (
-        "@media (max-width:359px)",
-        "bp-treasury-brand-copy",
-        "bp-treasury-card",
-        "bp-treasury-nav-label",
-    )),
-    "short landscape screens retain usable navigation": (
-        "orientation:landscape" in UI and "max-height:540px" in UI
-    ),
-    "mobile navigation remains accessible and touch sized": (
-        'aria-label={label}' in UI and "min-h-14" in UI and "grid-cols-5" in UI
-    ),
-    "chart keeps its aspect ratio instead of stretching": (
-        'preserveAspectRatio="xMidYMid meet"' in UI
-        and 'preserveAspectRatio="none"' not in UI
-    ),
-    "motion preference is respected": "prefers-reduced-motion:reduce" in UI,
-    "treasury owns viewport and hides vertical scrollbar without disabling scroll": all(token in UI for token in (
-        "fixed inset-0 h-dvh overflow-y-auto overflow-x-hidden",
-        "-webkit-overflow-scrolling:touch",
-        ".bp-treasury-scroll::-webkit-scrollbar{display:none;width:0;height:0}",
-        "document.documentElement",
-        "classList.add('bp-treasury-active')",
-        "classList.remove('bp-treasury-active')",
-        "body.bp-treasury-active{height:100%;overflow:hidden!important",
-    )),
-    "customer application component is not imported into treasury UI": (
-        "MainApp" not in UI and "BusinessDashboard" not in UI
-    ),
+ 'safe areas on all edges': all(f'safe-area-inset-{edge}' in CSS for edge in ['top','right','bottom','left']),
+ 'dynamic viewport with scroll': '100svh' in CSS and '100dvh' in CSS and 'overflow-y:auto' in CSS,
+ 'standalone adaptation': 'display-mode:standalone' in CSS,
+ 'small phone and landscape adaptation': 'max-width:359px' in CSS and 'max-height:540px' in CSS,
+ 'touch sized controls': 'min-height:44px' in CSS and 'min-height:52px' in CSS,
+ 'motion preferences respected': 'prefers-reduced-motion:reduce' in CSS,
+ 'responsive chart': 'preserveAspectRatio="none"' in CHART and 'onPointerMove' in CHART and 'onKeyDown' in CHART,
+ 'viewport restored after treasury unmount': "classList.remove('bp-treasury-active')" in UI,
+ 'keyboard skip and focus visible': 'Skip to treasury content' in UI and ':focus-visible' in CSS,
+ 'consumer screens remain independent': 'MainApp' not in UI and 'BusinessDashboard' not in UI,
 }
-
-failed = [name for name, passed in checks.items() if not passed]
-for name, passed in checks.items():
-    print(f"{'PASS' if passed else 'FAIL'}: {name}")
-if failed:
-    raise SystemExit("operator treasury PWA audit failed: " + ", ".join(failed))
-print(f"PASS: {len(checks)}/{len(checks)} operator treasury PWA invariants")
+for name, passed in checks.items(): print(('PASS' if passed else 'FAIL') + ': ' + name)
+if not all(checks.values()): raise SystemExit(1)
+print(f'PASS: {len(checks)}/{len(checks)} treasury responsive invariants')

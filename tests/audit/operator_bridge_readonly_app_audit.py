@@ -6,7 +6,7 @@ MIGRATION = (ROOT / "supabase/migrations/20260912170000_operator_bridge_readonly
 WORKER = (ROOT / "supabase/functions/bridge-operator-readonly/index.ts").read_text()
 PROVIDER = (ROOT / "supabase/functions/_shared/providers/bridge.ts").read_text()
 APP = (ROOT / "App.tsx").read_text()
-UI = (ROOT / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text()
+UI = (ROOT / "components/business/OperatorBridgeReadOnlyApp.tsx").read_text() + (ROOT / "components/business/treasury/values.ts").read_text()
 API = (ROOT / "utils/api/backendAPI.ts").read_text()
 CONFIG = (ROOT / "supabase/config.toml").read_text()
 
@@ -62,7 +62,7 @@ checks = {
         "externalAccountsAvailable",
         "destination_external_account_id",
     )),
-    "transactions are read": 'path: "/v0/transfers"' in WORKER,
+    "transactions are read": 'path: `/v0/customers/${encodeURIComponent(customerId)}/transfers`' in WORKER,
     "snapshot declares its live production source": 'source: "bridge_production_live"' in WORKER,
     "operator treasury rejects non-production provider configuration": (
         'BRIDGE_BASE_URL !== "https://api.bridge.xyz"' in WORKER
@@ -94,7 +94,7 @@ checks = {
     "unavailable wallet balances are never displayed as zero": "if (!wallet.balance_available) return null" in UI and "wallet.balance !== null" in UI,
     "master treasury is isolated from customer UI": "BorderPay Africa Treasury" in UI and "<OperatorBridgeReadOnlyApp" in APP,
     "receiving rails are dynamically rendered": ".map((account)" in UI and "ReceiveView" in UI and "RailMark" in UI,
-    "operator home uses the master transfer ledger for its chart": "TreasuryActivityChart transactions={snapshot.transactions}" in UI,
+    "operator home uses the same USD valuation as total balance": "TreasuryActivityChart valuation={snapshot.treasury_valuation}" in UI and "valuationTotal(snapshot?.treasury_valuation)" in UI,
     "operator total balance is privacy protected": "balanceVisible" in UI and "aria-pressed={balanceVisible}" in UI,
 }
 

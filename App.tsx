@@ -1,3 +1,4 @@
+import { CustomerBrandProvider } from "./utils/branding/CustomerBrandProvider";
 import React, { useState, useEffect, useCallback } from 'react';
 import { Toaster } from 'sonner';
 import { SplashScreen } from './components/onboarding/SplashScreen';
@@ -921,7 +922,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <ThemeLanguageProvider>
-        <AppContent />
+        <CustomerBrandProvider><AppContent /></CustomerBrandProvider>
         <Toaster
           position="top-center"
           theme="dark"
