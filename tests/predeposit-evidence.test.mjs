@@ -108,4 +108,22 @@ try {
  console.log('PASS: workflow submission, idempotency, revision invalidation, ownership, approval leases, GBP invariant, immutable terms and operator evidence');
 
  console.log('PASS: private evidence, tenant RLS, immutable snapshots, append-only audit, scoped documents, worker leases, digest binding, no automatic final approval, disabled rollout');
+
+ await db.exec("create schema vault;create schema net;create table vault.decrypted_secrets(name text,decrypted_secret text);create table net.calls(headers jsonb,body jsonb);");
+ await db.exec(`create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer) returns bigint language plpgsql as $$begin insert into net.calls values(headers,body);return 42;end;$$;`);
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920050000_predeposit_worker_dispatch.sql',import.meta.url),'utf8'));
+ await db.exec("begin;update predeposit_invoices set status='expired',lease_until=null;");
+ assert.equal((await db.query("select invoke_predeposit_worker() id")).rows[0].id,null,'empty queue does not dispatch');
+ await db.exec("update predeposit_invoices set status='queued' where id=(select id from predeposit_invoices limit 1)");
+ await assert.rejects(()=>db.query("select invoke_predeposit_worker()"),/credential is not configured/);
+ await db.exec("rollback");
+ await db.exec("insert into vault.decrypted_secrets values('borderpay_predeposit_worker_token','test-only-not-a-real-credential-1234567890')");
+ await db.exec("begin;update predeposit_invoices set status='queued',lease_until=null");
+ assert.equal((await db.query("select invoke_predeposit_worker() id")).rows[0].id,42);
+ assert.equal((await db.query("select count(*)::int n from predeposit_worker_requests")).rows[0].n,1);
+ await db.exec("set role authenticated");
+ await assert.rejects(()=>db.query("select invoke_predeposit_worker()"),/permission denied/);
+ await db.exec("rollback");
+ console.log('PASS: durable queue dispatcher requires a server credential and is inaccessible to merchant sessions');
+
 }finally{await db.close();}

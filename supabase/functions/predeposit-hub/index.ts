@@ -58,7 +58,8 @@ Deno.serve(async req=>{
    if(action==="admin_rfi_dossier"){
     const row=checked<any>(await db.from("predeposit_invoices").select("*").eq("id",uuid(body.invoice_id)).single());
     if(!row.dossier_path||!row.dossier_sha256)throw Error("Review must complete before a dossier is available");
-    const bytes=checked<Blob>(await db.storage.from(BUCKET).download(row.dossier_path));
+    const bytes=checked<Blob|null>(await db.storage.from(BUCKET).download(row.dossier_path));
+    if(!bytes)throw Error("Dossier file is unavailable");
     if(await sha256(new Uint8Array(await bytes.arrayBuffer()))!==row.dossier_sha256)throw Error("Stored evidence integrity check failed");
     checked(await db.from("predeposit_access_log").insert({invoice_id:row.id,actor_user_id:owner,action:"operator_rfi_dossier_exported",metadata:{sha256:row.dossier_sha256}}));
     const signed=checked<any>(await db.storage.from(BUCKET).createSignedUrl(row.dossier_path,60,{download:"RFI-"+row.invoice_number.replace(/[^A-Za-z0-9_-]/g,"_")+".pdf"}));
