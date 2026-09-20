@@ -36,6 +36,10 @@ jobs:
           pdftoppm -scale-to 1300 -png /tmp/predeposit-pdf-qa/approved.pdf /tmp/predeposit-pdf-qa/approved
           pdftotext /tmp/predeposit-pdf-qa/approved.pdf /tmp/predeposit-pdf-qa/approved.txt
           pdftotext /tmp/predeposit-pdf-qa/pending.pdf /tmp/predeposit-pdf-qa/pending.txt
+          pdftotext /tmp/predeposit-pdf-qa/invoice-copy.pdf /tmp/predeposit-pdf-qa/invoice-copy.txt
+          pdftoppm -scale-to 1300 -png /tmp/predeposit-pdf-qa/invoice-copy.pdf /tmp/predeposit-pdf-qa/invoice-copy
+          pdftotext /tmp/predeposit-pdf-qa/observation-invoice.pdf /tmp/predeposit-pdf-qa/observation-invoice.txt
+          pdftoppm -scale-to 1300 -png /tmp/predeposit-pdf-qa/observation-invoice.pdf /tmp/predeposit-pdf-qa/observation-invoice
           python3 tests/predeposit-pdf-text.test.py
       - uses: actions/upload-artifact@v4
         if: always()

@@ -1,12 +1,14 @@
 declare const EdgeRuntime: {waitUntil(promise:Promise<unknown>):void};
 import {createClient} from "jsr:@supabase/supabase-js@2";
-import {checked,loadPolicy,saveAsset,submitInvoice,loadAssetBytes,invoiceDossier,BUCKET} from "../_shared/predeposit-runtime.ts";
+import {checked,loadPolicy,saveAsset,submitInvoice,loadAssetBytes,invoiceDossier,fontBytes,BUCKET} from "../_shared/predeposit-runtime.ts";
 import {loadInvoiceAccounts} from "../_shared/predeposit-accounts.ts";
 import {parseDraft,EVIDENCE_KINDS} from "../_shared/predeposit-input.ts";
 import {manualEvidencePatch} from "../_shared/predeposit-manual.ts";
 import {processInvoice,buildAssessment} from "../_shared/predeposit-worker.ts";
-import {generateBankPaymentInstructions} from "../_shared/predeposit-payment-instructions.ts";
+import {generateBankPaymentInstructions,generateObservedInvoiceInstructions} from "../_shared/predeposit-payment-instructions.ts";
 import {sha256,canonicalJson,evaluateInvoice,assessedDigest,type ReviewContext} from "../_shared/predeposit-policy.ts";
+import {invoiceCopy} from "../_shared/predeposit-invoice-copy.ts";
+import {renderInvoiceDocument} from "../_shared/predeposit-pdf.ts";
 const CORS={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization,apikey,content-type,x-client-info","Access-Control-Allow-Methods":"POST,OPTIONS"};
 const reply=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{...CORS,"Content-Type":"application/json","Cache-Control":"no-store"}});
 const db=createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,{auth:{persistSession:false}});
@@ -137,7 +139,7 @@ Deno.serve(async req=>{
    if(policy.config?.hub_enabled!==true)return reply({success:true,data:{enabled:false,accounts:[],templates:[]}});
    let accounts:any=null,accountWarning="";
    try{accounts=await loadInvoiceAccounts(db,owner);}catch{accountWarning="Receiving accounts are unavailable. You can prepare documents; payment details require an active approved business account.";}
-   return reply({success:true,data:{enabled:true,merchant:accounts?.merchant||null,accounts:(accounts?.accounts||[]).map((a:any)=>({id:a.id,currency:a.currency,status:a.status,label:a.currency+" receiving account"})),account_warning:accountWarning,
+   return reply({success:true,data:{enabled:true,payment_review_required:policy.mode==="enforce",merchant:accounts?.merchant||null,accounts:(accounts?.accounts||[]).map((a:any)=>({id:a.id,currency:a.currency,status:a.status,label:a.currency+" receiving account"})),account_warning:accountWarning,
     templates:checked(await db.from("predeposit_agreement_templates").select("version,title,body,status").eq("status","approved")),
     branding:checked(await db.from("predeposit_branding").select("*").eq("owner_user_id",owner).maybeSingle()),
     assets:checked(await db.from("predeposit_assets").select("id,kind,mime_type,size_bytes,verification_status,created_at").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(200)),
@@ -171,6 +173,47 @@ Deno.serve(async req=>{
    if(["queued","screening"].includes(row.status))launch(row.id);
    return reply({success:true,data:{id:row.id,invoice_number:row.invoice_number,revision:row.revision,status:row.status,
     merchant_feedback:row.assessment?.merchant_feedback||"",reasons:row.assessment?.reasons||[],required_documents:row.assessment?.required_documents||[],findings:row.assessment?.ai?.findings||[],approval_expires_at:row.approval_expires_at}});
+  }
+  if(action==="download_invoice"){
+   let payload:any,merchant:any,invoiceNumber:string,id:string,revision:number,invoiceId:string|null=null;
+   let branding:any;
+   if(body.invoice_id){
+    const row=await ownInvoice(uuid(body.invoice_id),owner);
+    payload=row.payload;merchant=row.payload.merchant;invoiceNumber=row.invoice_number;id=row.id;revision=row.revision;invoiceId=row.id;
+    branding=row.review_context?.branding;
+   }else{
+    const draft=checked<any>(await db.from("predeposit_drafts").select("*").eq("id",uuid(body.draft_id)).eq("owner_user_id",owner).single());
+    if(draft.version!==Number(body.version))throw Error("Draft changed. Reload before downloading");
+    const biz=checked<any>(await db.from("business_profiles").select("company_name,country").eq("user_id",owner).single());
+    merchant={legal_name:biz.company_name,incorporation_country:biz.country};
+    payload=draft.payload;invoiceNumber=draft.invoice_number;id=draft.id;revision=draft.version;
+    branding=checked<any>(await db.from("predeposit_branding").select("logo_asset_id").eq("owner_user_id",owner).maybeSingle());
+   }
+   const invoice=invoiceCopy(payload,merchant,id,revision);
+   let logo:Uint8Array|undefined;
+   if(branding?.logo_asset_id){
+    const asset=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.logo_asset_id).eq("owner_user_id",owner).single());
+    if(asset.kind==="logo"&&asset.scan_status!=="rejected"&&asset.verification_status!=="rejected")logo=await loadAssetBytes(db,asset);
+   }
+   let bank;
+   if(policy.mode==="observe"){
+    const userDb=createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_ANON_KEY")!,{global:{headers:{Authorization:"Bearer "+token}},auth:{persistSession:false}});
+    const allowed=await userDb.rpc("can_read_bridge_financial_data",{p_user_id:owner});
+    if(allowed.error||allowed.data!==true)return reply({success:false,error:"Complete the required security check before viewing bank details"},403);
+    const accounts=await loadInvoiceAccounts(db,owner);
+    // The seller and bank details are server-derived; never accept bank fields from the draft.
+    if(accounts.merchant.legal_name!==invoice.merchant.legal_name)throw Error("Business legal details changed; create a new invoice");
+    const account=accounts.accounts.find(a=>a.id===invoice.receiving_account_id);
+    if(!account)throw Error("Select an active receiving account for this invoice");
+    const currentPolicy=await loadPolicy(db);
+    bank=generateObservedInvoiceInstructions(owner,invoice,account,currentPolicy.mode);
+   }
+   const bytes=await renderInvoiceDocument({invoice,invoiceNumber,fontBytes:await fontBytes(db),logo,customerCopy:true,bank});
+   const digest=await sha256(bytes),path=owner+"/invoice-copies/"+id+"/"+crypto.randomUUID()+".pdf";
+   checked(await db.storage.from(BUCKET).upload(path,bytes,{contentType:"application/pdf",upsert:false}));
+   if(invoiceId)checked(await db.from("predeposit_access_log").insert({invoice_id:invoiceId,actor_user_id:owner,action:"invoice_copy_exported",metadata:{sha256:digest,revision,bank_details_included:!!bank,mode:policy.mode}}));
+   const signed=checked<any>(await db.storage.from(BUCKET).createSignedUrl(path,60,{download:invoiceNumber.replace(/[^A-Za-z0-9_-]/g,"_")+".pdf"}));
+   return reply({success:true,data:{url:signed.signedUrl,expires_in:60,sha256:digest}});
   }
   if(action==="download"){
    const row=await ownInvoice(uuid(body.invoice_id),owner);if(row.status!=="approved")return reply({success:false,error:"Invoice approval is required before bank details can be shared"},409);

@@ -6,8 +6,9 @@ export type PdfAttachment={name:string;mime:string;bytes:Uint8Array;sha256:strin
 export async function renderInvoiceDocument(args:{
  invoice:Invoice;invoiceNumber:string;fontBytes:Uint8Array;templateBody?:string;
  logo?:Uint8Array;signature?:Uint8Array;bank?:BankPaymentInstructions;
- attachments?:PdfAttachment[];agreementOnly?:boolean;approved?:boolean;complianceReview?:{assessment:unknown;recorded_at:string};
+ customerCopy?:boolean;attachments?:PdfAttachment[];agreementOnly?:boolean;approved?:boolean;complianceReview?:{assessment:unknown;recorded_at:string};
 }):Promise<Uint8Array>{
+ if(args.customerCopy&&(args.attachments?.length||args.templateBody||args.signature||args.complianceReview))throw Error("Invoice copies cannot contain private compliance documents or unverified agreements");
  const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
  const font=await doc.embedFont(args.fontBytes,{subset:true});
  const money=(n:number)=>{const v=BigInt(n);return String(v/100n)+"."+String(v%100n).padStart(2,"0");};
@@ -39,7 +40,8 @@ export async function renderInvoiceDocument(args:{
  if(args.logo)await image(args.logo,145,54);
  text(inv.merchant.legal_name,20);text(args.agreementOnly?"B2B Commercial Agreement":"Commercial Invoice",12,muted);line();
  text("Invoice: "+args.invoiceNumber+"  |  Revision: "+inv.revision,10);
- if(!args.approved&&!args.agreementOnly)text("UNDER REVIEW - NOT PAYMENT INSTRUCTIONS",10,muted);
+ if(args.customerCopy&&!args.bank)text("INVOICE COPY - PAYMENT DETAILS NOT INCLUDED",10,muted);
+ else if(!args.customerCopy&&!args.approved&&!args.agreementOnly)text("UNDER REVIEW - NOT PAYMENT INSTRUCTIONS",10,muted);
  title("Parties");
  text("Seller: "+inv.merchant.legal_name+" ("+inv.merchant.incorporation_country+")");
  text("Buyer: "+inv.buyer.legal_name);text(inv.buyer.address+" | "+inv.buyer.country);text("Tax / VAT ID: "+inv.buyer.tax_id);
@@ -59,7 +61,7 @@ export async function renderInvoiceDocument(args:{
   text(terms);text("Agreement version: "+inv.agreement.version,9,muted);
   if(args.signature){title("Merchant execution");await image(args.signature,220,70);text(inv.agreement.signed_by);text("Accepted: "+inv.agreement.signed_at,9,muted);}
  }
- if(!args.agreementOnly && !args.bank){
+ if(!args.customerCopy && !args.agreementOnly && !args.bank){
   title("1. Sender and commercial relationship");
   text("Expected remitter: "+inv.remitter.legal_name);text("Relationship: "+inv.remitter.relationship);
   title("2. Payment purpose and fund utilization");text("Use of funds: "+inv.fund_utilization);

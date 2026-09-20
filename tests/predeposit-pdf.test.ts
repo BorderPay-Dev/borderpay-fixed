@@ -42,3 +42,12 @@ const approved=await renderInvoiceDocument({...common,approved:true,bank:{invoic
 await Deno.writeFile("/tmp/predeposit-pdf-qa/approved.pdf",approved);
 const loaded=await PDFDocument.load(approved);assert.ok(loaded.getPageCount()>=2);
 console.log("PASS: Unicode names, multipage invoice, bank instructions and original evidence copies");
+
+const copy=await renderInvoiceDocument({invoice,invoiceNumber:"QA-2026-001",fontBytes:font,customerCopy:true});
+await Deno.writeFile("/tmp/predeposit-pdf-qa/invoice-copy.pdf",copy);
+await assert.rejects(()=>renderInvoiceDocument({...common,customerCopy:true}),/Invoice copies cannot/);
+await assert.rejects(()=>renderInvoiceDocument({invoice,invoiceNumber:"QA",fontBytes:font,customerCopy:true,attachments:[{name:"private",mime:"application/pdf",bytes:evidence,sha256:"a".repeat(64)}]}),/Invoice copies cannot/);
+console.log("PASS: invoice-only copy omits bank details and cannot include compliance attachments");
+
+const observation=await renderInvoiceDocument({invoice,invoiceNumber:"QA-2026-001",fontBytes:font,customerCopy:true,bank:{invoice_reference:"QA-2026-001",account_id:"va-test",currency:"GBP",amount:"125.00",beneficiary_name:"Example Bank Beneficiary",bank_name:"Test Bank",account_number:"12345678",sort_code:"12-34-56",required_payment_reference:"TEST-ONLY"}});
+await Deno.writeFile("/tmp/predeposit-pdf-qa/observation-invoice.pdf",observation);

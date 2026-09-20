@@ -9,11 +9,13 @@ try{
  await page.getByText('GBP is strictly B2B.',{exact:false}).waitFor();
  assert.equal(await page.getByText('12345678').count(),0);
  await page.screenshot({path:'/tmp/predeposit-pdf-qa/merchant-mobile.png',fullPage:true});
+ await page.getByRole('button',{name:'Download invoice',exact:true}).waitFor();
  await page.getByRole('button',{name:'B2B agreement',exact:true}).click();
  await page.getByLabel('Approved agreement template').selectOption('v1');
- await page.getByRole('button',{name:'Generate invoice',exact:true}).click();
+ await page.getByRole('button',{name:'Check invoice & documents',exact:true}).click();
  await page.getByText('Review is processing.',{exact:false}).waitFor();
  assert.equal(await page.getByRole('button',{name:'Download invoice & payment details'}).count(),0);
+ assert.equal(await page.getByRole('button',{name:'Download invoice',exact:true}).count(),2);
  await page.evaluate(()=>window.__setInvoiceStatus('action_required'));
  await page.getByText('The contract amount or currency differs from the invoice.').waitFor({timeout:15000});
  const submitted=await page.evaluate(()=>window.__invoiceCalls.filter(c=>c.action==='submit').length);assert.equal(submitted,1);

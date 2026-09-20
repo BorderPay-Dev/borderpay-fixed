@@ -1,4 +1,4 @@
-import { assessedDigest, evaluateInvoice, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
+import { assessedDigest, evaluateInvoice, invoiceTotalMinor, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
 
 export type ApprovedInvoiceRecord = {
  status: string; payload_sha256: string; policy_version: string;
@@ -30,12 +30,25 @@ export async function generateBankPaymentInstructions(
   || !Number.isFinite(expires) || !Number.isFinite(Date.parse(now)) || expires<=Date.parse(now))throw Error("Current invoice approval is required");
  const assessment=evaluateInvoice(invoice,context);
  if(assessment.status==="action_required" || assessment.total_minor===null)throw Error("Invoice requirements are incomplete");
+ return formatInstructions(invoice,account,assessment.total_minor);
+}
+// Observation mode supports existing merchants' invoicing without introducing an
+// invoice-approval requirement. Financial access and live provider checks remain
+// the caller's responsibility. Enforced mode must use the approved path above.
+export function generateObservedInvoiceInstructions(owner:string,invoice:Invoice,account:ReceivingAccountDetails,mode:unknown):BankPaymentInstructions{
+ if(mode!=="observe")throw Error("Invoice approval is required before bank details can be shared");
+ if(account.owner_user_id!==owner||account.id!==invoice.receiving_account_id||account.currency!==invoice.currency||account.status!=="active")throw Error("The selected receiving account is unavailable");
+ const total=invoiceTotalMinor(invoice.items);
+ if(total===null)throw Error("Invoice amount is invalid");
+ return formatInstructions(invoice,account,total);
+}
+function formatInstructions(invoice:Invoice,account:ReceivingAccountDetails,totalMinor:number):BankPaymentInstructions{
  // Preserve the strict GBP business-to-business rule even on a manually approved record.
  if(invoice.currency==="GBP" && (invoice.buyer.type!=="company" || invoice.remitter.type!=="company"))throw Error("GBP requires a corporate buyer and corporate remitter");
  if(!account.beneficiary_name?.trim() || !account.bank_name?.trim())throw Error("Verified bank details are incomplete");
  const result:BankPaymentInstructions={
   invoice_reference:invoice.id,account_id:account.id,currency:invoice.currency,
-  amount:Math.trunc(assessment.total_minor/100)+"."+String(assessment.total_minor%100).padStart(2,"0"),
+  amount:Math.trunc(totalMinor/100)+"."+String(totalMinor%100).padStart(2,"0"),
   beneficiary_name:account.beneficiary_name,bank_name:account.bank_name,
  };
  if(invoice.currency==="EUR"){

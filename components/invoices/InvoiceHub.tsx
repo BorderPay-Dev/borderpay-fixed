@@ -23,6 +23,7 @@ const reasonText:Record<string,string>={
  order_context_missing:'Include order history, checkout time, payment and fulfillment status, and available IP/device context.',fulfillment_proof_missing:'Attach verified warehouse/dispatch evidence or logistics tracking.',
  evidence_unverified:'Your uploaded evidence needs review.',order_extraction_unavailable:'The order proof needs manual review.',contract_extraction_unavailable:'The contract needs manual review.',
  ai_unavailable:'Automated review is unavailable. Compliance review is required.',jurisdiction_policy_missing:'Compliance review is required before payment details are released.',
+ manual_review_required:'Your invoice is available to download. Compliance will review the supporting evidence.',
  policy_changed:'Review requirements changed. Save and submit a new invoice revision.',screening_unavailable:'Your invoice needs compliance review.',
 };
 function Field({label,value,onChange,multiline=false,type='text',required=false,help}:any){const id=React.useId();return <label className="ih-field" htmlFor={id}><span>{label}{required?' *':''}</span>{multiline?<textarea id={id} rows={3} value={value} onChange={e=>onChange(e.target.value)} required={required}/>:<input id={id} type={type} value={value} onChange={e=>onChange(e.target.value)} required={required}/>} {help&&<small>{help}</small>}</label>}
@@ -54,7 +55,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
   if(['logo','signature'].includes(kind)){setBrand((b:any)=>({...b,[kind+'_asset_id']:a.id}));setNotice('Upload saved. Save branding to apply it.');}
   else{setForm((f:any)=>({...f,document_ids:[...f.document_ids,a.id]}));setNotice('Evidence uploaded. Save and generate to submit it for review.');}
   const d=await call('bootstrap');setData(d);return a;};
- const download=async()=>{const result=await call('download',{invoice_id:selected.id});const u=new URL(result.url);if(u.protocol!=='https:')throw Error('Invalid secure download');
+ const download=async(action='download',payload:any={invoice_id:selected.id})=>{const result=await call(action,payload);const u=new URL(result.url);if(u.protocol!=='https:')throw Error('Invalid secure download');
   if(Capacitor.isNativePlatform())await Browser.open({url:u.toString(),presentationStyle:'fullscreen'});else{const a=document.createElement('a');a.href=u.toString();a.rel='noopener';a.target='_blank';a.click();}
  };
  const types=[['company','Company'],['sole_proprietor','Sole proprietor'],['individual','Individual'],['government','Government / public body']];
@@ -67,7 +68,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  const uploadSlot=([kind,label]:[string,string])=><label key={kind} className="ih-upload">{label}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,kind);});e.target.value='';}}/></label>;
  const total=form.items.reduce((a:number,i:any)=>a+i.quantity*i.unit_amount_minor,0);
  return <main className={'invoice-hub '+tc.bg+' '+tc.text} data-light={tc.isLight}><FloatingBackButton onBack={onBack}/>
- <header className="ih-header"><p className="ih-eyebrow">BUSINESS TOOLS</p><h1>Invoice & Agreement Hub</h1><p className="ih-muted">Prepare your invoice and evidence, then share approved payment instructions.</p></header>
+ <header className="ih-header"><p className="ih-eyebrow">BUSINESS TOOLS</p><h1>Invoice & Agreement Hub</h1><p className="ih-muted">Create invoices and contracts whenever you need them. Keep supporting documents ready for bank requests.</p></header>
  {error&&<div role="alert" className="ih-error">{error}<button type="button" onClick={()=>run(async()=>{await refresh();})}>Retry</button></div>}
  {notice&&<p role="status" className="ih-notice">{notice}</p>}
  {!data?<p role="status">Loading your invoicing workspace…</p>:!data.enabled?<section className="ih-card"><h2>Invoicing is being prepared</h2><p>We will make this workspace available when the review service is ready.</p></section>:<>
@@ -81,8 +82,9 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  <button className="ih-primary" type="button" onClick={()=>run(async()=>{await call('save_branding',brand);setNotice('Branding and signature saved.');})}>Save branding</button></section>:<>
  {tab==='invoice'&&<><section className="ih-card"><div className="ih-section-heading"><h2>Invoice details</h2><button type="button" onClick={()=>{setDraft(null);setNumber('');setForm(empty());setSelected(null);}}>New invoice</button></div>
  {data.drafts.length>0&&<Select label="Continue a saved draft" value={draft?.id||''} onChange={(v:string)=>{const d=data.drafts.find((x:any)=>x.id===v);if(d){setDraft(d);setNumber(d.invoice_number);setForm(d.payload);setSelected(null);}}} options={[['','Select draft'],...data.drafts.map((d:any)=>[d.id,d.invoice_number])]}/>}
- <div className="ih-grid"><Field label="Invoice reference" value={number} onChange={setNumber} required/><Select label="Receiving account" value={form.receiving_account_id} onChange={(id:string)=>{const a=data.accounts.find((a:any)=>a.id===id);setForm({...form,receiving_account_id:id,currency:a?.currency||form.currency});}} options={[['','Choose USD, EUR or GBP'],...data.accounts.map((a:any)=>[a.id,a.label])]}/></div>
- {data.account_warning&&<p className="ih-notice">{data.account_warning}</p>}<p className="ih-muted"><LockKeyhole size={14}/> Bank details remain locked until this invoice is approved.</p>{form.currency==='GBP'&&<p className="ih-notice">GBP is strictly B2B. The payment must come from the named corporate buyer.</p>}
+ <Select label="Invoice currency" value={form.currency} onChange={(currency:string)=>setForm({...form,currency,receiving_account_id:''} )} options={[['USD','USD'],['EUR','EUR'],['GBP','GBP']]}/>
+ <div className="ih-grid"><Field label="Invoice reference" value={number} onChange={setNumber} required/><Select label="Receiving account" value={form.receiving_account_id} onChange={(id:string)=>{const a=data.accounts.find((a:any)=>a.id===id);setForm({...form,receiving_account_id:id,currency:a?.currency||form.currency});}} options={[['','Choose USD, EUR or GBP'],...data.accounts.filter((a:any)=>a.currency===form.currency).map((a:any)=>[a.id,a.label])]}/></div>
+ {data.account_warning&&<p className="ih-notice">{data.account_warning}</p>}<p className="ih-muted">{data.payment_review_required===false?'Your selected active account details are included in the invoice. Document checks are optional and do not change your account access.':'Bank details remain locked until this invoice is approved.'}</p>{form.currency==='GBP'&&<p className="ih-notice">GBP is strictly B2B. The payment must come from the named corporate buyer.</p>}
  </section><section className="ih-card"><h2>Buyer & expected sender</h2><div className="ih-grid">
  <Field label="Buyer's legal name" value={form.buyer.legal_name} onChange={(v:string)=>nested('buyer','legal_name',v)} required/>
  <Select label="Buyer type" value={form.buyer.type} onChange={(v:string)=>nested('buyer','type',v)} options={types}/>
@@ -118,7 +120,8 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  {!brand.signature_asset_id&&<button type="button" onClick={()=>setTab('branding')}>Set up signature</button>}</>:<><p>Upload the executed contract or statement of work under Order evidence. Its parties, currency, financial value, scope and signatures will be checked against this invoice.</p><button type="button" onClick={()=>setTab('invoice')}>Attach contract</button></>}
  </section>}
  <div className="ih-actions ih-sticky"><button type="button" onClick={()=>run(async()=>{await save();await refresh();setNotice('Draft saved.');})}>Save draft</button>
- <button className="ih-primary" type="button" onClick={()=>run(async()=>{const d=await save();const invoice=await call('submit',{draft_id:d.id,version:d.version});setSelected(invoice);await refresh();setNotice('Invoice submitted for review.');})}><FileText size={18}/>{busy?'Please wait…':'Generate invoice'}</button></div>
+ <button type="button" onClick={()=>run(async()=>{const d=await save();await download('download_invoice',{draft_id:d.id,version:d.version});await refresh();})}><Download size={18}/> Download invoice</button>
+ <button className="ih-primary" type="button" onClick={()=>run(async()=>{const d=await save();const invoice=await call('submit',{draft_id:d.id,version:d.version});setSelected(invoice);await refresh();setNotice('Documents submitted for checking. Your existing account access is unchanged.');})}><FileText size={18}/>{busy?'Please wait…':'Check invoice & documents'}</button></div>
  </>}
  </fieldset>
  <section className="ih-card"><div className="ih-section-heading"><h2>Your invoices</h2><button type="button" disabled={busy} onClick={()=>run(async()=>{await refresh();})} aria-label="Refresh invoices"><RefreshCw size={18}/></button></div>
@@ -128,7 +131,8 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  {selected.merchant_feedback&&<p>{selected.merchant_feedback}</p>}
  {(selected.reasons||[]).length>0&&<ul>{selected.reasons.map((r:string)=><li key={r}>{reasonText[r]||r.replace(/_/g,' ')}</li>)}</ul>}
  {(selected.findings||[]).map((f:any,n:number)=><p key={n}>{f.explanation}</p>)}
- {selected.status==='approved'?<><p><CheckCircle2 size={18}/> Approved for this invoice revision.</p><button type="button" className="ih-primary" disabled={busy} onClick={()=>run(download)}><Download size={18}/> Download invoice & payment details</button></>:<p className="ih-muted"><LockKeyhole size={16}/> Payment details are locked. Correct the draft and submit a new revision when requested.</p>}
+ <button type="button" disabled={busy} onClick={()=>run(()=>download('download_invoice'))}><Download size={18}/> Download invoice</button>
+ {selected.status==='approved'?<><p><CheckCircle2 size={18}/> Approved for this invoice revision.</p><button type="button" className="ih-primary" disabled={busy} onClick={()=>run(()=>download())}><Download size={18}/> Download invoice & payment details</button></>:<p className="ih-muted">{data.payment_review_required===false?'You can download your invoice with account details while addressing the document checks shown above.':'Payment details are locked. Correct the draft and submit a new revision when requested.'}</p>}
  </div>}</section></>}
  </main>;
 }
