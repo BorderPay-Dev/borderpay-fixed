@@ -7,7 +7,11 @@ Deno.test('all five decisions have distinct, escaped HTML and text with portal C
   const email=render({company_name:'Example <script>',decision,notes:'First item\nSecond <img src=x onerror=alert(1)>',review_id:'review-1'});
   assert(email.subject && email.text.includes('Second') && email.html.includes('&lt;img'));
   assert(!email.html.includes('<script>') && !email.html.includes('<img src=x'));
-  assert(email.html.includes('href="https://portal.borderpayafrica.com"') && email.text.includes('https://portal.borderpayafrica.com'));
+  const portal='https://portal.borderpayafrica.com/';
+  const links=Array.from(email.html.matchAll(/href="([^"]+)"/g),m=>m[1]);
+  assert(links.some(link=>new URL(link).href===portal));
+  const textLinks=email.text.split(/\s+/).filter(word=>word.startsWith('https:'));
+  assert(textLinks.some(link=>new URL(link).href===portal));
   if(decision==='approved') assert(email.text.includes('Production access is enabled separately'));
   if(decision==='more_information') assert(email.text.includes('submit it again'));
  }

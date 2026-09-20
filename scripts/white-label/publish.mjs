@@ -15,7 +15,7 @@ const { values } = parseArgs({
 });
 if (
   !values.tenant || !/^[0-9a-f-]{36}$/i.test(values.tenant) ||
-  !values.project || !values.evidence
+  !values.project || !/^[a-z]{20}$/.test(values.project) || !values.evidence
 ) {
   throw new Error(
     "Usage: node scripts/white-label/publish.mjs --tenant UUID --project SUPABASE_REF --evidence launch-evidence.json [--publish]",
@@ -34,6 +34,7 @@ async function query(query, read_only = true) {
     `https://api.supabase.com/v1/projects/${values.project}/database/query`,
     {
       method: "POST",
+      redirect: "error",
       headers: {
         Authorization: `Bearer ${pat}`,
         "Content-Type": "application/json",
@@ -101,15 +102,16 @@ if (
   )
 ) throw new Error("Domain ownership TXT record does not match");
 if (
-  !evidence.vercel_team_id || !evidence.vercel_project_id ||
-  !evidence.deployment_id
+  !/^team_[A-Za-z0-9]+$/.test(evidence.vercel_team_id || "") ||
+  !/^prj_[A-Za-z0-9]+$/.test(evidence.vercel_project_id || "") ||
+  !/^dpl_[A-Za-z0-9]+$/.test(evidence.deployment_id || "")
 ) throw new Error("Exact Vercel project, team and deployment required");
 const vh = { Authorization: `Bearer ${vercel}` };
 const vr = await fetch(
   `https://api.vercel.com/v9/projects/${
     encodeURIComponent(evidence.vercel_project_id)
   }/domains/${hostname}?teamId=${encodeURIComponent(evidence.vercel_team_id)}`,
-  { headers: vh },
+  { headers: vh, redirect: "error" },
 );
 if (!vr.ok || (await vr.json()).verified !== true) {
   throw new Error("Domain is not verified in the specified Vercel project");
@@ -118,7 +120,7 @@ const dr = await fetch(
   `https://api.vercel.com/v13/deployments/${hostname}?teamId=${
     encodeURIComponent(evidence.vercel_team_id)
   }`,
-  { headers: vh },
+  { headers: vh, redirect: "error" },
 );
 if (!dr.ok) throw new Error("Cannot inspect deployment");
 const deployment = await dr.json();
@@ -137,7 +139,7 @@ if (
 ) throw new Error("HTTPS customer runtime is not deployed on this domain");
 const ar = await fetch(
   `https://api.supabase.com/v1/projects/${values.project}/config/auth`,
-  { headers: { Authorization: `Bearer ${pat}` } },
+  { headers: { Authorization: `Bearer ${pat}` }, redirect: "error" },
 );
 if (!ar.ok) throw new Error("Cannot verify Auth redirect allowlist");
 const auth = await ar.json();
