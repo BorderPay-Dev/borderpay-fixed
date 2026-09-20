@@ -19,10 +19,14 @@ export async function extractCommercialEvidence(ocr:Extract<OcrResult,{status:"s
   const fieldNames=kind==="order"?["buyer_name","order_id","currency","total_minor","items","checkout_at","payment_status","fulfillment_status","order_history_present","ip_device_context_present"]:["seller_name","buyer_name","currency","total_minor","commercial_scope","seller_signature_present","buyer_signature_present"];
   const normalized=ocr.content.replace(/\s+/gu," ").trim();
   const words=ocr.pages.flatMap(p=>p.words);let confidence=1;
+  // OCR can split "Seller:" into the word "Seller" and a punctuation token.
+  // The complete citation must still occur verbatim in OCR text above/below.
+  // Normalize only token-edge punctuation for confidence lookup; never invent a score.
+  const wordKey=(value:string)=>value.normalize("NFKC").replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu,"");
   for(const field of fieldNames){
    const quote=value.citations[field];if(typeof quote!=="string" || !quote.trim() || !normalized.includes(quote.replace(/\s+/gu," ").trim()))return null;
-   const tokens=quote.split(/\s+/u).filter(Boolean);
-   for(const token of tokens){const matches=words.filter(w=>w.content===token);if(!matches.length || matches.some(w=>w.confidence===null))return null;confidence=Math.min(confidence,...matches.map(w=>Number(w.confidence)));}
+   const tokens=quote.split(/\s+/u).map(wordKey).filter(Boolean);if(!tokens.length)return null;
+   for(const token of tokens){const matches=words.filter(w=>wordKey(w.content)===token);if(!matches.length || matches.some(w=>w.confidence===null))return null;confidence=Math.min(confidence,...matches.map(w=>Number(w.confidence)));}
   }
   if(!Number.isSafeInteger(value.total_minor)||value.total_minor<=0||typeof value.currency!=="string")return null;
   const base={document_sha256:ocr.document_sha256,extraction_status:"succeeded" as const,confidence,currency:value.currency,total_minor:value.total_minor};

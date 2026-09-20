@@ -6,6 +6,10 @@ Deno.test("synthetic worker probe uses only credential RPC and never writes prod
  const db={rpc:async(name:string)=>{calls.push(name);assert.equal(name,"predeposit_ocr_config");return {data:{provider:"content_understanding",endpoint:"https://test.services.ai.azure.com",apiKey:"test"},error:null};}};
  const report=await runPredepositSelfTest(db,async(fake,row)=>{
   const context=row.review_context;
+  if(row.payload.contract_path==="custom")context.contractEvidence={
+   document_sha256:row.payload.documents[0].sha256,extraction_status:"succeeded",confidence:0.805,
+   seller_name:row.payload.merchant.legal_name,buyer_name:row.payload.buyer.legal_name,currency:"GBP",total_minor:125000,
+   commercial_scope:row.payload.items[0].description,seller_signature_present:true,buyer_signature_present:true,execution_verified:false,verification_source:"unverified"};
   const assets=await fake.from("predeposit_assets").select("*").eq("owner_user_id",row.owner_user_id);
   context.verifiedEvidenceHashes=assets.data.map((a:any)=>a.sha256);
   const ai={status:"passed" as const,findings:[],provider_request_id:null,model:"test",prompt_version:"test",payload_sha256:await assessedDigest(row.payload,context),physical_goods_detected:false};

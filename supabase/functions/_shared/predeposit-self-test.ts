@@ -102,10 +102,10 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
    ai_status:outcome.assessment?.ai?.status||null,ai_findings:outcome.assessment?.ai?.findings||[],reasons:outcome.assessment?.reasons||[],
    contract_ocr:jobs["synthetic-contract"]?.result?.status||null,
    contract_extracted:!!outcome.context?.contractEvidence,
-   extracted_total_minor:outcome.context?.contractEvidence?.total_minor??null,
+   invoice_total_minor:outcome.assessment?.total_minor??null,extracted_total_minor:outcome.context?.contractEvidence?.total_minor??null,
    evidence_confidence:outcome.context?.contractEvidence?.confidence??null,
    bank_details_locked:locked});
  }
  return {model_diagnostic:modelDiagnostic,synthetic:true,production_records_written:0,provider_accounts_called:0,policy_source:"isolated_test_fixture",
-  all_expected:results.every(r=>r.bank_details_locked&&(r.expected==="not_approved"?r.status!=="approved":r.status===r.expected)),results};
+  all_expected:results.every(r=>(!r.case.startsWith("custom_contract_")||r.contract_extracted)&&r.bank_details_locked&&(r.expected==="not_approved"?r.status!=="approved":r.status===r.expected)),results};
 }
