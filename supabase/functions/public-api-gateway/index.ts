@@ -538,7 +538,7 @@ Deno.serve(async (req) => {
           status: 429,
           headers: {
             ...GATEWAY_CORS,
-            ...(invoiceRoute?{"Cache-Control":"no-store"}:{}),
+            "Cache-Control":"no-store",
             "Content-Type": "application/json",
             "Retry-After": String(
               Math.max(
