@@ -22,7 +22,7 @@ function validDocument(value:unknown,ocr:ReadDocument):value is Extracted{
   if(!normalize(ocr.content).includes(normalize(c.quote)))return false;
   if(key==="total"){
    if(!/^\d+(\.\d{1,2})?$/.test(c.value))return false;
-   const numbers=c.quote.replace(/(?<=\d)[ ,](?=\d{3}(?:\D|$))/g,"").match(/\d+(?:\.\d{1,2})?/g)||[];
+   const numbers=(c.quote.match(/(?:\d{1,3}(?:[,. \u00a0]\d{3})+|\d+)(?:[.,]\d{1,2})?/g)||[]).flatMap(n=>[n.replace(/[ ,\u00a0]/g,""),n.replace(/[. \u00a0]/g,"").replace(",",".")]);
    if(!numbers.some(n=>minor(n)===minor(c.value!)))return false;
   }else if(key==="currency"){
    if(!["USD","EUR","GBP"].includes(c.value))return false;

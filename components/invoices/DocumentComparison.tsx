@@ -4,9 +4,9 @@ import {backendAPI} from '../../utils/api/backendAPI';
 export default function DocumentComparison({enabled}:{enabled:boolean}){
  const [invoice,setInvoice]=useState<any>(null),[contract,setContract]=useState<any>(null);
  const [checks,setChecks]=useState<any[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const alive=useRef(true),lock=useRef(false),request=useRef(crypto.randomUUID());
+ const alive=useRef(true),lock=useRef(false),generation=useRef(0),request=useRef(crypto.randomUUID());
  const call=async(action:string,payload:any={})=>{const r:any=await backendAPI.predeposit.request(action,payload);if(!r.success)throw Error(r.error||'Could not complete document review. Please try again.');return r.data;};
- const refresh=async()=>{const rows=await call('list_document_checks');if(alive.current)setChecks(rows);};
+ const refresh=async()=>{const current=++generation.current,rows=await call('list_document_checks');if(alive.current&&current===generation.current)setChecks(rows);};
  useEffect(()=>{alive.current=true;let timer:ReturnType<typeof setTimeout>;
   const poll=async()=>{try{await refresh();}catch(e){if(alive.current)setError(e instanceof Error?e.message:'Unable to load reviews.');}if(alive.current)timer=setTimeout(poll,5000);};
   if(enabled)void poll();return()=>{alive.current=false;clearTimeout(timer);};
