@@ -157,4 +157,11 @@ try {
  await db.exec("reset role");
  console.log('PASS: invoice-specific AI credentials are service-only');
 
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920090000_predeposit_ai_request_profile.sql',import.meta.url),'utf8'));
+ await db.exec("insert into vault.decrypted_secrets values('borderpay_predeposit_ai_request_profile','gpt5')");
+ await db.exec("set role service_role");
+ assert.equal((await db.query("select predeposit_ai_config() config")).rows[0].config.requestProfile,'gpt5');
+ await db.exec("reset role;set role authenticated");
+ await assert.rejects(()=>db.query("select predeposit_ai_config()"),/permission denied/);
+ await db.exec("reset role");
 }finally{await db.close();}

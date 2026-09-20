@@ -99,7 +99,7 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
    locked=false;
   }catch{/* Expected: no persisted approval, no payment instructions. */}
   results.push({case:definition.name,expected:definition.expected,status:outcome.assessment?.status||"pending",
-   ai_status:outcome.assessment?.ai?.status||null,reasons:outcome.assessment?.reasons||[],
+   ai_status:outcome.assessment?.ai?.status||null,ai_findings:outcome.assessment?.ai?.findings||[],reasons:outcome.assessment?.reasons||[],
    contract_ocr:jobs["synthetic-contract"]?.result?.status||null,
    contract_extracted:!!outcome.context?.contractEvidence,
    extracted_total_minor:outcome.context?.contractEvidence?.total_minor??null,
