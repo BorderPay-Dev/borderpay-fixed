@@ -23,4 +23,4 @@ jobs:
         with:
           deno-version: v2.x
       - run: deno test tests/signup-captcha-config.test.ts
-      - run: deno check supabase/functions/auth-signup/index.ts
+      - run: deno check --node-modules-dir=auto supabase/functions/auth-signup/index.ts
