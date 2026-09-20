@@ -242,6 +242,7 @@ export async function assessedDigest(invoice: Invoice, context: ReviewContext): 
 
 /** Unknown/unconfigured modes require an operator; AI cannot select its own mode. */
 export function applyInvoiceReviewMode(assessment:Assessment,mode:unknown):Assessment{
- if(mode==="automatic" || assessment.status!=="approved")return assessment;
+ if(mode==="automatic")return assessment.status==="review_required"?{...assessment,status:"action_required"}:assessment;
+ if(assessment.status!=="approved")return assessment;
  return {...assessment,status:"review_required",reasons:[...new Set<Reason>([...assessment.reasons,"manual_review_required"])]};
 }

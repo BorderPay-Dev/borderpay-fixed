@@ -60,7 +60,7 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
   {name:"matching_generated_agreement",expected:"approved",edit:(_i:Invoice)=>{}},
   {name:"missing_agreement",expected:"action_required",edit:(i:Invoice)=>{i.documents=[];}},
   {name:"gbp_individual_buyer",expected:"action_required",edit:(i:Invoice)=>{i.buyer.type="individual";i.remitter.type="individual";}},
-  {name:"custom_contract_matching",expected:"review_required",edit:(i:Invoice)=>{i.contract_path="custom";i.documents=[{id:"synthetic-contract",kind:"executed_contract",sha256:contractHash}];}},
+  {name:"custom_contract_matching",expected:"action_required",edit:(i:Invoice)=>{i.contract_path="custom";i.documents=[{id:"synthetic-contract",kind:"executed_contract",sha256:contractHash}];}},
   {name:"custom_contract_amount_mismatch",expected:"not_approved",edit:(i:Invoice)=>{i.contract_path="custom";i.documents=[{id:"synthetic-contract",kind:"executed_contract",sha256:contractHash}];i.items[0].unit_amount_minor=150000;}}
  ];
  // Reuse the same immutable contract OCR within this probe; no second paid OCR call.
