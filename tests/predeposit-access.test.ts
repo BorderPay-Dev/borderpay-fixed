@@ -10,3 +10,9 @@ Deno.test("instruction policy requires an explicit boolean server answer",async(
  assert.equal(await requiresInvoiceInstructions({rpc:async()=>({data:true,error:null})},"owner"),true);
  for(const result of [{data:null,error:null},{data:false,error:{message:"failed"}}])await assert.rejects(()=>requiresInvoiceInstructions({rpc:async()=>result},"owner"));
 });
+Deno.test("unbound API owner still respects the explicit disabled policy",async()=>{
+ const calls:any[]=[];
+ assert.equal(await requiresInvoiceInstructions({rpc:async(name:string,args:any)=>{calls.push({name,args});return {data:false,error:null};}},null),false);
+ assert.deepEqual(calls,[{name:"predeposit_requires_invoice_for_owner",args:{p_user_id:null}}]);
+ assert.equal(await requiresInvoiceInstructions({rpc:async()=>({data:true,error:null})},null),true);
+});

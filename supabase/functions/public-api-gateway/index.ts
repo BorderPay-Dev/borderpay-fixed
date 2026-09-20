@@ -538,6 +538,7 @@ Deno.serve(async (req) => {
           status: 429,
           headers: {
             ...GATEWAY_CORS,
+            ...(invoiceRoute?{"Cache-Control":"no-store"}:{}),
             "Content-Type": "application/json",
             "Retry-After": String(
               Math.max(
@@ -696,9 +697,14 @@ Deno.serve(async (req) => {
     }
     const customerSession = CUSTOMER_API_SCOPES[routeKey]
       ? await authenticateApiCustomer(supa, tenantId, req.headers.get("X-BorderPay-Customer-Authorization") || "") : null;
-    const invoiceRequired = ["GET /v1/virtual-accounts","POST /v1/virtual-accounts"].includes(routeKey)
-      ? (!customerSession || await requiresInvoiceInstructions(supa,customerSession.userId)) : false;
-    const instructionResponse=(value:any)=>invoiceRequired?{...redactBankCoordinates(value) as any,requires_invoice:true}:value;
+    const invoiceRoute = ["GET /v1/virtual-accounts","POST /v1/virtual-accounts"].includes(routeKey);
+    const invoiceOwner = customerSession?.userId || null;
+    const invoiceRequired = invoiceRoute ? await requiresInvoiceInstructions(supa,invoiceOwner) : false;
+    const instructionResponse=async(value:any)=>{
+      if(!invoiceRoute)return value;
+      const current=await requiresInvoiceInstructions(supa,invoiceOwner);
+      return invoiceRequired||current?{...redactBankCoordinates(value) as any,requires_invoice:true}:value;
+    };
     const isIdempotentRoute = IDEMPOTENT_ROUTES.has(routeKey);
 
     let idempotencyKey = req.headers.get("Idempotency-Key") || "";
@@ -772,7 +778,7 @@ Deno.serve(async (req) => {
           latencyMs: Date.now() - startedAt,
           metadata: { replay: true, route_key: routeKey },
         });
-        return new Response(JSON.stringify(instructionResponse(replay.response_body)), {
+        return new Response(JSON.stringify(await instructionResponse(replay.response_body)), {
           status: Number(replay.status_code),
           headers: {
             ...GATEWAY_CORS,
@@ -825,7 +831,7 @@ Deno.serve(async (req) => {
       handlerResult = mapBridgeError(e);
     }
 
-    if(invoiceRequired)handlerResult={...handlerResult,body:instructionResponse(handlerResult.body)};
+    if(invoiceRoute)handlerResult={...handlerResult,body:await instructionResponse(handlerResult.body)};
     if (isIdempotentRoute && handlerResult.status >= 200 && handlerResult.status < 300) {
       await storeReplay(supa, {
         tenantId,
@@ -856,7 +862,9 @@ Deno.serve(async (req) => {
       metadata: { route_key: routeKey },
     });
 
-    return gatewayJson(handlerResult.body, handlerResult.status);
+    const response=gatewayJson(handlerResult.body, handlerResult.status);
+    if(invoiceRoute)response.headers.set("Cache-Control","no-store");
+    return response;
   } catch (error) {
     if (error instanceof CustomerApiError) { const result=mapBridgeError(error); return gatewayJson(result.body,result.status); }
     const msg = error instanceof Error ? error.message : "unknown";

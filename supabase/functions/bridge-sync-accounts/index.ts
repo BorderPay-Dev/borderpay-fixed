@@ -23,7 +23,7 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const baseJson = (b: unknown, s = 200) =>
-  new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
+  new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json", "Cache-Control":"no-store" } });
 
 const supa = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -51,7 +51,12 @@ function normalizeDeveloperFeePercent(value: unknown): number | null {
 }
 
 Deno.serve(async (req) => {
- let invoiceRequired=false;const json=(b:unknown,s=200)=>baseJson(invoiceRequired?redactBankCoordinates(b):b,s);
+ let invoiceRequired=false,invoiceOwner:string|null=null;
+ const json=async(b:unknown,s=200)=>{
+  if(!invoiceOwner)return baseJson(b,s);
+  try{const current=await requiresInvoiceInstructions(supa,invoiceOwner);return baseJson(invoiceRequired||current?redactBankCoordinates(b):b,s);}
+  catch{return baseJson({success:false,error:"Receiving instruction policy is unavailable"},503);}
+ };
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST")    return json({ success: false, error: "POST only" }, 405);
 
@@ -60,6 +65,7 @@ Deno.serve(async (req) => {
   const { data: userInfo, error: authErr } = await supa.auth.getUser(token);
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
+  invoiceOwner=user.id;
   try { invoiceRequired=await requiresInvoiceInstructions(supa,user.id); }catch{return json({success:false,error:"Receiving instruction policy is unavailable"},503);}
 
   const { data: profile } = await supa
