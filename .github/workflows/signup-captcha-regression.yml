@@ -1,0 +1,26 @@
+name: Signup CAPTCHA regression
+on:
+  push:
+    paths:
+      - 'supabase/functions/auth-signup/**'
+      - 'supabase/functions/_shared/signup-captcha-config.ts'
+      - 'tests/signup-captcha-config.test.ts'
+      - '.github/workflows/signup-captcha-regression.yml'
+  pull_request:
+    paths:
+      - 'supabase/functions/auth-signup/**'
+      - 'supabase/functions/_shared/signup-captcha-config.ts'
+      - 'tests/signup-captcha-config.test.ts'
+      - '.github/workflows/signup-captcha-regression.yml'
+permissions:
+  contents: read
+jobs:
+  captcha:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test tests/signup-captcha-config.test.ts
+      - run: deno check --node-modules-dir=auto supabase/functions/auth-signup/index.ts
