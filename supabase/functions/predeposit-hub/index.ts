@@ -56,6 +56,11 @@ Deno.serve(async req=>{
     const reference=String(body.reference||"").trim();if(reference)q=q.eq("invoice_number",reference.slice(0,100));
     return reply({success:true,data:checked(await q)});
    }
+   if(action==="admin_deposits"){
+    let query=db.from("predeposit_deposit_observations").select("id,webhook_event_id,provider_deposit_id,owner_user_id,invoice_id,activity_type,currency,amount_minor,event_at,outcome,reason,recorded_at").order("recorded_at",{ascending:false}).limit(100);
+    if(body.outcome==="review_required")query=query.eq("outcome","review_required");
+    return reply({success:true,data:checked(await query)});
+   }
    if(action==="admin_get"){
     const row=checked<any>(await db.from("predeposit_invoices").select("*").eq("id",uuid(body.invoice_id)).single());
     const documents=checked(await db.from("predeposit_assets").select("id,kind,sha256,mime_type,scan_status,verification_status").eq("owner_user_id",row.owner_user_id).in("id",row.payload.documents.map((d:any)=>d.id)));

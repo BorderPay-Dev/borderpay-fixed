@@ -48,7 +48,9 @@ jobs:
       - name: Install isolated database test runtime
         run: npm install --prefix /tmp/predeposit-db-test --no-save --package-lock=false @electric-sql/pglite@0.3.14
       - name: Validate evidence access and worker state transitions
-        run: PGLITE_MODULE=file:///tmp/predeposit-db-test/node_modules/@electric-sql/pglite/dist/index.js node tests/predeposit-evidence.test.mjs
+        run: |
+          PGLITE_MODULE=file:///tmp/predeposit-db-test/node_modules/@electric-sql/pglite/dist/index.js node tests/predeposit-evidence.test.mjs
+          PGLITE_MODULE=file:///tmp/predeposit-db-test/node_modules/@electric-sql/pglite/dist/index.js node tests/predeposit-reconciliation.test.mjs
 
   merchant-build:
     runs-on: ubuntu-24.04

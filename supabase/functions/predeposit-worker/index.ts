@@ -16,5 +16,7 @@ Deno.serve(async req=>{
  const {data,error}=await db.from("predeposit_invoices").select("id").in("status",["queued","screening"]).or("lease_until.is.null,lease_until.lt."+new Date().toISOString()).order("created_at").limit(4);
  if(error)return new Response("Queue unavailable",{status:503});
  EdgeRuntime.waitUntil(Promise.all((data||[]).map(row=>processInvoice(db,row.id))));
- return Response.json({accepted:(data||[]).length},{status:202});
+ const reconciliation=await db.rpc("reconcile_predeposit_bridge_events",{p_limit:50});
+ if(reconciliation.error)return Response.json({accepted:(data||[]).length,error:"Deposit reconciliation unavailable"},{status:503});
+ return Response.json({accepted:(data||[]).length,reconciliation:reconciliation.data},{status:202});
 });
