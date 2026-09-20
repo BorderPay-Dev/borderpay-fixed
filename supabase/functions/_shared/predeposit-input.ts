@@ -24,7 +24,7 @@ export function parseDraft(value:unknown){
  }))];
  throw Error("Invoice form is incomplete. Please check "+fields[0]+". Then try again.");
 }
-export const EVIDENCE_KINDS=["executed_contract","purchase_order","buyer_business_proof","end_use_declaration","logistics","source_of_funds","order_dashboard","platform_order_export","warehouse_receipt","dispatch_log","logo","signature"] as const;
+export const EVIDENCE_KINDS=["merchant_invoice","executed_contract","purchase_order","buyer_business_proof","end_use_declaration","logistics","source_of_funds","order_dashboard","platform_order_export","warehouse_receipt","dispatch_log","logo","signature"] as const;
 export function exactMinor(value:string):number{
  if(!/^\d+(\.\d{1,2})?$/.test(value))throw Error("Use an amount with at most two decimal places");
  const [whole,cents=""]=value.split(".");const result=BigInt(whole)*100n+BigInt(cents.padEnd(2,"0"));

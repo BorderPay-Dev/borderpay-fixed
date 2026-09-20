@@ -1,0 +1,5 @@
+# Existing invoice and contract review
+
+Verified active businesses with active receiving accounts can upload their invoice PDF and contract/SOW through Review my documents. No BorderPay invoice needs to be re-entered. Azure OCR extracts both files; grounded structured comparison identifies parties, currency, total, scope and visible execution details. Missing or conflicting fields return corrections. Originals are immutable, review input hashes and model/request metadata are retained, and results never claim authenticity or authorize payments.
+
+Apply 20260920210000_predeposit_uploaded_document_checks.sql, then deploy predeposit-hub and predeposit-worker from the tested source. The existing minute worker schedule now includes document jobs, uses leases and bounded attempts, and preserves deposit reconciliation. Run its authenticated document_self_test action with synthetic PDFs before launch. Deploy the shared UI to web; the new tab requires a new binary for bundled mobile builds. No app listing metadata changes.

@@ -10,9 +10,13 @@ const bootstrapGate=params.has('defer_bootstrap')?new Promise<void>(r=>releaseBo
 const accountsGate=params.has('defer_accounts')?new Promise<void>(r=>releaseAccounts=r):Promise.resolve();
 (window as any).__releaseBootstrap=()=>releaseBootstrap();
 (window as any).__releaseAccounts=()=>releaseAccounts();
+let documentChecks:any[]=[];let uploadCount=0;
+backendAPI.predeposit.upload=async(_file,kind)=>({success:true,data:{id:'document-'+(++uploadCount),kind}} as any);
 let status='queued';const calls:any[]=[];(window as any).__invoiceCalls=calls;
 backendAPI.predeposit.request=async(action,body)=>{calls.push({action,body});if(action==='bootstrap'){await bootstrapGate;return {success:true,data:{enabled:true,merchant:{incorporation_country:'GB'},accounts:[{id:'va-1',currency:'GBP',status:'active',label:'GBP receiving account'}],templates:[{version:'v1',title:'Standard agreement',body:'Seller supplies the invoice deliverables to the buyer under this agreement.'}],branding:{signer_name:'Test Director',signature_asset_id:'signature-1'},assets:[],drafts:[draft],invoices:[]}} as any;}
  if(action==='accounts'){await accountsGate;return {success:true,data:{accounts_verified:true,accounts:[{id:'va-1',currency:'GBP',status:'active',label:'GBP receiving account'}],account_warning:''}} as any;}
+ if(action==='list_document_checks')return {success:true,data:documentChecks} as any;
+ if(action==='review_documents'){documentChecks=[{id:'pair-1',created_at:new Date().toISOString(),status:'needs_attention',result:{findings:[{code:'amount_mismatch',explanation:'Invoice GBP 1500.00 differs from contract GBP 1250.00. Correct the invoice or provide a signed amendment.'}]}}];return {success:true,data:{id:'pair-1',status:'needs_attention'}} as any;}
  if(action==='save_draft')return {success:true,data:{...draft,version:2}} as any;
  if(action==='submit')return {success:true,data:{id:'invoice-1',status}} as any;
  if(action==='get_invoice')return {success:true,data:{id:'invoice-1',invoice_number:'TEST-001',status,reasons:status==='action_required'?['contract_value_mismatch']:[]}} as any;

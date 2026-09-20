@@ -1,4 +1,6 @@
 declare const EdgeRuntime: {waitUntil(promise:Promise<unknown>):void};
+import {processDocumentCheck,validateReviewAssets} from "../_shared/predeposit-document-checks.ts";
+import {DOCUMENT_CHECK_VERSION} from "../_shared/predeposit-document-comparison.ts";
 import {createClient} from "jsr:@supabase/supabase-js@2";
 import {checked,loadPolicy,saveAsset,submitInvoice,loadAssetBytes,invoiceDossier,fontBytes,BUCKET} from "../_shared/predeposit-runtime.ts";
 import {loadInvoiceAccounts} from "../_shared/predeposit-accounts.ts";
@@ -44,6 +46,7 @@ Deno.serve(async req=>{
    const form=await new Request(req.url,{method:"POST",headers:{"content-type":req.headers.get("content-type")!},body:bytes}).formData();
    const file=form.get("file"),kind=String(form.get("kind")||"");
    if(!(file instanceof File)||!(EVIDENCE_KINDS as readonly string[]).includes(kind))throw Error("Select a supported evidence file and document type");
+   if(kind==="merchant_invoice"&&file.type!=="application/pdf")throw Error("Upload your existing invoice as a PDF");
    const counts=await db.from("predeposit_assets").select("id",{count:"exact",head:true}).eq("owner_user_id",owner).gte("created_at",new Date(Date.now()-86400000).toISOString());
    if(counts.error||Number(counts.count)>=50)return reply({success:false,error:"Upload limit reached. Contact support for additional evidence uploads"},429);
    const a=await saveAsset(db,owner,kind,new Uint8Array(await file.arrayBuffer()),file.type);
@@ -136,6 +139,35 @@ Deno.serve(async req=>{
    }
    throw Error("Unsupported operator action");
   }
+
+  if(action==="list_document_checks"){
+   return reply({success:true,data:checked(await db.from("predeposit_document_checks").select("id,created_at,status,result").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(50))});
+  }
+  if(action==="review_documents"){
+   if(policy.config?.hub_enabled!==true)return reply({success:false,error:"Document review is not available yet"},503);
+   const invoiceId=uuid(body.invoice_asset_id),contractId=uuid(body.contract_asset_id),requestId=uuid(body.request_id);
+   const prior=checked<any>(await db.from("predeposit_document_checks").select("*").eq("owner_user_id",owner).eq("request_id",requestId).maybeSingle());
+   if(prior){
+    if(prior.invoice_asset_id!==invoiceId||prior.contract_asset_id!==contractId)throw Error("Request reference is already used for different documents");
+    if(["queued","reviewing"].includes(prior.status))EdgeRuntime.waitUntil(processDocumentCheck(db,prior.id));
+    return reply({success:true,data:{id:prior.id,status:prior.status}});
+   }
+   const counts=await db.from("predeposit_document_checks").select("id",{count:"exact",head:true}).eq("owner_user_id",owner).gte("created_at",new Date(Date.now()-3600000).toISOString());
+   if(counts.error||Number(counts.count)>=20)return reply({success:false,error:"Document review limit reached. Please try again later."},429);
+   const accounts=await loadInvoiceAccounts(db,owner);
+   if(!accounts.accounts.length)throw Error("An approved business with an active receiving account is required");
+   const assets=checked<any[] | null>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",[invoiceId,contractId]));
+   const invoice=assets?.find(a=>a.id===invoiceId),contract=assets?.find(a=>a.id===contractId);
+   validateReviewAssets(owner,invoice,contract);
+   checked(await db.from("predeposit_document_checks").upsert({owner_user_id:owner,request_id:requestId,invoice_asset_id:invoiceId,contract_asset_id:contractId,
+    invoice_sha256:invoice.sha256,contract_sha256:contract.sha256,merchant_name:accounts.merchant.legal_name,prompt_version:DOCUMENT_CHECK_VERSION},
+    {onConflict:"owner_user_id,request_id",ignoreDuplicates:true}));
+   const row=checked<any>(await db.from("predeposit_document_checks").select("id,status,invoice_asset_id,contract_asset_id").eq("owner_user_id",owner).eq("request_id",requestId).single());
+   if(row.invoice_asset_id!==invoiceId||row.contract_asset_id!==contractId)throw Error("Request reference is already used for different documents");
+   EdgeRuntime.waitUntil(processDocumentCheck(db,row.id));
+   return reply({success:true,data:{id:row.id,status:row.status}},202);
+  }
+
   if(action==="bootstrap"){
    if(policy.config?.hub_enabled!==true)return reply({success:true,data:{enabled:false,accounts:[],templates:[]}});
    // Screen data comes from local records; never wait for provider API calls here.
