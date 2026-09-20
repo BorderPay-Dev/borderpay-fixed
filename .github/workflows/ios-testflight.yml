@@ -75,6 +75,9 @@ jobs:
       - name: Verify iOS and Android mobile release source
         run: python3 tests/audit/mobile_store_source_audit.py
 
+      - name: Preserve published store listings
+        run: python3 tests/audit/store_listing_preservation_audit.py
+
       - name: Build web app
         run: npm run build
 
