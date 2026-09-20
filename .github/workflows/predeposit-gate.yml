@@ -24,7 +24,7 @@ jobs:
         with:
           deno-version: v2.x
       - name: Validate rules, Azure failures, CRM matching and OCR boundaries
-        run: deno test --no-config --allow-env tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts tests/predeposit-content-understanding.test.ts tests/predeposit-self-test.test.ts tests/predeposit-ai-config.test.ts tests/predeposit-extraction.test.ts tests/predeposit-http-boundary.test.ts tests/predeposit-va-compat.test.ts tests/predeposit-provider-capabilities.test.ts tests/predeposit-access.test.ts tests/api-customer-runtime.test.ts tests/providers/bridge-business-name.test.ts tests/predeposit-hub-http.test.ts
+        run: deno test --no-config --allow-env tests/predeposit-policy.test.ts tests/predeposit-ocr.test.ts tests/predeposit-content-understanding.test.ts tests/predeposit-self-test.test.ts tests/predeposit-ai-config.test.ts tests/predeposit-extraction.test.ts tests/predeposit-http-boundary.test.ts tests/predeposit-va-compat.test.ts tests/predeposit-provider-capabilities.test.ts tests/predeposit-access.test.ts tests/api-customer-runtime.test.ts tests/providers/bridge-business-name.test.ts tests/predeposit-hub-http.test.ts tests/invoice-hub-email.test.ts
       - name: Typecheck invoice endpoints
         run: deno check --no-config supabase/functions/bridge-virtual-account/index.ts supabase/functions/predeposit-hub/index.ts supabase/functions/predeposit-worker/index.ts supabase/functions/bridge-sync-accounts/index.ts supabase/functions/public-api-gateway/index.ts
       - name: Render invoice PDF fixtures
