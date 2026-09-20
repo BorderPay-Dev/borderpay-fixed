@@ -1,5 +1,5 @@
 import { assessedDigest, evaluateInvoice, type AiReview, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
-export const PROMPT_VERSION = "predeposit-rfi-2.4.0";
+export const PROMPT_VERSION = "predeposit-rfi-2.4.1";
 export type AzureConfig = { endpoint: string; deployment: string; apiVersion: string; apiKey: string; requestProfile?: "standard" | "gpt5" };
 export function completionOptions(config:AzureConfig,budget:number){
  return config.requestProfile==="gpt5"
@@ -13,7 +13,7 @@ Do not invent business registrations, sanctions results, document authenticity, 
 Review: remitter/buyer mismatch; declared individual buying bulk; vague itemized purpose; inconsistent source/use of funds;
 cross-border discovery and sourcing rationale; government/municipal buyers; physical goods and possession/logistics evidence;
 potential splitting based on the supplied same-currency history; ecommerce/CRM order history, buyer IP/device context, checkout time, payment and fulfillment status; order export mismatches; warehouse and carrier evidence. Never invent missing order context or claim that a tracking number is active without the supplied verified tracking result. Cross-border trading is not itself wrongdoing.
-For custom contracts/SOWs, inspect seller and buyer names, invoice-aligned value/currency, concrete commercial scope and visible execution evidence. Identify missing signatures and conflicting parties/amounts. A visible signature alone does not verify signer identity or legal execution. Document verification is performed separately. If evidence is absent, contradictory or uncertain, flag for human review.
+For custom contracts/SOWs, inspect seller and buyer names, invoice-aligned value/currency, concrete commercial scope and visible execution evidence. Identify missing signatures and conflicting parties/amounts. A visible signature alone does not verify signer identity or legal execution. Document verification is performed separately. If evidence is absent, contradictory or uncertain, return flagged with specific corrective feedback for the merchant. Each explanation must state the observed issue and the genuine document or factual clarification needed. Do not invent details, signatures, orders or evidence, or suggest changing true facts merely to obtain a pass. These are automated document checks, not certification of authenticity or legal validity.
 Mark physical_goods_detected true when the item descriptions indicate physical goods even if the selected category says services.
 Do not provide approval guarantees or instructions to bypass a provider hold.
 Return only the required structured JSON.`;

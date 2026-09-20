@@ -3,6 +3,7 @@ import {createClient} from "jsr:@supabase/supabase-js@2";
 import {checked,loadPolicy,saveAsset,submitInvoice,loadAssetBytes,invoiceDossier,fontBytes,BUCKET} from "../_shared/predeposit-runtime.ts";
 import {loadInvoiceAccounts} from "../_shared/predeposit-accounts.ts";
 import {parseDraft,EVIDENCE_KINDS} from "../_shared/predeposit-input.ts";
+import {automatedReviewFeedback} from "../_shared/predeposit-review-feedback.ts";
 import {manualEvidencePatch} from "../_shared/predeposit-manual.ts";
 import {processInvoice,buildAssessment} from "../_shared/predeposit-worker.ts";
 import {generateBankPaymentInstructions,generateObservedInvoiceInstructions} from "../_shared/predeposit-payment-instructions.ts";
@@ -189,7 +190,7 @@ Deno.serve(async req=>{
    const row=await ownInvoice(uuid(body.invoice_id),owner);
    if(["queued","screening"].includes(row.status))launch(row.id);
    return reply({success:true,data:{id:row.id,invoice_number:row.invoice_number,revision:row.revision,status:row.status,
-    merchant_feedback:row.assessment?.merchant_feedback||"",reasons:row.assessment?.reasons||[],required_documents:row.assessment?.required_documents||[],findings:row.assessment?.ai?.findings||[],approval_expires_at:row.approval_expires_at}});
+    ...automatedReviewFeedback(row.assessment,policy.config?.review_mode),required_documents:row.assessment?.required_documents||[],approval_expires_at:row.approval_expires_at}});
   }
   if(action==="download_invoice"){
    let payload:any,merchant:any,invoiceNumber:string,id:string,revision:number,invoiceId:string|null=null;

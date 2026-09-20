@@ -219,3 +219,52 @@ Deno.test("manual and unconfigured launch modes cannot accept AI-only approval",
   const assessment={...approved,status};if(applyInvoiceReviewMode(assessment,"manual").status!==status)throw Error("Existing requirements changed");
  }
 });
+
+Deno.test("automatic mode returns unresolved checks for correction, never fabricates approval",async()=>{
+ const {invoice,context}=fixture();
+ const ai={status:"passed" as const,findings:[],provider_request_id:"test",model:"test",prompt_version:"test",
+  payload_sha256:await assessedDigest(invoice,context),physical_goods_detected:false};
+ const passed=applyInvoiceReviewMode(evaluateInvoice(invoice,context,ai),"automatic");
+ assert.equal(passed.status,"approved");assert.ok(!passed.reasons.includes("manual_review_required"));
+ const custom=customContract();custom.context.contractEvidence!.execution_verified=false;
+ custom.context.contractEvidence!.verification_source="unverified";
+ const uncertain=evaluateInvoice(custom.invoice,custom.context,ai);
+ const decision=applyInvoiceReviewMode(uncertain,"automatic");
+ assert.equal(decision.status,"action_required");
+ assert.ok(decision.reasons.includes("contract_execution_unverified"));
+ assert.equal(custom.context.contractEvidence!.execution_verified,false);
+ assert.equal(uncertain.status,"review_required");
+ for(const status of ["flagged","unavailable"] as const){
+  const result=applyInvoiceReviewMode(evaluateInvoice(invoice,context,{...ai,status,findings:status==="flagged"?[{code:"document_conflict",explanation:"Check the actual order total."}]:[]}),"automatic");
+  assert.equal(result.status,"action_required");
+ }
+ invoice.remitter.type="individual";
+ assert.ok(applyInvoiceReviewMode(evaluateInvoice(invoice,context,ai),"automatic").reasons.includes("gbp_b2b_only"));
+});
+
+import {automatedReviewFeedback} from "../supabase/functions/_shared/predeposit-review-feedback.ts";
+Deno.test("automated feedback works for existing clients and retains each audit finding",()=>{
+ const assessment={status:"action_required",reasons:["contract_execution_unverified","ai_flagged"],ai:{findings:[{code:"document_conflict",explanation:"Invoice and contract totals differ."}]}};
+ const result=automatedReviewFeedback(assessment,"automatic");
+ assert.deepEqual(result.reasons,[]);
+ assert.equal(result.findings.length,3);
+ assert.ok(result.findings.some((f:any)=>f.code==="contract_execution_unverified"&&f.explanation.includes("cannot certify")));
+ assert.deepEqual(assessment.reasons,["contract_execution_unverified","ai_flagged"]);
+ assert.deepEqual(automatedReviewFeedback(assessment,"manual").reasons,assessment.reasons);
+ const passed=automatedReviewFeedback({status:"approved",reasons:[]},"automatic");
+ assert.match(passed.merchant_feedback,/does not certify authenticity/);
+});
+
+import {applyDocumentReviewScope} from "../supabase/functions/_shared/predeposit-policy.ts";
+Deno.test("optional document checks do not invent missing bank policy or clear uncertain evidence",()=>{
+ const {invoice,context}=fixture();context.jurisdictionPolicy=null;context.structuring=null;
+ const ai={status:"passed" as const,findings:[],physical_goods_detected:false} as any;
+ const strict=evaluateInvoice(invoice,context,ai);assert.equal(strict.status,"review_required");
+ const documents=applyDocumentReviewScope(strict,context,"document_checks","observe");assert.equal(documents.status,"approved");
+ assert.deepEqual((documents as any).checks_not_performed,["jurisdiction_policy_missing","history_unavailable"]);
+ assert.ok((documents as any).strict_assessment.reasons.includes("jurisdiction_policy_missing"));
+ for(const mode of ["enforce","disabled",undefined])assert.equal(applyDocumentReviewScope(strict,context,"document_checks",mode).status,"review_required");
+ assert.equal(applyDocumentReviewScope(strict,context,undefined,"observe").status,"review_required");
+ context.verifiedEvidenceHashes=[];assert.notEqual(applyDocumentReviewScope(evaluateInvoice(invoice,context,ai),context,"document_checks","observe").status,"approved");
+ context.history.available=false;assert.ok(applyDocumentReviewScope(evaluateInvoice(invoice,context,ai),context,"document_checks","observe").reasons.includes("history_unavailable"));
+});

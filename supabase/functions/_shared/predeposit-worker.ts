@@ -1,5 +1,5 @@
 import { checked, loadPolicy, loadAssetBytes, BUCKET, invoiceDossier } from "./predeposit-runtime.ts";
-import { applyInvoiceReviewMode, evaluateInvoice, assessedDigest, canonicalJson, sha256, type ReviewContext } from "./predeposit-policy.ts";
+import { applyInvoiceReviewMode, applyDocumentReviewScope, evaluateInvoice, assessedDigest, canonicalJson, sha256, type ReviewContext } from "./predeposit-policy.ts";
 import { screenInvoice, assessWithAi } from "./predeposit-azure.ts";
 import { loadEvidenceOcrConfig, startEvidenceOcr, pollEvidenceOcr } from "./predeposit-evidence-ocr.ts";
 import { loadInvoiceAiConfig } from "./predeposit-ai-config.ts";
@@ -7,7 +7,7 @@ import { extractCommercialEvidence } from "./predeposit-extract.ts";
 export async function buildAssessment(db:any,row:any,manualContext?:Partial<ReviewContext>){
  const policy=await loadPolicy(db),context:ReviewContext=structuredClone(row.review_context);
  context.now=new Date().toISOString();
- if(row.review_context.config_sha256!==await sha256(canonicalJson(policy.config)))return {pending:false,context,assessment:{...evaluateInvoice(row.payload,context),status:"review_required",reasons:["policy_changed"],payload_sha256:row.payload_sha256,policy_version:row.policy_version}};
+ if(row.review_context.config_sha256!==await sha256(canonicalJson(policy.config)))return {pending:false,context,assessment:{...evaluateInvoice(row.payload,context),status:policy.config?.review_mode==="automatic"?"action_required":"review_required",reasons:["policy_changed"],payload_sha256:row.payload_sha256,policy_version:row.policy_version}};
  const aiConfig=await loadInvoiceAiConfig(db);
  const docs=row.payload.documents;
  const assets:any[]=docs.length?checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",row.owner_user_id).in("id",docs.map((d:any)=>d.id))):[];
@@ -41,7 +41,9 @@ export async function buildAssessment(db:any,row:any,manualContext?:Partial<Revi
  }
  const deterministic=evaluateInvoice(row.payload,context);
  const ai=await screenInvoice(row.payload,context,aiConfig);
- const result=applyInvoiceReviewMode(await assessWithAi(row.payload,context,ai),policy.config?.review_mode);
+ const strict=await assessWithAi(row.payload,context,ai);
+ const scoped=applyDocumentReviewScope(strict,context,policy.config?.review_scope,policy.mode);
+ const result=applyInvoiceReviewMode(scoped,policy.config?.review_mode);
  return {pending:false,context,assessment:{...result,payload_sha256:row.payload_sha256,assessed_sha256:await assessedDigest(row.payload,context),review_context:context,config_sha256:row.review_context.config_sha256,deterministic_status:deterministic.status}};
 }
 export async function processInvoice(db:any,id:string){
@@ -57,7 +59,8 @@ export async function processInvoice(db:any,id:string){
    p_assessment:a,p_dossier_path:dossier?.path||null,p_dossier_sha:dossier?.sha256||null,p_rationale:"Automated evidence assessment for this invoice revision"}));
  }catch{
   // Never expose provider responses or document content in client errors.
-  const assessment={status:"review_required",policy_version:row.policy_version,payload_sha256:row.payload_sha256,reasons:["screening_unavailable"]};
-  await db.rpc("complete_predeposit_review",{p_invoice:row.id,p_lease:row.lease_id,p_actor:null,p_decision:"review_required",p_assessment:assessment,p_dossier_path:null,p_dossier_sha:null,p_rationale:"Screening could not complete; compliance review is required"});
+  let automatic=false;try{automatic=(await loadPolicy(db)).config?.review_mode==="automatic";}catch{/* Unavailable policy cannot grant approval. */}
+  const assessment={status:automatic?"action_required":"review_required",policy_version:row.policy_version,payload_sha256:row.payload_sha256,reasons:["screening_unavailable"]};
+  await db.rpc("complete_predeposit_review",{p_invoice:row.id,p_lease:row.lease_id,p_actor:null,p_decision:assessment.status,p_assessment:assessment,p_dossier_path:null,p_dossier_sha:null,p_rationale:"Automated document checks could not complete; no approval granted"});
  }
 }
