@@ -119,3 +119,28 @@ Deno.test("workspace bootstrap uses owned local account labels without contactin
   assert.doesNotMatch(JSON.stringify(payload),/NEVER-EXPOSE/);
  }finally{globalThis.fetch=original;}
 });
+
+Deno.test("invalid invoice prices return a friendly field error before any draft write",async()=>{
+ const original=globalThis.fetch;let writes=0;
+ globalThis.fetch=async(input,init)=>{
+  const req=new Request(input,init),url=new URL(req.url);
+  if(url.pathname==="/auth/v1/user")return Response.json({id:owner});
+  if(url.pathname.endsWith("/admin_users"))return Response.json([]);
+  if(url.pathname.endsWith("/user_profiles"))return Response.json([{account_type:"business"}]);
+  if(url.pathname.endsWith("/predeposit_policy"))return Response.json({config:{hub_enabled:true}});
+  writes++;throw Error("Unexpected write");
+ };
+ try{
+  const response=await handler(new Request(base,{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer test-session"},body:JSON.stringify({action:"save_draft",invoice_number:"TEST",payload:{
+   currency:"USD",receiving_account_id:"",buyer:{legal_name:"",type:"company",address:"",country:"",tax_id:""},
+   remitter:{legal_name:"",type:"company",relationship:""},category:"digital_services",order_source:"direct_b2b",order_platform:"",order_reference:"",tracking_numbers:[],
+   items:[{description:"",quantity:1,unit_amount_minor:0,deliverable_reference:""}],source_of_funds:"",fund_utilization:"",discovery_channel:"",cross_border_justification:"",commercial_end_use:"",
+   contract_path:"generated",agreement_version:"",signature_consent:false,document_ids:[],instalments:{expected_count:1,commercial_reason:""}
+  }})}));
+  assert.equal(response.status,400);const body=await response.json();
+  assert.match(body.error,/Invoice form is incomplete/);assert.match(body.error,/item 1 unit price/);
+  assert.ok(body.error.length<=160);assert.equal(writes,0);
+  const {friendlyError}=await import("../utils/errors/friendlyError.ts");
+  assert.equal(friendlyError(body.error),body.error,"Older clients must retain the validation guidance");
+ }finally{globalThis.fetch=original;}
+});

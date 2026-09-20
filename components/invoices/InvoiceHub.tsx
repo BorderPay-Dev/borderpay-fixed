@@ -43,6 +43,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  const tc=useThemeClasses();const [data,setData]=useState<any>(initialWorkspace),[form,setForm]=useState<any>(empty),[draft,setDraft]=useState<any>(null);
  const [number,setNumber]=useState(''),[tab,setTab]=useState('invoice'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [selected,setSelected]=useState<any>(null),[brand,setBrand]=useState<any>({signer_name:'',logo_asset_id:null,signature_asset_id:null});
+ const errorBox=useRef<HTMLDivElement>(null);
  const lock=useRef(false),live=useRef(true),loadGeneration=useRef(0),accountGeneration=useRef(0),accountsVerified=useRef(false),brandEdits=useRef(new Set<string>());
  const [accountsRefreshing,setAccountsRefreshing]=useState(false);
  const call=async(action:string,payload:any={})=>{const r:any=await backendAPI.predeposit.request(action,payload);if(!r.success)throw Error(r.error||'Unable to complete this request');return r.data;};
@@ -65,6 +66,60 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  useEffect(()=>{let active=true;live.current=true;refresh(true).catch(e=>{if(active)setError(e.message);});return()=>{active=false;live.current=false;loadGeneration.current++;accountGeneration.current++;};},[]);
  const run=async(fn:()=>Promise<void>)=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await fn();}catch(e){if(live.current)setError(e instanceof Error?e.message:'Please try again');}finally{lock.current=false;if(live.current)setBusy(false);}};
  useEffect(()=>{if(!selected||!['queued','screening'].includes(selected.status))return;let cancel=false;const t=setTimeout(()=>call('get_invoice',{invoice_id:selected.id}).then(d=>{if(!cancel)setSelected(d);}).catch(e=>{if(!cancel)setError(e.message);}),5000);return()=>{cancel=true;clearTimeout(t);};},[selected]);
+ useEffect(()=>{if(error){errorBox.current?.focus();errorBox.current?.scrollIntoView({block:'center',behavior:'smooth'});}},[error]);
+ const validateInvoice=(review=false)=>{
+  const missing:string[]=[];
+  const need=(ok:boolean,label:string)=>{if(!ok)missing.push(label);};
+  const enough=(value:unknown,n:number)=>String(value||'').trim().length>=n;
+  need(/^[A-Za-z0-9][A-Za-z0-9 ._/-]{0,79}$/.test(number.trim()),'invoice reference (up to 80 characters)');
+  need(enough(form.buyer.legal_name,review?2:1),"buyer’s legal name");
+  need(enough(form.buyer.address,review?8:1),'buyer’s billing address');
+  need(/^[A-Z]{2}$/.test(form.buyer.country),'buyer’s country (2-letter code)');
+  need(form.items.length>0,'at least one invoice item');
+  form.items.forEach((item:any,i:number)=>{
+   need(enough(item.description,review?30:1),'item '+(i+1)+' description'+(review?' (at least 30 characters)':''));
+   need(Number.isSafeInteger(item.quantity)&&item.quantity>0&&item.quantity<=1000000,'item '+(i+1)+' quantity (positive whole number)');
+   need(Number.isSafeInteger(item.unit_amount_minor)&&item.unit_amount_minor>0,'item '+(i+1)+' unit price (greater than zero)');
+   if(review)need(enough(item.deliverable_reference,3),'item '+(i+1)+' delivery / item reference');
+  });
+  const sum=form.items.reduce((n:number,i:any)=>n+i.quantity*i.unit_amount_minor,0);
+  need(Number.isSafeInteger(sum)&&sum>0,'a valid invoice total');
+  if(form.currency==='GBP')need(form.buyer.type==='company'&&form.remitter.type==='company','corporate buyer and sender for GBP (strictly B2B)');
+  if(review){
+   need(!!form.receiving_account_id,'receiving account for document review');
+   need(enough(form.buyer.tax_id,2),'buyer’s tax / registration ID');
+   need(enough(form.remitter.legal_name,2),'bank sender’s legal name');
+   need(enough(form.remitter.relationship,12),'commercial relationship (at least 12 characters)');
+   need(enough(form.source_of_funds,30),'source of funds (at least 30 characters)');
+   need(enough(form.fund_utilization,30),'use of funds (at least 30 characters)');
+   if(form.buyer.country!==data.merchant?.incorporation_country){
+    need(enough(form.discovery_channel,15),'how the buyer found you (at least 15 characters)');
+    need(enough(form.cross_border_justification,40),'international sourcing reason (at least 40 characters)');
+   }
+   const kinds=new Set(data.assets.filter((a:any)=>form.document_ids.includes(a.id)).map((a:any)=>a.kind));
+   if(form.contract_path==='custom')need(kinds.has('executed_contract'),'signed contract / statement of work');
+   else{
+    need(data.templates.some((a:any)=>a.version===form.agreement_version),'approved template in B2B agreement');
+    need(!!data.branding?.signature_asset_id&&enough(data.branding?.signer_name,2),'saved signer name and signature in Branding & signature');
+    need(form.signature_consent===true,'signature authorization in B2B agreement');
+   }
+   if(form.category==='physical_goods'){
+    need(kinds.has('logistics'),'logistics / physical possession proof');
+    need(kinds.has('warehouse_receipt')||kinds.has('dispatch_log')||form.tracking_numbers.length>0,'warehouse receipt, dispatch log or tracking number');
+   }
+   if(form.order_source!=='direct_b2b'){
+    need(enough(form.order_platform,2)&&enough(form.order_reference,2),'platform name and order reference');
+    need(kinds.has('order_dashboard')||kinds.has('platform_order_export'),'order screenshot or official platform export');
+   }
+   if(['individual','sole_proprietor'].includes(form.buyer.type)||form.remitter.type==='individual'){
+    need(kinds.has('buyer_business_proof'),'buyer’s business registration proof');
+    need(kinds.has('end_use_declaration')&&enough(form.commercial_end_use,30),'commercial end-use declaration');
+    need(kinds.has('executed_contract'),'executed contract for the individual commercial buyer');
+   }
+   need(Number.isInteger(form.instalments.expected_count)&&form.instalments.expected_count>=1&&form.instalments.expected_count<=100,'number of payments (1 to 100)');
+  }
+  if(missing.length)throw Error('Your form is incomplete. Please complete: '+missing.join('; ')+'. Then try again. You can download an invoice without submitting it for document review.');
+ };
  const set=(key:string,value:any)=>setForm((f:any)=>({...f,[key]:value}));
  const nested=(key:string,field:string,value:any)=>setForm((f:any)=>({...f,[key]:{...f[key],[field]:value}}));
  const save=async()=>{const d=await call('save_draft',{id:draft?.id,version:draft?.version,invoice_number:number,payload:form});setDraft(d);return d;};
@@ -86,7 +141,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  const total=form.items.reduce((a:number,i:any)=>a+i.quantity*i.unit_amount_minor,0);
  return <main className={'invoice-hub '+tc.bg+' '+tc.text} data-light={tc.isLight}><FloatingBackButton onBack={onBack}/>
  <header className="ih-header"><p className="ih-eyebrow">BUSINESS TOOLS</p><h1>Invoice & Agreement Hub</h1><p className="ih-muted">Create invoices and contracts whenever you need them. Keep supporting documents ready for bank requests.</p></header>
- {error&&<div role="alert" className="ih-error">{error}<button type="button" onClick={()=>run(async()=>{await refresh(true);})}>Retry</button></div>}
+ {error&&<div ref={errorBox} tabIndex={-1} role="alert" className="ih-error">{error}<button type="button" onClick={()=>run(async()=>{await refresh(true);})}>Retry</button></div>}
  {notice&&<p role="status" className="ih-notice">{notice}</p>}
  {data.enabled===false?<section className="ih-card"><h2>Invoicing is being prepared</h2><p>We will make this workspace available when the review service is ready.</p></section>:<>
  <nav className="ih-tabs" aria-label="Invoicing modules">{[['invoice','Invoice builder'],['contract','B2B agreement'],['branding','Branding & signature']].map(([id,label])=><button key={id} type="button" aria-pressed={tab===id} onClick={()=>setTab(id)}>{label}</button>)}</nav>
@@ -96,7 +151,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  <label className="ih-upload">Company logo · PNG or JPEG<input type="file" accept="image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,'logo');});e.target.value='';}}/></label>{brand.logo_asset_id&&<p className="ih-muted">Logo uploaded</p>}
  <SignaturePad busy={busy||data.enabled!==true} onSave={(f:File)=>run(async()=>{await upload(f,'signature');})}/>{brand.signature_asset_id&&<p className="ih-muted">Signature uploaded</p>}
  <label className="ih-upload">Or upload your signature image<input type="file" accept="image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,'signature');});e.target.value='';}}/></label>
- <button className="ih-primary" type="button" disabled={data.enabled!==true} onClick={()=>run(async()=>{await call('save_branding',brand);brandEdits.current.clear();setNotice('Branding and signature saved.');})}>Save branding</button></section>:<>
+ <button className="ih-primary" type="button" disabled={data.enabled!==true} onClick={()=>run(async()=>{await call('save_branding',brand);setData((p:any)=>({...p,branding:{...brand}}));brandEdits.current.clear();setNotice('Branding and signature saved.');})}>Save branding</button></section>:<>
  {tab==='invoice'&&<><section className="ih-card"><div className="ih-section-heading"><h2>Invoice details</h2><button type="button" onClick={()=>{setDraft(null);setNumber('');setForm(empty());setSelected(null);}}>New invoice</button></div>
  {data.drafts.length>0&&<Select label="Continue a saved draft" value={draft?.id||''} onChange={(v:string)=>{const d=data.drafts.find((x:any)=>x.id===v);if(d){setDraft(d);setNumber(d.invoice_number);setForm(d.payload);setSelected(null);}}} options={[['','Select draft'],...data.drafts.map((d:any)=>[d.id,d.invoice_number])]}/>}
  <Select label="Invoice currency" value={form.currency} onChange={(currency:string)=>setForm({...form,currency,receiving_account_id:''} )} options={[['USD','USD'],['EUR','EUR'],['GBP','GBP']]}/>
@@ -138,8 +193,8 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  {!brand.signature_asset_id&&<button type="button" onClick={()=>setTab('branding')}>Set up signature</button>}</>:<><p>Upload the executed contract or statement of work under Order evidence. Its parties, currency, financial value, scope and signatures will be checked against this invoice.</p><button type="button" onClick={()=>setTab('invoice')}>Attach contract</button></>}
  </section>}
  <fieldset disabled={data.enabled!==true} className="ih-actions ih-sticky" style={{border:0,padding:0,margin:0,minWidth:0}}><button type="button" onClick={()=>run(async()=>{await save();await refresh();setNotice('Draft saved.');})}>Save draft</button>
- <button type="button" onClick={()=>run(async()=>{const d=await save();await download('download_invoice',{draft_id:d.id,version:d.version});await refresh();})}><Download size={18}/> Download invoice</button>
- <button className="ih-primary" type="button" onClick={()=>run(async()=>{const d=await save();const invoice=await call('submit',{draft_id:d.id,version:d.version});setSelected(invoice);await refresh();setNotice('Documents submitted for checking. Your existing account access is unchanged.');})}><FileText size={18}/>{busy?'Please wait…':'Check invoice & documents'}</button></fieldset>
+ <button type="button" onClick={()=>run(async()=>{validateInvoice();const d=await save();await download('download_invoice',{draft_id:d.id,version:d.version});await refresh();})}><Download size={18}/> Download invoice</button>
+ <button className="ih-primary" type="button" onClick={()=>run(async()=>{validateInvoice(true);const d=await save();const invoice=await call('submit',{draft_id:d.id,version:d.version});setSelected(invoice);await refresh();setNotice('Documents submitted for checking. Your existing account access is unchanged.');})}><FileText size={18}/>{busy?'Please wait…':'Check invoice & documents'}</button></fieldset>
  </>}
  </fieldset>
  <section className="ih-card"><div className="ih-section-heading"><h2>Your invoices</h2><button type="button" disabled={busy} onClick={()=>run(async()=>{await refresh();})} aria-label="Refresh invoices"><RefreshCw size={18}/></button></div>

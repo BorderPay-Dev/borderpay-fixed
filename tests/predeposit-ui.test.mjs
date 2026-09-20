@@ -22,6 +22,13 @@ try{
  await page.evaluate(()=>window.__releaseAccounts());
  await page.waitForFunction(()=>!document.body.innerText.includes('Refreshing account availability'));
  assert.equal(await page.getByLabel('Invoice reference').inputValue(),'TYPED-BEFORE-DATA');
+ await page.getByRole('button',{name:'Check invoice & documents',exact:true}).click();
+ await page.getByRole('alert').filter({hasText:'Your form is incomplete.'}).waitFor();
+ assert.match(await page.getByRole('alert').innerText(),/item 1 unit price/);
+ assert.match(await page.getByRole('alert').innerText(),/buyer’s legal name/);
+ assert.equal(await page.evaluate(()=>window.__invoiceCalls.filter(c=>c.action==='save_draft'||c.action==='submit').length),0);
+ assert.equal(await page.getByLabel('Invoice reference').inputValue(),'TYPED-BEFORE-DATA');
+ console.log('PASS: incomplete submission lists missing fields, preserves entries and makes no submission');
  console.log('PASS: usable form before bootstrap, provider refresh does not block editing, typed values survive both responses');
  await page.goto('http://127.0.0.1:4173/tests/fixtures/invoice-ui.html');
  await page.getByRole('heading',{name:'Invoice & Agreement Hub'}).waitFor();

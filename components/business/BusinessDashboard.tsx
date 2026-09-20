@@ -14,7 +14,7 @@ import { useWalletAssetScope } from '../../utils/hooks/useWalletAssetScope';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Building2, Send, Download, RefreshCw, Loader2, Wallet, CreditCard, Plus,
-  AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText,
+  ArrowDownLeft, ArrowUpRight, AlertCircle, ShieldCheck, ShieldAlert, Users, Banknote, ArrowRight, BriefcaseBusiness, FileText,
 } from 'lucide-react';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
@@ -31,6 +31,9 @@ import { SecurityStatus, TOTPManager } from '../../utils/security/SecurityManage
 import { navPerfTrackCache } from '../../utils/performance/navigationPerf';
 import { AccountDetailSheet } from '../dashboard/bridge/WalletVisuals';
 import { bridgeVirtualAccountCurrenciesForCountry } from '../../utils/compliance/partnerCountryPolicy';
+
+import { txDirection } from '../../utils/transactions/direction';
+import { sanitizeCustomerFacingText } from '../../utils/presentation/customerBranding';
 
 const BIZ_WALLETS_KEY = 'borderpay_business_dash_wallets_v1';
 const BIZ_TX_KEY = 'borderpay_business_dash_tx_v1';
@@ -225,6 +228,10 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
   const [selectedVa, setSelectedVa] = useState<BusinessVaRow | null>(null);
   const walletsRef = useRef<WalletRow[]>(cachedBizWallets);
   const [transactions, setTransactions]   = useState<any[]>(cachedBizTransactions);
+  const [transactionsLoaded, setTransactionsLoaded] = useState(cachedBizTransactions.length > 0);
+  const [transactionsError, setTransactionsError] = useState(false);
+  const recentTransactions = useMemo(() => [...transactions].sort((a, b) =>
+    (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0)).slice(0, 5), [transactions]);
   const [walletsLoading, setWalletsLoading] = useState(false);
   const [walletsError, setWalletsError]   = useState<string | null>(null);
   const [hasVirtualAccounts, setHasVirtualAccounts] = useState<boolean>(() => hasActiveCachedVa(userId));
@@ -280,7 +287,7 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
     try {
       const refreshTsKey = financialCacheKey(BIZ_DASH_REFRESH_TS_KEY, { userId, accountType: 'business' });
       const last = Number(localStorage.getItem(refreshTsKey) || '0');
-      if (verificationResolved && !force && seededWallets.length > 0 && Number.isFinite(last) && Date.now() - last < 45_000) {
+      if (verificationResolved && !force && seededWallets.length > 0 && transactionsLoaded && Number.isFinite(last) && Date.now() - last < 45_000) {
         return;
       }
       const walletRouteRes: any = await withTimeout(
@@ -326,10 +333,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
       }
 
       // Never block first paint on profile/transaction enrichment.
+      setTransactionsError(false);
       void Promise.allSettled([
         withTimeout(
           backendAPI.financial.getSnapshot(12),
-          1_400,
+          12_000,
           { success: false, error: 'snapshot_timeout' } as any,
         ),
         withTimeout(
@@ -352,8 +360,11 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
             ? txData.recent_transactions
             : [];
           setTransactions(tx);
+          setTransactionsLoaded(true);
           try { localStorage.setItem(bizTxCacheKey, JSON.stringify(tx)); } catch { /* noop */ }
         }
+
+        if (!txOk) setTransactionsError(true);
 
         const profileOk = profileRes.status === 'fulfilled' && (profileRes.value as any)?.success;
         if (profileOk) {
@@ -746,6 +757,46 @@ export function BusinessDashboard({ userId, onLogout, onNavigate }: BusinessDash
             <BridgeKycStatusCard userId={userId} onStartVerification={() => onNavigate('kyc')} />
           )}
           <CardsLockedCard />
+        </section>
+
+
+        <section className="px-5 sm:px-6 pb-4" aria-labelledby="business-recent-activity">
+          <div className="flex items-center justify-between mb-3">
+            <h2 id="business-recent-activity" className={`text-xs font-semibold ${tc.textSecondary} uppercase tracking-[0.14em]`}>Recent activity</h2>
+            <button type="button" onPointerDown={() => prefetchScreen('transactions')} onClick={() => navigate('transactions')} className="text-[11px] font-semibold text-[#C7FF00]">See all</button>
+          </div>
+          {transactionsError && <p role="status" className={`text-xs ${tc.textMuted} mb-3`}>
+            {recentTransactions.length ? 'Showing saved activity. ' : 'Recent activity could not be refreshed. '}
+            <button type="button" className="text-[#C7FF00] underline" onClick={() => void loadWallets(true)}>Retry</button>
+          </p>}
+          <div className={`rounded-2xl border ${tc.cardBorder} ${tc.card} overflow-hidden`}>
+            {recentTransactions.length ? recentTransactions.map((txn, index) => {
+              const credit = txDirection(txn) === 'credit';
+              const amount = txn.amount == null || txn.amount === '' ? NaN : Number(txn.amount);
+              const currency = String(txn.currency || '').toUpperCase();
+              const date = new Date(txn.created_at);
+              const status = String(txn.status || '').replace(/_/g, ' ');
+              return <div key={txn.id || index} className={`px-4 py-3.5 flex items-center gap-3 ${index ? `border-t ${tc.borderLight}` : ''}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${credit ? 'bg-emerald-500/10' : tc.bgAlt}`}>
+                  {credit ? <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400"/> : <ArrowUpRight className={`w-3.5 h-3.5 ${tc.text}`}/>}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${tc.text} truncate`}>{sanitizeCustomerFacingText(txn.description || txn.type || 'Transaction')}</p>
+                  <p className={`text-[11px] ${tc.textMuted} mt-0.5 capitalize`}>
+                    {Number.isFinite(date.getTime()) ? date.toLocaleDateString(undefined, {month:'short',day:'numeric'}) : ''}
+                    {status ? ' · ' + sanitizeCustomerFacingText(status) : ''}
+                  </p>
+                </div>
+                <p className={`text-sm font-semibold tabular-nums text-right flex-shrink-0 ${credit ? 'text-emerald-400' : tc.text}`}>
+                  {Number.isFinite(amount) && currency ? <>{credit ? '+' : '−'}{Math.abs(amount).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}<span className={`block text-[10px] ${tc.textMuted}`}>{currency}</span></> : '—'}
+                </p>
+              </div>;
+            }) : <div className={`px-5 py-8 text-center ${tc.textMuted}`} role="status">
+              <FileText className="w-6 h-6 mx-auto mb-2"/>
+              <p className="text-sm">{transactionsLoaded ? 'No activity yet' : transactionsError ? 'Open Activity to view your transactions.' : 'Loading recent activity…'}</p>
+              {transactionsLoaded && <p className="text-[11px] mt-1">Your incoming payments and withdrawals will appear here.</p>}
+            </div>}
+          </div>
         </section>
 
         {/* ── 6c. Affiliate banner (footer position parity) ───────── */}
