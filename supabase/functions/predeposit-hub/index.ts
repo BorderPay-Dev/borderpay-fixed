@@ -156,7 +156,7 @@ Deno.serve(async req=>{
    if(counts.error||Number(counts.count)>=20)return reply({success:false,error:"Document review limit reached. Please try again later."},429);
    const accounts=await loadInvoiceAccounts(db,owner);
    if(!accounts.accounts.length)throw Error("An approved business with an active receiving account is required");
-   const assets=checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",[invoiceId,contractId]));
+   const assets=checked<any[] | null>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",[invoiceId,contractId]));
    const invoice=assets.find(a=>a.id===invoiceId),contract=assets.find(a=>a.id===contractId);
    validateReviewAssets(owner,invoice,contract);
    checked(await db.from("predeposit_document_checks").upsert({owner_user_id:owner,request_id:requestId,invoice_asset_id:invoiceId,contract_asset_id:contractId,
