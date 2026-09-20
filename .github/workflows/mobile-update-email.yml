@@ -1,0 +1,20 @@
+name: Mobile update email checks
+on:
+  push:
+    branches: [fix/mobile-update-email-1-0-10]
+  pull_request:
+    paths:
+      - "supabase/functions/_shared/email-templates/mobile-app-update.ts"
+      - "supabase/functions/_shared/email-templates/**/app-store-announcement.ts"
+      - "tests/mobile-app-update-email.test.ts"
+permissions:
+  contents: read
+jobs:
+  email:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --no-config tests/mobile-app-update-email.test.ts tests/invoice-hub-email.test.ts
