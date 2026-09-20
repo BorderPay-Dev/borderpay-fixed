@@ -1,3 +1,4 @@
+import { brandName, getCustomerBrand, openBrandLink } from "../../utils/branding/brand";
 import { useBeneficiaryAuthorization } from '../security/useBeneficiaryAuthorization';
 /**
  * ExternalAccountsScreen — list & manage fiat payout (offramp) destinations.
@@ -303,7 +304,7 @@ export function ExternalAccountsScreen({ onBack, onAdd }: ExternalAccountsScreen
               <Banknote className="w-6 h-6 text-[#C7FF00]" />
             </div>
             <p className={`text-sm font-semibold ${tc.text} mb-1`}>No external accounts yet</p>
-            <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts through BorderPay.</p>
+            <p className={`text-xs ${tc.textMuted} mb-5`}>Add a bank account to receive payouts through {brandName()}.</p>
             <button
               onPointerDown={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}
               onMouseEnter={() => { try { (window as any).__borderpay_prefetch?.('add-external-account'); } catch { /* noop */ } }}

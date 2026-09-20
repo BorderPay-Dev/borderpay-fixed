@@ -1,0 +1,72 @@
+{
+  "function_version": 384,
+  "source": "Supabase production source maps",
+  "files": [
+    {
+      "source": "supabase/functions/bridge-virtual-account/index.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/bridge-virtual-account/index.js",
+      "original_sha256": "99ee5d09518873bcd90aa48fd14f410744eea41290d42c6f33f6d3456cd99355",
+      "compiled_sha256": "74d7d952968ae340b3b21b505da81a1759a81748ff178ac71917bb4cb4301ba3"
+    },
+    {
+      "source": "supabase/functions/_shared/providers/bridge.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/providers/bridge.js",
+      "original_sha256": "3a05e21e7ec2d7e6affd031c17807f6b406143bae8edb7d6f893a7a9949529ed",
+      "compiled_sha256": "e6e057a49095c72f1ca4415dc3df7eaefb22290cdf99619f06d9b25083025c44"
+    },
+    {
+      "source": "supabase/functions/_shared/providers/bridge-client.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/providers/bridge-client.js",
+      "original_sha256": "8e08ef029d36b63029bf6ce8c68edb9c14b11a96e1b4024bd194b61fdfaa6fab",
+      "compiled_sha256": "84e1185e0844bad6e75e415ebeacde4bbd6401591a80cab140d229d7934ed29f"
+    },
+    {
+      "source": "supabase/functions/_shared/providers/bridge-transfer-payload.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/providers/bridge-transfer-payload.js",
+      "original_sha256": "703c9b5885f3206dcf3f92f1d9b2ee9ec258140e2672d96dd1d27346d6c96514",
+      "compiled_sha256": "5204317a0126e30583f2d7e71e4f0699aca444e86f78aa7c3b7edbd2cf68dfca"
+    },
+    {
+      "source": "supabase/functions/_shared/providers/bridge-country-policy.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/providers/bridge-country-policy.js",
+      "original_sha256": "b40bc5fd64cf4b888dca87d328d09e91e0206e203ae4d326f3aee2441690a8e2",
+      "compiled_sha256": "d1d7319b83c3372899c2272ec9a415ec00c0aae1cec8fecf854a49ebf401ea6c"
+    },
+    {
+      "source": "supabase/functions/_shared/funding-gate.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/funding-gate.js",
+      "original_sha256": "0edba28649d56aa02cfac7c5a7221c776091e70441b1c7afaeb6101136c4437c",
+      "compiled_sha256": "7578faaf4094c3c8ac3b64ff119aef00e4be8a0287be507ed0ff3ce404c22e4d"
+    },
+    {
+      "source": "supabase/functions/_shared/bridge-identity-invariant.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/bridge-identity-invariant.js",
+      "original_sha256": "6ad6739d7d18eb4fff8f925bb1686ee7729b6d0a963d622e3e61201a714d7c10",
+      "compiled_sha256": "ee18942daaf6db94f4b6234b1028a5245c461a024fbd9ba6aa5a0a933256741c"
+    },
+    {
+      "source": "supabase/functions/_shared/providers/virtual-account-config.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/providers/virtual-account-config.js",
+      "original_sha256": "6758c261d747f4ae355ecba8e2bbf8f2930c4aa44a8b90d5e3bbac7b0656a635",
+      "compiled_sha256": "cade8ac9c1075e75b701eacbe96d679b8db2b799de785c8a4c70ca8e86220690"
+    },
+    {
+      "source": "supabase/functions/_shared/fees/schedule.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/fees/schedule.js",
+      "original_sha256": "d4a90966f2935953740cf887b7553d5f2b4486cdeb66284d1bbfa0e368957683",
+      "compiled_sha256": "e1302968815c00aa3d11f69c2576d55c130ecb76ec08ade9abbc79270a535892"
+    },
+    {
+      "source": "supabase/functions/_shared/wallet-security-enrollment.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/wallet-security-enrollment.js",
+      "original_sha256": "188832cc671055268b3181496aa86b1159012e9edbf33fd2ef128fec418620e4",
+      "compiled_sha256": "e1986587701576e634736952b4a0376a7db9da96e551a30719e489467def9600"
+    },
+    {
+      "source": "supabase/functions/_shared/bridge-sca-scope.ts",
+      "target": "supabase/functions/bridge-virtual-account/production-v384/_shared/bridge-sca-scope.js",
+      "original_sha256": "429b4ff2add0efa00c26e95871cbed3d320b1d0a415f790525efc61742ec7ec2",
+      "compiled_sha256": "79ae341ca6b6ba61aa2f79eb154c4a5a841a563ea4fe4399c346d0a08f97dd86"
+    }
+  ]
+}

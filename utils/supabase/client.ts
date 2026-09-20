@@ -1,3 +1,4 @@
+import { captureOnboardingToken } from "../branding/brand";
 /**
  * BorderPay Africa – Supabase Client
  * Single source of truth for authentication and data access.
@@ -20,6 +21,8 @@ export const BASE_URL        = `${SUPABASE_URL}/functions/v1`;
 export const hasSupabase = Boolean(SUPABASE_URL && ANON_KEY);
 
 // ── Singleton Supabase client ─────────────────────────────────────────────────
+if (typeof window !== "undefined") captureOnboardingToken();
+
 const GLOBAL_KEY = '__borderpay_supabase_singleton__';
 
 function getOrCreateClient(): SupabaseClient {

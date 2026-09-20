@@ -9,6 +9,7 @@ import { receivingAccountHolder, receivingAccountInstructions } from "../../../u
  */
 
 import React from 'react';
+import {useInvoiceInstructionPolicy} from '../../../utils/hooks/useInvoiceInstructionPolicy';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Copy, Check, Info, ArrowDownLeft, ChevronDown, ChevronUp } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -495,6 +496,12 @@ export function AccountDetailSheet({ open, onClose, va }: {
   va: { currency: string; rail?: string | null; status?: string; account_details: any } | null;
 }) {
   const tc = useThemeClasses();
+  const instructionPolicy=useInvoiceInstructionPolicy(open);
+  if(open && (instructionPolicy.loading||instructionPolicy.required||instructionPolicy.error))return <Sheet open={open} onClose={onClose}><div className="p-6">
+    <h2 className={`text-lg font-semibold ${tc.text}`}>Receiving instructions</h2>
+    <p className={`mt-3 text-sm ${tc.textSecondary}`}>{instructionPolicy.loading?'Checking receiving access…':instructionPolicy.error||'Create an invoice and complete its review to share payment details with your buyer.'}</p>
+    {!instructionPolicy.loading&&!instructionPolicy.error&&<button type="button" className="mt-5 rounded-xl bg-[#C7FF00] px-5 py-3 font-semibold text-black" onClick={()=>{onClose();(window as any).__borderpay_navigate?.('invoice-hub');}}>Create Invoice & Contract</button>}
+  </div></Sheet>;
   if (!va) return <Sheet open={open} onClose={onClose}><div /></Sheet>;
   const cur = String(va.currency).toUpperCase();
   const d = pickDeposit(va.account_details, cur);

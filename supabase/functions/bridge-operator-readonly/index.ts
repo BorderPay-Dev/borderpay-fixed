@@ -1,3 +1,7 @@
+import { bridgeMidmarketRate, treasuryUsdTotal, treasuryBalanceHistory } from "./valuation.ts";
+import { normalizeTreasuryActivity, mergeTreasuryActivity, readActivityPages } from "./activity.ts";
+import { treasuryCors as cors } from "./cors.ts";
+import { virtualAccountRows } from "./accounts.ts";
 import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -18,24 +22,6 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const ALLOWED_ORIGINS = new Set([
-  "https://app.borderpayafrica.com",
-  "http://localhost:5173",
-  "http://localhost:3000",
-]);
-
-function cors(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") || "";
-  return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.has(origin)
-      ? origin
-      : "https://app.borderpayafrica.com",
-    "Access-Control-Allow-Headers":
-      "authorization, apikey, content-type, x-client-info",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Vary": "Origin",
-  };
-}
 
 function json(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -162,166 +148,26 @@ function externalAccountRow(row: any) {
   };
 }
 
-async function listTransfers(customerId: string): Promise<any[]> {
-  const response = await bridgeFetch({
+async function listTransfers(customerId: string) {
+  const result = await readActivityPages((cursor) => bridgeFetch({
     method: "GET",
-    path: "/v0/transfers",
-    query: { customer_id: customerId, limit: 100 },
+    path: `/v0/customers/${encodeURIComponent(customerId)}/transfers`,
+    query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) },
     retryable: true,
-  });
-  if (!response.ok) {
-    throw new Error(`Bridge transfer read failed (${response.status})`);
-  }
-  return listRows(response.data).slice(0, 100).map((row) =>
-    normalizeTreasuryActivity(row, "transfer")
-  );
+  }), customerId);
+  return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "transfer")) };
 }
 
-function normalizeTreasuryActivity(
-  row: any,
-  activityKind: "transfer" | "virtual_account",
-) {
-  return {
-    id: text(row?.id),
-    state: text(row?.state || row?.status).toLowerCase(),
-    activity_kind: activityKind,
-    activity_type: text(row?.type || row?.activity_type).toLowerCase(),
-    reference: text(row?.reference || row?.deposit_id || row?.tracking_id),
-    source: {
-      currency: text(
-        row?.source?.currency || row?.source_currency || row?.currency,
-      ).toUpperCase(),
-      payment_rail: text(
-        row?.source?.payment_rail || row?.source?.rail || row?.payment_rail,
-      )
-        .toLowerCase(),
-      amount: amount(row?.source?.amount || row?.source_amount || row?.amount),
-    },
-    destination: {
-      currency: text(row?.destination?.currency || row?.destination_currency)
-        .toUpperCase(),
-      payment_rail: text(
-        row?.destination?.payment_rail || row?.destination?.rail,
-      ).toLowerCase(),
-      amount: amount(
-        row?.destination?.amount || row?.destination_amount || row?.subtotal,
-      ),
-    },
-    created_at: text(row?.created_at),
-    updated_at: text(row?.updated_at),
-  };
-}
-
-async function listVirtualAccountHistory(
-  customerId: string,
-  virtualAccountId: string,
-): Promise<any[]> {
-  const response = await bridgeFetch({
+async function listVirtualAccountHistory(customerId: string, virtualAccountId: string, sourceCurrency: string) {
+  const result = await readActivityPages((cursor) => bridgeFetch({
     method: "GET",
-    path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${
-      encodeURIComponent(virtualAccountId)
-    }/history`,
-    query: { limit: 100 },
+    path: `/v0/customers/${encodeURIComponent(customerId)}/virtual_accounts/${encodeURIComponent(virtualAccountId)}/history`,
+    query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) },
     retryable: true,
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Virtual-account history read failed (${response.status}) for ${virtualAccountId}`,
-    );
-  }
-  return listRows(response.data).slice(0, 100).map((row) =>
-    normalizeTreasuryActivity(row, "virtual_account")
-  );
+  }), customerId);
+  return { ...result, rows: result.rows.map(row => normalizeTreasuryActivity(row, "virtual_account", { sourceCurrency })) };
 }
 
-function mergeTreasuryActivity(...groups: any[][]): any[] {
-  const rows = new Map<string, any>();
-  for (const row of groups.flat()) {
-    if (!row?.id) continue;
-    const existing = rows.get(row.id);
-    const existingTime =
-      Date.parse(existing?.updated_at || existing?.created_at || "") || 0;
-    const nextTime = Date.parse(row.updated_at || row.created_at || "") || 0;
-    if (!existing || nextTime >= existingTime) rows.set(row.id, row);
-  }
-  return [...rows.values()].sort((a, b) =>
-    (Date.parse(b.updated_at || b.created_at || "") || 0) -
-    (Date.parse(a.updated_at || a.created_at || "") || 0)
-  ).slice(0, 300);
-}
-
-function virtualAccountRows(row: any) {
-  const details =
-    row?.account_details && typeof row.account_details === "object"
-      ? row.account_details
-      : {};
-  const rawInstructions = details?.source_deposit_instructions ??
-    details?.deposit_instructions ?? details?.payment_instructions ?? details;
-  const candidates: any[] = Array.isArray(rawInstructions)
-    ? rawInstructions
-    : rawInstructions && typeof rawInstructions === "object" &&
-        !rawInstructions.currency && !rawInstructions.payment_rail &&
-        ["USD", "EUR", "GBP"].some((currency) =>
-          rawInstructions[currency] || rawInstructions[currency.toLowerCase()]
-        )
-    ? ["USD", "EUR", "GBP"].flatMap((currency) => {
-      const value = rawInstructions[currency] ||
-        rawInstructions[currency.toLowerCase()];
-      return value && typeof value === "object"
-        ? [{ currency, ...value }]
-        : [];
-    })
-    : [rawInstructions];
-
-  return candidates.map((instructions, index) => {
-    const bank = instructions?.bank_account &&
-        typeof instructions.bank_account === "object"
-      ? instructions.bank_account
-      : instructions;
-    const address = instructions?.bank_address &&
-        typeof instructions.bank_address === "object"
-      ? Object.values(instructions.bank_address).filter(Boolean).join(", ")
-      : instructions?.bank_address;
-    return {
-      id: `${text(row?.virtual_account_id)}${
-        candidates.length > 1 ? `:${index}` : ""
-      }`,
-      currency: text(instructions?.currency || row?.currency).toUpperCase(),
-      rail: text(instructions?.payment_rail || instructions?.rail || row?.rail)
-        .toLowerCase(),
-      status: text(row?.status || details?.status || "active").toLowerCase(),
-      account_holder_name: text(
-        instructions?.account_holder_name ||
-          instructions?.bank_beneficiary_name ||
-          instructions?.beneficiary_name || instructions?.beneficiary?.name ||
-          instructions?.beneficiary?.business_name ||
-          bank?.account_holder_name ||
-          bank?.bank_beneficiary_name || bank?.beneficiary_name ||
-          details?.account_holder_name || details?.bank_beneficiary_name ||
-          details?.beneficiary_name || row?.account_holder_name ||
-          row?.bank_beneficiary_name || row?.beneficiary_name,
-      ),
-      bank_name: text(instructions?.bank_name || bank?.bank_name),
-      bank_address: text(address || bank?.bank_address),
-      account_number: text(
-        instructions?.bank_account_number || instructions?.account_number ||
-          bank?.bank_account_number || bank?.account_number,
-      ),
-      routing_number: text(
-        instructions?.bank_routing_number || instructions?.routing_number ||
-          bank?.bank_routing_number || bank?.routing_number,
-      ),
-      iban: text(instructions?.iban || bank?.iban),
-      bic: text(
-        instructions?.bic || instructions?.swift_code || bank?.bic ||
-          bank?.swift_code,
-      ),
-      created_at: text(row?.created_at || details?.created_at),
-    };
-  }).filter((account) =>
-    account.currency || account.rail || account.account_number || account.iban
-  );
-}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -779,13 +625,13 @@ Deno.serve(async (req: Request) => {
           return { available: false, rows: [] as any[] };
         }),
       listTransfers(customerId)
-        .then((rows) => ({ available: true, rows }))
+        .then((result) => ({ available: true, ...result }))
         .catch((error) => {
           console.warn("bridge_operator_transfers_unavailable", {
             bridge_customer_id: customerId,
             error: error instanceof Error ? error.message : "unknown",
           });
-          return { available: false, rows: [] as any[] };
+          return { available: false, complete: false, rows: [] as any[] };
         }),
     ]);
     const wallets = walletResult.rows;
@@ -793,9 +639,9 @@ Deno.serve(async (req: Request) => {
     const virtualAccountActivityResults = virtualAccountResult.available
       ? await Promise.all(virtualAccounts.map(async (account) => {
         const virtualAccountId = text(account?.virtual_account_id);
-        if (!virtualAccountId) return { available: false, rows: [] as any[] };
-        return listVirtualAccountHistory(customerId, virtualAccountId)
-          .then((rows) => ({ available: true, rows }))
+        if (!virtualAccountId) return { available: false, complete: false, rows: [] as any[] };
+        return listVirtualAccountHistory(customerId, virtualAccountId, text(account.currency).toUpperCase())
+          .then((result) => ({ available: true, ...result }))
           .catch((error) => {
             console.warn(
               "bridge_operator_virtual_account_history_unavailable",
@@ -805,7 +651,7 @@ Deno.serve(async (req: Request) => {
                 error: error instanceof Error ? error.message : "unknown",
               },
             );
-            return { available: false, rows: [] as any[] };
+            return { available: false, complete: false, rows: [] as any[] };
           });
       }))
       : [];
@@ -816,6 +662,8 @@ Deno.serve(async (req: Request) => {
       transferResult.rows,
       ...virtualAccountActivityResults.map((result) => result.rows),
     );
+    const activityHistoryComplete = transferResult.available && transferResult.complete &&
+      virtualAccountResult.available && virtualAccountActivityResults.every(result => result.available && result.complete);
     const selectedWallets = TREASURY_ASSETS.flatMap((asset) => {
       const matches = wallets.filter((wallet) =>
         text(wallet.chain).toLowerCase() === asset.chain
@@ -884,10 +732,52 @@ Deno.serve(async (req: Request) => {
         balances: balances.map((balance: Record<string, unknown>) => ({
           currency: text(balance.currency).toUpperCase(),
           chain: text(balance.chain).toLowerCase(),
-          balance: amount(balance.balance),
+          balance: /^\d+(\.\d+)?$/.test(text(balance.balance)) ? text(balance.balance) : "",
         })),
       };
     }));
+
+    // Optional valuation/history reads must not hold the entire snapshot open.
+    async function boundedRead<T>(work: Promise<T>, fallback: T, milliseconds: number): Promise<T> {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([work, new Promise<T>(resolve => {
+          timer = setTimeout(() => resolve(fallback), milliseconds);
+        })]);
+      } finally { if (timer !== undefined) clearTimeout(timer); }
+    }
+    const uniqueWalletIds = [...new Set(walletRows.map(wallet => wallet.id))];
+    const [eurRateResponse, usdtRateResponse, ...walletHistoryResults] = await Promise.all([
+      boundedRead(bridgeFetch({ method: "GET", path: "/v0/exchange_rates", query: { from: "eur", to: "usd" }, retryable: false }).catch(() => ({ ok: false, data: null })), { ok: false, data: null }, 4_000),
+      boundedRead(bridgeFetch({ method: "GET", path: "/v0/exchange_rates", query: { from: "usdt", to: "usd" }, retryable: false }).catch(() => ({ ok: false, data: null })), { ok: false, data: null }, 4_000),
+      ...uniqueWalletIds.map(walletId => boundedRead((async () => {
+        try {
+          const history = await readActivityPages(cursor => bridgeFetch({
+            method: "GET", path: `/v0/wallets/${encodeURIComponent(walletId)}/history`,
+            query: { limit: 100, ...(cursor ? { starting_after: cursor } : {}) }, retryable: false,
+          }), customerId);
+          if (history.rows.some(row => row.bridge_wallet_id !== walletId)) throw new Error("Wallet history owner mismatch");
+          return history;
+        } catch { return { complete: false, rows: [] as any[] }; }
+      })(), { complete: false, rows: [] as any[] }, 8_000)),
+    ]);
+    const valuationTime = Date.now();
+    const eurResponse = eurRateResponse as { ok: boolean; data: unknown };
+    const usdtResponse = usdtRateResponse as { ok: boolean; data: unknown };
+    const rates = {
+      USDC: 1,
+      EURC: eurResponse.ok ? bridgeMidmarketRate(eurResponse.data, valuationTime) : null,
+      USDT: usdtResponse.ok ? bridgeMidmarketRate(usdtResponse.data, valuationTime) : null,
+    };
+    const historyResults = walletHistoryResults as Array<{ complete: boolean; rows: any[] }>;
+    const totalUsd = treasuryUsdTotal(walletRows, walletResult.available, rates);
+    const balanceHistory = treasuryBalanceHistory(walletRows, historyResults.flatMap(result => result.rows),
+      walletResult.available && historyResults.every(result => result.complete), rates, valuationTime);
+    const treasuryValuation = {
+      currency: "USD", total: totalUsd === null ? null : totalUsd.toFixed(2),
+      rates, as_of: new Date(valuationTime).toISOString(), source: "bridge_wallets_and_midmarket_rates",
+      history: balanceHistory,
+    };
 
     await db.from("operator_bridge_read_audit").insert({
       auth_user_id: user.id,
@@ -930,7 +820,9 @@ Deno.serve(async (req: Request) => {
             )
           ),
         external_accounts_available: externalAccountResult.available,
+        treasury_valuation: treasuryValuation,
         transactions: transfers,
+        activity_history_complete: activityHistoryComplete,
         transfers_available: transferResult.available ||
           virtualAccountHistoryAvailable,
         virtual_account_history_available: virtualAccountHistoryAvailable,

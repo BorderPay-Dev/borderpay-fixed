@@ -1,4 +1,8 @@
-import { guardUnattestedTransfer } from "../_shared/unattested-transfer-guard.ts";
+import {redactBankCoordinates,requiresInvoiceInstructions} from "../_shared/predeposit-access.ts";
+import { loadPublishedWhiteLabel } from "../_shared/white-label-config.ts";
+import { CUSTOMER_API_SCOPES, authenticateApiCustomer, handleCustomerApi, CustomerApiError } from "../_shared/api-customer-runtime.ts";
+import { readBoundedJson } from "../_shared/public-request-security.ts";
+import { scaCanonicalPayload } from "../_shared/sca.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   checkIpAllowlist,
@@ -14,16 +18,11 @@ import {
   sha256Hex,
 } from "../_shared/public-api-v258/api-gateway.ts";
 import {
-  bridgeProvider,
   BridgeProviderError,
-} from "../_shared/public-api-v258/providers/bridge.ts";
+} from "../_shared/providers/bridge.ts";
 import {
-  validateCustomerCreate,
   validateOnboardingAuthorization,
   validateIdempotencyHeader,
-  validateTransferOrPayout,
-  validateVirtualAccountCreate,
-  validateWalletCreate,
   validateWebhookCreate,
 } from "../_shared/public-api-v258/api-gateway-validators.ts";
 import {
@@ -37,32 +36,18 @@ import {
   readApiReleaseGateEnvironment,
 } from "../_shared/public-api-v258/api-release-gates.ts";
 import {
-  assertTenantResource,
-  providerReferencesForTransfer,
-  registerTenantResource,
-  resolveCustomerForTenantEndUser,
-  resolveTenantEndUser,
-  resolveTenantEndUserById,
   TenantOwnershipError,
-  type OwnedResource,
-  type ProviderReference,
 } from "../_shared/public-api-v258/api-tenant-ownership.ts";
 import {
   ApiFinancialAuthorizationError,
-  assertSpendableWalletBalance,
-  authorizeSingleTransferAmount,
-  fixedFeeForPercent,
 } from "../_shared/public-api-v258/api-financial-authorization.ts";
 import {
   encryptApiWebhookSecret,
   newApiWebhookSecret,
 } from "../_shared/public-api-v258/api-webhook-security.ts";
-import {
-  enqueueApiResourceEvent,
-} from "../_shared/public-api-v258/api-partner-events.ts";
-import { BRIDGE_DEVELOPER_FEE_PERCENT } from "../_shared/public-api-v258/fees/schedule.ts";
 
 const ROUTE_SCOPE_MAP: Record<string, string | null> = {
+  ...CUSTOMER_API_SCOPES,
   "GET /v1/health": null,
   "POST /v1/customers": "customers:write",
   "POST /v1/onboarding-authorizations": "onboarding:write",
@@ -86,6 +71,8 @@ const IDEMPOTENT_ROUTES = new Set([
   "POST /v1/transfers",
   "POST /v1/payouts",
   "POST /v1/webhooks",
+  "POST /v1/external-accounts", "DELETE /v1/external-accounts",
+  "POST /v1/external-wallets", "DELETE /v1/external-wallets",
 ]);
 
 function normalizeRoute(
@@ -146,6 +133,7 @@ async function findReplay(
     .eq("api_key_id", apiKeyId)
     .eq("route_key", routeKey)
     .eq("idempotency_key", idempotencyKey)
+    .gt("expires_at", new Date().toISOString())
     .maybeSingle();
   if (error) throw new Error(`idempotency lookup failed: ${error.message}`);
   return data;
@@ -180,6 +168,7 @@ async function storeReplay(
 }
 
 function mapBridgeError(e: unknown): GatewayHandlerResult {
+  if (e instanceof CustomerApiError) return { status:e.status, body:{success:false,error:{code:e.code,message:e.message}} };
   if (e instanceof ApiFinancialAuthorizationError) {
     return { status: e.status, body: { success: false, error: { code: e.code, message: e.message } } };
   }
@@ -273,6 +262,8 @@ async function handleRoute(
     if (secret.length < 32) {
       return { status: 500, body: { success: false, error: { code: "internal_error", message: "Partner onboarding authorization is not configured" } } };
     }
+    const release = parsed.value.onboarding_channel === "white_label" ? await loadPublishedWhiteLabel(supa,{tenantId:ctx.tenantId}) : null;
+    if(parsed.value.onboarding_channel === "white_label" && !release) return {status:409,body:{success:false,error:{code:"customer_app_not_live",message:"Publish the approved customer app before issuing signup links"}}};
     const now = Math.floor(Date.now() / 1000);
     const authorizationId = crypto.randomUUID();
     const expiresAt = now + parsed.value.expires_in_seconds;
@@ -320,7 +311,7 @@ async function handleRoute(
       }
       throw new Error(`Failed to persist onboarding audit: ${auditError.message}`);
     }
-    const appUrl = (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/$/, "");
+    const appUrl = release?.brand.app_origin || (Deno.env.get("BORDERPAY_APP_URL") ?? "https://app.borderpayafrica.com").replace(/\/$/, "");
     return {
       status: 201,
       body: {
@@ -332,297 +323,6 @@ async function handleRoute(
           // Fragments are not sent in HTTP requests or access logs. The app
           // captures and immediately scrubs this short-lived bearer value.
           signup_url: `${appUrl}/signup#onboarding_token=${encodeURIComponent(token)}`,
-        },
-      },
-    };
-  }
-
-  if (routeKey === "POST /v1/customers") {
-    const parsed = validateCustomerCreate(body);
-    if (!parsed.ok) {
-      return {
-        status: 400,
-        body: { success: false, error: parsed.error },
-      };
-    }
-
-    const tenantEndUser = await resolveTenantEndUser(
-      supa,
-      ctx.tenantId,
-      parsed.value.borderpay_user_id,
-      parsed.value.account_type,
-    );
-    const result = await bridgeProvider.createCustomer({
-      ...parsed.value,
-      borderpay_user_id: tenantEndUser.userId,
-    });
-    const resourceId = await registerTenantResource(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: tenantEndUser.id,
-      apiKeyId: ctx.apiKeyId,
-      resourceType: "customer",
-      providerResourceId: result.provider_id,
-    });
-    await enqueueApiResourceEvent(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: tenantEndUser.id,
-      resourceId,
-      eventType: "customer.created",
-      idempotencyKey: `api:customer.created:${result.provider_id}`,
-      payload: {
-        resource: { id: result.provider_id, type: "customer" },
-        account_type: tenantEndUser.accountType,
-      },
-    });
-    return {
-      status: 201,
-      body: {
-        success: true,
-        data: {
-          customer_id: result.provider_id,
-          provider: "borderpay",
-        },
-      },
-    };
-  }
-
-  if (routeKey === "POST /v1/wallets") {
-    const parsed = validateWalletCreate(body);
-    if (!parsed.ok) {
-      return {
-        status: 400,
-        body: { success: false, error: parsed.error },
-      };
-    }
-    const customer = await assertTenantResource(
-      supa,
-      ctx.tenantId,
-      "customer",
-      parsed.value.customer_id,
-    );
-    const result = await bridgeProvider.createWallet(parsed.value as any);
-    const resourceId = await registerTenantResource(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: customer.tenantEndUserId,
-      apiKeyId: ctx.apiKeyId,
-      resourceType: "wallet",
-      providerResourceId: result.wallet_id,
-      parentResourceId: customer.resourceId,
-      metadata: { symbol: result.symbol, chain: result.chain },
-    });
-    await enqueueApiResourceEvent(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: customer.tenantEndUserId,
-      resourceId,
-      eventType: "wallet.created",
-      idempotencyKey: `api:wallet.created:${result.wallet_id}`,
-      payload: {
-        resource: { id: result.wallet_id, type: "wallet" },
-        symbol: result.symbol,
-        chain: result.chain,
-      },
-    });
-    return {
-      status: 201,
-      body: {
-        success: true,
-        data: {
-          wallet_id: result.wallet_id,
-          deposit_address: result.deposit_address,
-          symbol: result.symbol,
-          chain: result.chain,
-        },
-      },
-    };
-  }
-
-  if (routeKey === "POST /v1/virtual-accounts") {
-    const parsed = validateVirtualAccountCreate(body);
-    if (!parsed.ok) {
-      return {
-        status: 400,
-        body: { success: false, error: parsed.error },
-      };
-    }
-    const customer = await assertTenantResource(
-      supa,
-      ctx.tenantId,
-      "customer",
-      parsed.value.customer_id,
-    );
-    const destinationWallet = await assertTenantResource(
-      supa,
-      ctx.tenantId,
-      "wallet",
-      parsed.value.destination.bridge_wallet_id,
-    );
-    if (destinationWallet.tenantEndUserId !== customer.tenantEndUserId) {
-      throw new TenantOwnershipError("tenant_resource_forbidden", "Virtual-account settlement wallet must belong to the customer", 403);
-    }
-    const tenantEndUser = await resolveTenantEndUserById(supa, ctx.tenantId, customer.tenantEndUserId);
-    const result = await bridgeProvider.createVirtualAccount({
-      ...parsed.value,
-      developer_fee_percent: String(
-        tenantEndUser.accountType === "business"
-          ? BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_business
-          : BRIDGE_DEVELOPER_FEE_PERCENT.virtual_account_fiat_individual,
-      ),
-      allow_zero_developer_fee: false,
-    });
-    const resourceId = await registerTenantResource(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: customer.tenantEndUserId,
-      apiKeyId: ctx.apiKeyId,
-      resourceType: "virtual_account",
-      providerResourceId: result.virtual_account_id,
-      parentResourceId: customer.resourceId,
-      providerStatus: result.status,
-      metadata: { currency: result.currency },
-    });
-    await enqueueApiResourceEvent(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: customer.tenantEndUserId,
-      resourceId,
-      eventType: "virtual_account.created",
-      idempotencyKey: `api:virtual_account.created:${result.virtual_account_id}`,
-      payload: {
-        resource: { id: result.virtual_account_id, type: "virtual_account" },
-        status: result.status,
-        currency: result.currency,
-      },
-    });
-    return {
-      status: 201,
-      body: {
-        success: true,
-        data: {
-          virtual_account_id: result.virtual_account_id,
-          currency: result.currency,
-          account_number: result.account_number ?? null,
-          routing_number: result.routing_number ?? null,
-          iban: result.iban ?? null,
-          bic: result.bic ?? null,
-          bank_name: result.bank_name ?? null,
-        },
-      },
-    };
-  }
-
-  if (routeKey === "POST /v1/transfers" || routeKey === "POST /v1/payouts") {
-    const routeKind = routeKey === "POST /v1/payouts" ? "payout" : "transfer";
-    const parsed = validateTransferOrPayout(body, routeKind);
-    if (!parsed.ok) {
-      return {
-        status: 400,
-        body: { success: false, error: parsed.error },
-      };
-    }
-    const references = providerReferencesForTransfer(parsed.value);
-    const sourceReferences = references.filter((reference) =>
-      reference.side === "source"
-    );
-    if (sourceReferences.length === 0) {
-      throw new TenantOwnershipError(
-        "tenant_resource_forbidden",
-        "A tenant-owned source customer, wallet, or external account is required",
-        403,
-      );
-    }
-
-    const ownedReferences: Array<ProviderReference & OwnedResource> = [];
-    for (const reference of references) {
-      const owned = await assertTenantResource(
-        supa,
-        ctx.tenantId,
-        reference.resourceType,
-        reference.providerResourceId,
-      );
-      ownedReferences.push({ ...reference, ...owned });
-    }
-    const sourceOwner = ownedReferences.find((reference) =>
-      reference.side === "source"
-    )!;
-    if (
-      ownedReferences.some((reference) =>
-        reference.side === "source" &&
-        reference.tenantEndUserId !== sourceOwner.tenantEndUserId
-      )
-    ) {
-      throw new TenantOwnershipError(
-        "tenant_resource_forbidden",
-        "Source provider resources do not belong to the same tenant end user",
-        403,
-      );
-    }
-
-    if (routeKind === "payout" && ownedReferences.some((reference) =>
-      reference.tenantEndUserId !== sourceOwner.tenantEndUserId
-    )) {
-      throw new TenantOwnershipError("tenant_resource_forbidden", "Payout source and external account must belong to the same tenant end user", 403);
-    }
-    if (parsed.value.idempotency_key !== ctx.idempotencyKey) {
-      throw new ApiFinancialAuthorizationError("invalid_request", "Body idempotency_key must match the Idempotency-Key header", 400);
-    }
-    authorizeSingleTransferAmount(parsed.value.source.amount, ctx.maxSingleTransferUsd);
-    const tenantEndUser = await resolveTenantEndUserById(supa, ctx.tenantId, sourceOwner.tenantEndUserId);
-    await assertSpendableWalletBalance(
-      supa,
-      tenantEndUser.userId,
-      parsed.value.source.currency,
-      parsed.value.source.amount,
-    );
-    const providerCustomerId = await resolveCustomerForTenantEndUser(supa, ctx.tenantId, sourceOwner.tenantEndUserId);
-    const canonicalIdempotencyKey = `borderpay:api:${ctx.tenantId}:${ctx.idempotencyKey}`;
-
-    const scaGuard = await guardUnattestedTransfer(supa, {
-      userId: tenantEndUser.userId, customerId: providerCustomerId,
-    });
-    if (!scaGuard.ok) return { status: scaGuard.status, body: scaGuard.body };
-    const result = await bridgeProvider.createTransfer({
-      ...parsed.value,
-      on_behalf_of: providerCustomerId,
-      idempotency_key: canonicalIdempotencyKey,
-      developer_fee: routeKind === "payout"
-        ? {
-          flat_amount: fixedFeeForPercent(
-            parsed.value.source.amount,
-            Math.round(BRIDGE_DEVELOPER_FEE_PERCENT.external_account_offramp * 100),
-          ),
-        }
-        : undefined,
-    } as any);
-    const resourceId = await registerTenantResource(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: sourceOwner.tenantEndUserId,
-      apiKeyId: ctx.apiKeyId,
-      resourceType: "transfer",
-      providerResourceId: result.transfer_id,
-      parentResourceId: sourceOwner.resourceId,
-      providerStatus: result.state,
-      metadata: { route: routeKey },
-    });
-    await enqueueApiResourceEvent(supa, {
-      tenantId: ctx.tenantId,
-      tenantEndUserId: sourceOwner.tenantEndUserId,
-      resourceId,
-      eventType: routeKind === "payout" ? "payout.created" : "transfer.created",
-      idempotencyKey: `api:${routeKind}.created:${result.transfer_id}`,
-      payload: {
-        resource: { id: result.transfer_id, type: routeKind },
-        status: result.state,
-        amount: parsed.value.source.amount,
-        currency: parsed.value.source.currency,
-      },
-    });
-
-    return {
-      status: 201,
-      body: {
-        success: true,
-        data: {
-          transfer_id: result.transfer_id,
-          state: result.state,
-          provider: "borderpay",
         },
       },
     };
@@ -739,7 +439,9 @@ Deno.serve(async (req) => {
     let body: any = {};
     if (req.method !== "GET" && req.method !== "HEAD") {
       try {
-        body = await req.json();
+        const parsed = await readBoundedJson<Record<string, unknown>>(req, 65_536);
+        if (!parsed.ok) return gatewayError("invalid_request", parsed.error, parsed.status);
+        body = parsed.value;
       } catch {
         await logGatewayRequest(supa, {
           requestId,
@@ -754,6 +456,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (req.method === "GET") body = Object.fromEntries(new URL(req.url).searchParams);
     const resolved = normalizeRoute(req, body);
     route = resolved.route;
     method = resolved.method;
@@ -835,6 +538,7 @@ Deno.serve(async (req) => {
           status: 429,
           headers: {
             ...GATEWAY_CORS,
+            "Cache-Control":"no-store",
             "Content-Type": "application/json",
             "Retry-After": String(
               Math.max(
@@ -991,9 +695,19 @@ Deno.serve(async (req) => {
 
       return gatewayJson(status, 200);
     }
+    const customerSession = CUSTOMER_API_SCOPES[routeKey]
+      ? await authenticateApiCustomer(supa, tenantId, req.headers.get("X-BorderPay-Customer-Authorization") || "") : null;
+    const invoiceRoute = ["GET /v1/virtual-accounts","POST /v1/virtual-accounts"].includes(routeKey);
+    const invoiceOwner = customerSession?.userId || null;
+    const invoiceRequired = invoiceRoute ? await requiresInvoiceInstructions(supa,invoiceOwner) : false;
+    const instructionResponse=async(value:any)=>{
+      if(!invoiceRoute)return value;
+      const current=await requiresInvoiceInstructions(supa,invoiceOwner);
+      return invoiceRequired||current?{...redactBankCoordinates(value) as any,requires_invoice:true}:value;
+    };
     const isIdempotentRoute = IDEMPOTENT_ROUTES.has(routeKey);
 
-    let idempotencyKey = "";
+    let idempotencyKey = req.headers.get("Idempotency-Key") || "";
     let requestHash = "";
     if (isIdempotentRoute) {
       const headerValidation = validateIdempotencyHeader(
@@ -1025,10 +739,7 @@ Deno.serve(async (req) => {
       }
       idempotencyKey = headerValidation.value;
 
-      requestHash = await sha256Hex(JSON.stringify({
-        route_key: routeKey,
-        body,
-      }));
+      requestHash = await sha256Hex(scaCanonicalPayload("partner_api", { route_key:routeKey, customer_user_id:customerSession?.userId, body }));
 
       const replay = await findReplay(
         supa,
@@ -1067,7 +778,7 @@ Deno.serve(async (req) => {
           latencyMs: Date.now() - startedAt,
           metadata: { replay: true, route_key: routeKey },
         });
-        return new Response(JSON.stringify(replay.response_body), {
+        return new Response(JSON.stringify(await instructionResponse(replay.response_body)), {
           status: Number(replay.status_code),
           headers: {
             ...GATEWAY_CORS,
@@ -1102,7 +813,9 @@ Deno.serve(async (req) => {
         return body;
       })();
 
-      handlerResult = await handleRoute(
+      handlerResult = customerSession
+        ? await handleCustomerApi(supa, routeKey, bodyWithFallbackIdempotency, {tenantId,apiKeyId,idempotencyKey,maxSingleTransferUsd:ctx.maxSingleTransferUsd,maxSingleTransferEur:typeof ctx.tenantMetadata.max_single_transfer_eur === "string" ? ctx.tenantMetadata.max_single_transfer_eur : null}, customerSession)
+        : await handleRoute(
         supa,
         routeKey,
         bodyWithFallbackIdempotency,
@@ -1118,7 +831,8 @@ Deno.serve(async (req) => {
       handlerResult = mapBridgeError(e);
     }
 
-    if (isIdempotentRoute) {
+    if(invoiceRoute)handlerResult={...handlerResult,body:await instructionResponse(handlerResult.body)};
+    if (isIdempotentRoute && handlerResult.status >= 200 && handlerResult.status < 300) {
       await storeReplay(supa, {
         tenantId,
         apiKeyId,
@@ -1148,8 +862,11 @@ Deno.serve(async (req) => {
       metadata: { route_key: routeKey },
     });
 
-    return gatewayJson(handlerResult.body, handlerResult.status);
+    const response=gatewayJson(handlerResult.body, handlerResult.status);
+    if(invoiceRoute)response.headers.set("Cache-Control","no-store");
+    return response;
   } catch (error) {
+    if (error instanceof CustomerApiError) { const result=mapBridgeError(error); return gatewayJson(result.body,result.status); }
     const msg = error instanceof Error ? error.message : "unknown";
     await logGatewayRequest(supa, {
       tenantId,

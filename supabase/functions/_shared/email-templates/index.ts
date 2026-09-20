@@ -1,3 +1,4 @@
+import {render as businessInvoiceContractHub} from "./business/invoice-contract-hub.ts";
 import { renderExternalInvoice, renderPaymentStatus } from "./subscription/maintenance.ts";
 import { render as mobileAppUpdate } from "./mobile-app-update.ts";
 /**
@@ -62,9 +63,11 @@ import { render as businessPartnerInvoice } from "./business/partner-invoice.ts"
 import { render as businessOwnershipReview } from "./business/ownership-review.ts";
 import { render as adminIncidentAlert }                 from "./admin/incident-alert.ts";
 import { render as adminSupportHandoff }                from "./admin/support-handoff.ts";
+import { render as partnerApplicationDecision } from "./partner/application-decision.ts";
 import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
 
 export type TemplateName =
+  | "business.invoice_contract_hub"
   | "business.subscription_external_invoice"
   | "individual.subscription_external_invoice"
   | "business.subscription_payment_status"
@@ -119,11 +122,13 @@ export type TemplateName =
   | "business.ownership_review"
   | "admin.incident_alert"
   | "admin.support_handoff"
+  | "partner.application_decision"
   | "partner.access_invite";
 
 type Renderer = (props: any) => RenderedEmail;
 
 export const TEMPLATES: Record<TemplateName, Renderer> = {
+  "business.invoice_contract_hub": businessInvoiceContractHub,
   "business.subscription_external_invoice": renderExternalInvoice,
   "individual.subscription_external_invoice": renderExternalInvoice,
   "business.subscription_payment_status": renderPaymentStatus,
@@ -178,6 +183,7 @@ export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.ownership_review":         businessOwnershipReview,
   "admin.incident_alert":                adminIncidentAlert,
   "admin.support_handoff":               adminSupportHandoff,
+  "partner.application_decision": partnerApplicationDecision,
   "partner.access_invite":               partnerAccessInvite,
 };
 

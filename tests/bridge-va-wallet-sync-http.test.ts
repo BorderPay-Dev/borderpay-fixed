@@ -18,7 +18,7 @@ Deno.test('sync uses live VA routing, mirrors only linked Base and leaves unlink
   ];
   const vas: any[] = [{ id: 'va-row', bridge_virtual_account_id: 'va', status: 'active', currency: 'EUR', account_details: { destination: destination('unlinked') } }];
   const walletWrites: string[] = [], providerCalls: string[] = [];
-  let failVas = false;
+  let failVas = false;let instructionRequired=false,policyUnavailable=false;
   let addressOnly = false;
   let ambiguousAddress = false;
   globalThis.fetch = async (input, init) => {
@@ -36,6 +36,10 @@ Deno.test('sync uses live VA routing, mirrors only linked Base and leaves unlink
       throw new Error('Must not fetch or mutate an individual unlinked wallet');
     }
     assertEquals(url.origin, base);
+    if(url.pathname.endsWith('/rpc/predeposit_requires_invoice_for_owner')){
+      assertEquals(await req.json(),{p_user_id:'owner'});
+      return policyUnavailable?Response.json({message:'unavailable'},{status:503}):Response.json(instructionRequired);
+    }
     if (url.pathname === '/auth/v1/user') return Response.json({ id: 'owner' });
     if (url.pathname.endsWith('/user_profiles')) return Response.json([{ account_type: 'business', bridge_customer_id: 'customer' }]);
     const isWallet = url.pathname.endsWith('/bridge_wallets');
@@ -68,6 +72,15 @@ Deno.test('sync uses live VA routing, mirrors only linked Base and leaves unlink
     assertEquals(wallets[0].address, '0xold');
     assertEquals(wallets[0].status, 'active');
     assertEquals(providerCalls, ['/v0/customers/customer/virtual_accounts', '/v0/customers/customer/wallets']);
+    instructionRequired=true;
+    const gated=await (await handler(request())).json();
+    assertEquals(gated.data.virtual_accounts[0].account_details,null);
+    assertEquals(gated.data.wallets[0].address,'0xlinked');
+    assertEquals(vas[0].account_details.destination.bridge_wallet_id,'linked');
+    policyUnavailable=true;const beforeCalls=providerCalls.length;
+    assertEquals((await handler(request())).status,503);
+    assertEquals(providerCalls.length,beforeCalls,'unavailable instruction policy makes no provider calls');
+    policyUnavailable=false;instructionRequired=false;
     addressOnly = true;
     const addressResult = await (await handler(request())).json();
     assertEquals(addressResult.data.warnings, []);
@@ -97,3 +110,4 @@ Deno.test('sync uses live VA routing, mirrors only linked Base and leaves unlink
     assertEquals(unauthorized.status, 401);
   } finally { globalThis.fetch = original; }
 });
+

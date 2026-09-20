@@ -19,6 +19,7 @@ Text-parsing, dependency-free.
 import re
 import sys
 from pathlib import Path
+from va_audit_source import audited_source
 
 ROOT = Path(__file__).resolve().parents[2]
 PLANS  = ROOT / "utils/subscriptions/plans.ts"
@@ -38,7 +39,7 @@ def read(p: Path) -> str:
     if not p.exists():
         failures.append(f"MISSING FILE: {p.relative_to(ROOT)}")
         return ""
-    return p.read_text(encoding="utf-8")
+    return audited_source(p)
 
 
 plans = read(PLANS)

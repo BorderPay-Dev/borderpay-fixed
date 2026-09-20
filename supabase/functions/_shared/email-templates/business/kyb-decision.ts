@@ -1,3 +1,4 @@
+import {invoiceHubNoteHtml,INVOICE_HUB_NOTE_TEXT} from "./invoice-contract-hub.ts";
 import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface BusinessKybDecisionProps {
@@ -31,7 +32,7 @@ export function render(p: BusinessKybDecisionProps): RenderedEmail {
   const body = approved
     ? `<p style="margin:0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;text-align:center;">
          You can now create wallets, send and receive funds, and issue corporate cards under ${escapeHtml(company)}.
-       </p>`
+       </p>${invoiceHubNoteHtml()}`
     : `${reasonBlock}
        ${nextSteps ? `<p style="margin:14px 0 0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">${escapeHtml(nextSteps)}</p>` : ""}`;
 
@@ -47,7 +48,7 @@ export function render(p: BusinessKybDecisionProps): RenderedEmail {
     text: textLayout({
       heading,
       body: approved
-        ? `${company} verified. Account fully active.`
+        ? `${company} verified. Account fully active.\n\n${INVOICE_HUB_NOTE_TEXT}`
         : `${company} needs more KYB info.\nReviewer notes: ${p.reason || "—"}\nNext steps: ${nextSteps}`,
       ctaText, ctaUrl,
     }),

@@ -14,6 +14,7 @@ import { Shield, Inbox, ChevronRight, Loader2, RefreshCw, Smartphone, Building2,
 import { toast } from 'sonner';
 import { useThemeLanguage, useThemeClasses } from '../../utils/i18n/ThemeLanguageContext';
 import { authAPI } from '../../utils/supabase/client';
+import {useInvoiceInstructionPolicy} from '../../utils/hooks/useInvoiceInstructionPolicy';
 import { backendAPI } from '../../utils/api/backendAPI';
 import { deriveKycStatus } from '../../utils/config/environment';
 import type { BridgeVirtualAccountCurrency } from '../../utils/compliance/partnerCountryPolicy';
@@ -187,6 +188,7 @@ function readCachedCountry(): string | null {
 export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenProps) {
   const { t } = useThemeLanguage();
   const tc = useThemeClasses();
+  const invoicePolicy=useInvoiceInstructionPolicy(true);
   const snapshotReader = backendAPI.financial.getSnapshot;
   void snapshotReader;
   const tt = (k: string, fb: string) => ((t as any)?.(k) ?? fb) as string;
@@ -877,6 +879,10 @@ export function ReceiveMoneyScreen({ onBack, onNavigate }: ReceiveMoneyScreenPro
       <FloatingBackButton onBack={goBack} />
       <div className="max-w-2xl mx-auto px-4 sm:px-5 pt-floating-back pb-28">
 
+        {!invoicePolicy.loading && invoicePolicy.required && !invoicePolicy.error && <div className={`mb-5 rounded-2xl border ${tc.cardBorder} ${tc.card} p-4`}>
+          <p className={`text-sm ${tc.text}`}>Bank payment details are shared with an approved invoice.</p>
+          <button type="button" onClick={()=>onNavigate?.('invoice-hub')} className="mt-3 rounded-xl bg-[#C7FF00] px-4 py-3 text-sm font-semibold text-black">Create Invoice & Contract</button>
+        </div>}
         {/* Header row */}
         <div className="flex items-center justify-between mb-4">
           <p className={`text-[10px] font-semibold uppercase tracking-[0.2em] ${tc.textMuted}`}>

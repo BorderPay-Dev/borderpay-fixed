@@ -1,3 +1,4 @@
+import { getCustomerBrand } from "../../utils/branding/brand";
 import { recordNativeReviewVisit } from '../../utils/reviews/appReview';
 /**
  * BorderPay Africa - Main App Container
@@ -15,6 +16,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspens
 import { backendAPI } from '../../utils/api/backendAPI';
 import { authAPI } from '../../utils/supabase/client';
 import { Dashboard } from './Dashboard';
+import InvoiceHub from '../invoices/InvoiceHub';
 import { BusinessDashboard } from '../business/BusinessDashboard';
 import { KYCVerification } from '../kyc/KYCVerification';
 import { TransactionsScreen } from '../transactions/TransactionsScreen';
@@ -179,6 +181,7 @@ function canonicalizeScreen(screen: AppScreen | string): AppScreen {
     case 'cards':
     case 'send-money':
     case 'receive-money':
+    case 'invoice-hub':
     case 'transactions':
     case 'wallet-detail':
     case 'two-factor-setup':
@@ -347,6 +350,7 @@ export type AppScreen =
   | 'cards'
   | 'send-money'
   | 'receive-money'
+  | 'invoice-hub'
   | 'transactions'
   | 'wallet-detail'
   | 'add-wallet'
@@ -1025,6 +1029,8 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
       case 'receive-money':
       case 'ramps':
         return <ReceiveMoneyScreen onBack={navigateBack} onNavigate={navigateTo} />;
+      case 'invoice-hub':
+        return <InvoiceHub onBack={navigateBack} />;
 
       case 'external-accounts':
         if (!EXTERNAL_ACCOUNTS_LIVE) { navigateTo('dashboard'); return null; }
@@ -1164,6 +1170,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         return <HelpCenterScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'support':
+        if (getCustomerBrand()) return <main className="p-6 text-white"><button onClick={navigateBack}>Back</button><h1 className="text-xl my-6">{getCustomerBrand()!.brand.brand_name} support</h1><a href={getCustomerBrand()!.brand.support_url} target="_blank" rel="noopener noreferrer">Open support</a><p className="mt-4"><a href={`mailto:${getCustomerBrand()!.brand.support_email}`}>{getCustomerBrand()!.brand.support_email}</a></p></main>;
         return <SupportScreen onBack={navigateBack} onNavigate={navigateTo} />;
 
       case 'team':

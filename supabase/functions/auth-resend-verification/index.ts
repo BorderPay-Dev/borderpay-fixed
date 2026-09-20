@@ -1,3 +1,4 @@
+import { loadPublishedWhiteLabel } from "../_shared/white-label-config.ts";
 // auth-resend-verification — re-issue a verification email with rate limit.
 //
 // Body: { email: string }
@@ -95,7 +96,7 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, error: msg, code }, status);
   }
 
-  const verifyUrl = `${APP_URL}/auth/verify?token=${encodeURIComponent(tokenData as string)}&purpose=${purpose}`;
+
 
   // Email P0: route through the LOGGED `send-email` function (writes
   // public.email_log before calling Resend; records status / message-id /
@@ -114,6 +115,9 @@ Deno.serve(async (req: Request) => {
   const { data: origin } = await supabase.from("account_origin_provenance")
     .select("tenant_id,onboarding_channel").eq("user_id", userRow.id).maybeSingle();
   const whiteLabelTenantId = origin?.onboarding_channel === "white_label" ? origin.tenant_id : null;
+  const release = whiteLabelTenantId ? await loadPublishedWhiteLabel(supabase,{tenantId:whiteLabelTenantId}) : null;
+  if (whiteLabelTenantId && !release) return json({success:false,error:"Customer app verification is temporarily unavailable."},503);
+  const verifyUrl = `${release?.brand.app_origin || APP_URL}/auth/verify?token=${encodeURIComponent(tokenData as string)}&purpose=${purpose}`;
   const sendRes = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
     method: "POST",
     headers: {

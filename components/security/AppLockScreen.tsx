@@ -1,3 +1,4 @@
+import { brandName, getCustomerBrand, openBrandLink } from "../../utils/branding/brand";
 import { BorderPayLogo } from '../cards/BorderPayLogo';
 import { friendlyError } from '../../utils/errors/friendlyError';
 /**
@@ -197,7 +198,7 @@ export function AppLockScreen({ userId, onUnlock, onLogout, onForgotPIN }: AppLo
           className="text-center mb-8"
         >
           <h1 className="text-xl font-bold text-white mb-2">Welcome Back</h1>
-          <p className="text-sm text-gray-400">Enter your PIN to unlock BorderPay</p>
+          <p className="text-sm text-gray-400">Enter your PIN to unlock {brandName()}</p>
         </motion.div>
 
         {locked ? (

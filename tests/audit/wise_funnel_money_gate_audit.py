@@ -21,6 +21,7 @@ _shared/funding-gate.ts) — funds are NOT deducted, they stay the user's.
 import re
 import sys
 from pathlib import Path
+from va_audit_source import audited_source
 
 ROOT = Path(__file__).resolve().parents[2]
 GATE = ROOT / "supabase/functions/_shared/launch-gates.ts"
@@ -37,7 +38,7 @@ def read(p: Path) -> str:
     if not p.exists():
         failures.append(f"MISSING FILE: {p.relative_to(ROOT)}")
         return ""
-    return p.read_text(encoding="utf-8")
+    return audited_source(p)
 
 
 gate = read(GATE)
@@ -68,9 +69,9 @@ for name, path in [("bridge-transfer", TRANSFER),
         continue
     if "requireMinimumWalletBalance(" not in s:
         failures.append(f"W3 {name} does not call requireMinimumWalletBalance() (money not funding-gated)")
-    if 'funding-gate.ts"' not in s:
+    if not re.search(r'funding-gate\.(?:ts|js)"', s):
         failures.append(f"W3 {name} does not import requireMinimumWalletBalance from funding-gate.ts")
-    if 'launch-gates.ts"' in s:
+    if re.search(r'launch-gates\.(?:ts|js)"', s):
         failures.append(f"W3 {name} must not import launch-gates.ts (onboarding pause must not bleed into money movement)")
     # No stale activation-fee imports.
     if "requireActivatedPlan(" in s:

@@ -80,6 +80,7 @@ async function getWalletAssetScope(explicitUserId?: string): Promise<WalletAsset
 
 function timeoutMsForEndpoint(endpoint: string): number | null {
   if (endpoint === 'bridge-transfer') return 60000;
+  if (endpoint === 'predeposit-hub') return 120000;
   // Endpoints that can legitimately take longer because they trigger
   // provider-side orchestration and/or email delivery.
   if (endpoint === 'auth-signup') return 45000;
@@ -3035,7 +3036,12 @@ export const affiliateAPI = {
     }),
 };
 
+export const predepositAPI = {
+ request: async (action:string,body:Record<string,unknown>={})=>apiCall<any>('predeposit-hub',{method:'POST',body:JSON.stringify({...body,action})}),
+ upload: async (file:File,kind:string)=>{const form=new FormData();form.append('file',file);form.append('kind',kind);return apiCall<any>('predeposit-hub',{method:'POST',body:form});},
+};
 export const backendAPI = {
+ predeposit: predepositAPI,
   auth: authSecurityAPI,
   user: userAPI,
   financial: financialReadModelAPI,

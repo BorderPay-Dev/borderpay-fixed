@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from va_audit_source import audited_source
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -91,7 +92,7 @@ def main() -> int:
     failures: list[str] = []
 
     for path in iter_runtime_files():
-        text = path.read_text(errors="replace")
+        text = audited_source(path)
         for pattern in BANNED_COPY:
             for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
@@ -102,7 +103,7 @@ def main() -> int:
         if not path.exists():
             failures.append(f"{file_name}: required trust-copy guard file missing")
             continue
-        text = path.read_text(errors="replace")
+        text = audited_source(path)
         for needle in needles:
             if needle not in text:
                 failures.append(f"{file_name}: missing required guard marker {needle!r}")
@@ -111,7 +112,7 @@ def main() -> int:
         path = ROOT / file_name
         if not path.exists():
             continue
-        text = path.read_text(errors="replace")
+        text = audited_source(path)
         for needle in needles:
             if needle in text:
                 failures.append(f"{file_name}: forbidden virtual-account error pattern {needle!r}")

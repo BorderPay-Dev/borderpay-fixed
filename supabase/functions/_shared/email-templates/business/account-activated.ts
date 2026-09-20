@@ -1,3 +1,4 @@
+import {invoiceHubNoteHtml,INVOICE_HUB_NOTE_TEXT} from "./invoice-contract-hub.ts";
 import { htmlLayout, textLayout, escapeHtml, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 export interface BusinessAccountActivatedProps {
@@ -22,7 +23,7 @@ export function render(p: BusinessAccountActivatedProps): RenderedEmail {
     </ul>
     <p style="margin:18px 0 0;color:${BORDERPAY_BRAND.textMuted};font-size:14px;line-height:1.65;">
       First step: top up a wallet so you can start moving money. Tap below to open your dashboard.
-    </p>`;
+    </p>${invoiceHubNoteHtml()}`;
   return {
     subject,
     html: htmlLayout({
@@ -31,7 +32,7 @@ export function render(p: BusinessAccountActivatedProps): RenderedEmail {
     }),
     text: textLayout({
       heading,
-      body: `${company} is fully activated. Wallets, transfers, cards unlocked.`,
+      body: `${company} is fully activated. Wallets, transfers, cards unlocked.\n\n${INVOICE_HUB_NOTE_TEXT}`,
       ctaText: "Open BorderPay", ctaUrl: BORDERPAY_BRAND.appUrl,
     }),
   };
