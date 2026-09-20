@@ -205,3 +205,17 @@ Deno.test("saved signature requires consent for each generated agreement; contra
  const custom=customContract();custom.invoice.remitter.type="individual";
  assert.ok(evaluateInvoice(custom.invoice,custom.context).reasons.includes("gbp_b2b_only"));
 });
+
+import {applyInvoiceReviewMode,type Assessment} from "../supabase/functions/_shared/predeposit-policy.ts";
+Deno.test("manual and unconfigured launch modes cannot accept AI-only approval",()=>{
+ const approved={status:"approved",reasons:[]} as unknown as Assessment;
+ for(const mode of ["manual",undefined,null,"typo",true]){
+  const result=applyInvoiceReviewMode(approved,mode);
+  if(result.status!=="review_required"||!result.reasons.includes("manual_review_required"))throw Error("AI approval escaped manual gate");
+ }
+ if(approved.status!=="approved"||approved.reasons.length)throw Error("Input assessment was mutated");
+ if(applyInvoiceReviewMode(approved,"automatic").status!=="approved")throw Error("Explicit automatic mode lost approval");
+ for(const status of ["action_required","review_required","ready_for_ai"] as const){
+  const assessment={...approved,status};if(applyInvoiceReviewMode(assessment,"manual").status!==status)throw Error("Existing requirements changed");
+ }
+});

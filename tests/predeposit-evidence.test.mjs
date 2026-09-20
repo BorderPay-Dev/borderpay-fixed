@@ -164,4 +164,19 @@ try {
  await db.exec("reset role;set role authenticated");
  await assert.rejects(()=>db.query("select predeposit_ai_config()"),/permission denied/);
  await db.exec("reset role");
+
+ await db.exec(await readFile(new URL('../supabase/migrations/20260920110000_predeposit_manual_review_launch.sql',import.meta.url),'utf8'));
+ assert.equal((await db.query("select config->>'review_mode' mode from predeposit_policy where singleton")).rows[0].mode,'manual');
+ const approvedRecord=(actorType,actorId)=>db.query("insert into predeposit_reviews(invoice_id,payload_sha256,policy_version,actor_user_id,actor_type,decision,assessment,rationale) values($1,$2,'borderpay-predeposit-2.4.0',$3,$4,'approved','{}','Manual launch guard fixture')",[first,'a'.repeat(64),actorId,actorType]);
+ await assert.rejects(()=>approvedRecord('engine',null),/authorized compliance operator/);
+ await assert.rejects(()=>approvedRecord('compliance',null),/authorized compliance operator/);
+ await db.query("insert into admin_users(user_id,role) values($1,'COMPLIANCE') on conflict(user_id) do update set role='COMPLIANCE'",[owner]);
+ await approvedRecord('compliance',owner);
+ await db.query("update predeposit_policy set config=config-'review_mode' where singleton");
+ await assert.rejects(()=>approvedRecord('engine',null),/authorized compliance operator/);
+ await db.query("update predeposit_policy set config=jsonb_set(config,'{review_mode}','\"automatic\"'::jsonb) where singleton");
+ await approvedRecord('engine',null);
+ await assert.rejects(()=>db.query("update predeposit_policy set config=jsonb_set(config,'{review_mode}','\"invalid\"'::jsonb) where singleton"),/predeposit_review_mode_valid/);
+ console.log('PASS: manual launch rejects AI-only approvals and missing operators; authorized review and explicit automatic mode are distinguished');
 }finally{await db.close();}
+

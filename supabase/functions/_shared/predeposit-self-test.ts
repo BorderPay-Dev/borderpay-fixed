@@ -22,7 +22,7 @@ export async function runPredepositSelfTest(realDb:any,assess:typeof buildAssess
  const aiConfigResponse=assess===buildAssessment?await realDb.rpc("predeposit_ai_config"):{data:{},error:null};
  if(configResponse.error||!configResponse.data?.endpoint||!configResponse.data?.apiKey)throw Error("OCR configuration unavailable");
  const owner="00000000-0000-4000-8000-000000000001",account="synthetic-receiving-account";
- const policy={config:{jurisdiction_policy:{version:"TEST-ONLY",known_countries:["GB"],review_countries:[]},structuring:{max_invoices_30d:20,aggregate_review_minor:{GBP:100000000}}}};
+ const policy={config:{review_mode:"automatic",jurisdiction_policy:{version:"TEST-ONLY",known_countries:["GB"],review_countries:[]},structuring:{max_invoices_30d:20,aggregate_review_minor:{GBP:100000000}}}};
  const now=new Date().toISOString(),hash="a".repeat(64);
  const base:Invoice={
   id:"SYNTHETIC-NOT-PAYABLE",revision:1,currency:"GBP",receiving_account_id:account,

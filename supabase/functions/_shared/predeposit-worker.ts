@@ -1,5 +1,5 @@
 import { checked, loadPolicy, loadAssetBytes, BUCKET, invoiceDossier } from "./predeposit-runtime.ts";
-import { evaluateInvoice, assessedDigest, canonicalJson, sha256, type ReviewContext } from "./predeposit-policy.ts";
+import { applyInvoiceReviewMode, evaluateInvoice, assessedDigest, canonicalJson, sha256, type ReviewContext } from "./predeposit-policy.ts";
 import { screenInvoice, assessWithAi } from "./predeposit-azure.ts";
 import { loadEvidenceOcrConfig, startEvidenceOcr, pollEvidenceOcr } from "./predeposit-evidence-ocr.ts";
 import { loadInvoiceAiConfig } from "./predeposit-ai-config.ts";
@@ -41,7 +41,7 @@ export async function buildAssessment(db:any,row:any,manualContext?:Partial<Revi
  }
  const deterministic=evaluateInvoice(row.payload,context);
  const ai=await screenInvoice(row.payload,context,aiConfig);
- const result=await assessWithAi(row.payload,context,ai);
+ const result=applyInvoiceReviewMode(await assessWithAi(row.payload,context,ai),policy.config?.review_mode);
  return {pending:false,context,assessment:{...result,payload_sha256:row.payload_sha256,assessed_sha256:await assessedDigest(row.payload,context),review_context:context,config_sha256:row.review_context.config_sha256,deterministic_status:deterministic.status}};
 }
 export async function processInvoice(db:any,id:string){

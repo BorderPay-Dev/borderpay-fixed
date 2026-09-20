@@ -16,7 +16,7 @@ export type Reason =
  | "contract_path_missing" | "contract_extraction_unavailable" | "contract_entity_mismatch" | "contract_value_mismatch" | "contract_scope_missing" | "contract_signatures_missing" | "contract_execution_unverified"
  | "receiving_account_invalid" | "gbp_b2b_only"
  | "order_source_missing" | "order_proof_missing" | "order_extraction_unavailable" | "order_mismatch" | "order_context_missing" | "fulfillment_proof_missing"
- | "ai_unavailable" | "ai_flagged" | "document_classification_conflict";
+ | "manual_review_required" | "ai_unavailable" | "ai_flagged" | "document_classification_conflict";
 export type DocumentKind = "signed_agreement" | "executed_contract" | "purchase_order"
  | "buyer_business_proof" | "end_use_declaration" | "logistics" | "source_of_funds"
  | "order_dashboard" | "platform_order_export" | "warehouse_receipt" | "dispatch_log";
@@ -238,4 +238,10 @@ export async function sha256(value: Uint8Array | string): Promise<string> {
 }
 export async function assessedDigest(invoice: Invoice, context: ReviewContext): Promise<string> {
  return sha256(canonicalJson({policy_version:POLICY_VERSION,invoice,context}));
+}
+
+/** Unknown/unconfigured modes require an operator; AI cannot select its own mode. */
+export function applyInvoiceReviewMode(assessment:Assessment,mode:unknown):Assessment{
+ if(mode==="automatic" || assessment.status!=="approved")return assessment;
+ return {...assessment,status:"review_required",reasons:[...new Set<Reason>([...assessment.reasons,"manual_review_required"])]};
 }
