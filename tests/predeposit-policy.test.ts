@@ -254,3 +254,17 @@ Deno.test("automated feedback works for existing clients and retains each audit 
  const passed=automatedReviewFeedback({status:"approved",reasons:[]},"automatic");
  assert.match(passed.merchant_feedback,/does not certify authenticity/);
 });
+
+import {applyDocumentReviewScope} from "../supabase/functions/_shared/predeposit-policy.ts";
+Deno.test("optional document checks do not invent missing bank policy or clear uncertain evidence",()=>{
+ const {invoice,context}=fixture();context.jurisdictionPolicy=null;context.structuring=null;
+ const ai={status:"passed" as const,findings:[],physical_goods_detected:false} as any;
+ const strict=evaluateInvoice(invoice,context,ai);assert.equal(strict.status,"review_required");
+ const documents=applyDocumentReviewScope(strict,context,"document_checks","observe");assert.equal(documents.status,"approved");
+ assert.deepEqual((documents as any).checks_not_performed,["jurisdiction_policy_missing","history_unavailable"]);
+ assert.ok((documents as any).strict_assessment.reasons.includes("jurisdiction_policy_missing"));
+ for(const mode of ["enforce","disabled",undefined])assert.equal(applyDocumentReviewScope(strict,context,"document_checks",mode).status,"review_required");
+ assert.equal(applyDocumentReviewScope(strict,context,undefined,"observe").status,"review_required");
+ context.verifiedEvidenceHashes=[];assert.notEqual(applyDocumentReviewScope(evaluateInvoice(invoice,context,ai),context,"document_checks","observe").status,"approved");
+ context.history.available=false;assert.ok(applyDocumentReviewScope(evaluateInvoice(invoice,context,ai),context,"document_checks","observe").reasons.includes("history_unavailable"));
+});

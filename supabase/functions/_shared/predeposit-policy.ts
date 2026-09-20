@@ -246,3 +246,16 @@ export function applyInvoiceReviewMode(assessment:Assessment,mode:unknown):Asses
  if(assessment.status!=="approved")return assessment;
  return {...assessment,status:"review_required",reasons:[...new Set<Reason>([...assessment.reasons,"manual_review_required"])]};
 }
+
+/** Optional document checks cannot be used as a deposit-clearance decision. */
+export function applyDocumentReviewScope(assessment:Assessment,context:ReviewContext,scope:unknown,depositMode:unknown){
+ if(scope!=="document_checks"||depositMode!=="observe")return assessment;
+ const outside:Reason[]=[];
+ if(!context.jurisdictionPolicy)outside.push("jurisdiction_policy_missing");
+ // Available history still reaches Azure; no numerical screening threshold is invented.
+ if(context.history.available&&!context.structuring)outside.push("history_unavailable");
+ const reasons=assessment.reasons.filter(r=>!outside.includes(r));
+ const status=reasons.length===0&&assessment.ai?.status==="passed"?"approved":assessment.status;
+ return {...assessment,status:status as Assessment["status"],reasons,review_scope:"document_checks",
+  checks_not_performed:outside,strict_assessment:{status:assessment.status,reasons:assessment.reasons}};
+}

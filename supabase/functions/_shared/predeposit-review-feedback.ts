@@ -47,6 +47,7 @@ export function automatedReviewFeedback(assessment:any,mode:unknown){
   manual_review_required:"Resubmit this invoice under the current automatic review settings.",
  };
  const findings=[...original.findings,...original.reasons.map((code:string)=>({code,explanation:corrections[code]||"Check the supporting details for: "+String(code).replace(/_/g," ")+". Submit a corrected revision."}))];
+ if(assessment?.checks_not_performed?.length)findings.push({code:"document_review_scope",explanation:"This result covers document checks only. Jurisdiction clearance and threshold-based transaction screening were not performed by this review. Your existing banking controls still apply."});
  const passed=assessment?.status==="approved";
  return {merchant_feedback:original.merchant_feedback||(passed
   ?"Automated document checks passed. This does not certify authenticity, legal validity or bank acceptance."
