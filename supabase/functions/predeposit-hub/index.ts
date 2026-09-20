@@ -219,7 +219,7 @@ Deno.serve(async req=>{
     }
    }else if(payload.contract_path==="custom"){
     const ids=payload.document_ids||[];
-    const assets=ids.length?checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",ids).eq("kind","executed_contract")):[];
+    const assets=ids.length?checked<any>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",ids).eq("kind","executed_contract")):[];
     if(assets.length>1)throw Error("Select one contract for this invoice");
     for(const asset of assets){
      if(asset.scan_status==="rejected"||asset.verification_status==="rejected")continue;
