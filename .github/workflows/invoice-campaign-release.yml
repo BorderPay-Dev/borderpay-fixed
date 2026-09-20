@@ -1,0 +1,23 @@
+name: Invoice campaign and release checks
+on:
+  push:
+    branches: [fix/invoice-campaign-and-binary-only-releases]
+  pull_request:
+    paths:
+      - ".github/workflows/android-play.yml"
+      - ".github/workflows/ios-testflight.yml"
+      - "supabase/functions/_shared/email-templates/business/invoice-contract-hub.ts"
+      - "tests/invoice-hub-email.test.ts"
+      - "tests/audit/store_listing_preservation_audit.py"
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --no-config tests/invoice-hub-email.test.ts
+      - run: python3 tests/audit/store_listing_preservation_audit.py
