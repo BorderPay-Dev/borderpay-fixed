@@ -2,13 +2,13 @@ import { PDFDocument, rgb, type PDFPage } from "npm:pdf-lib@1.17.1";
 import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
 import type { Invoice } from "./predeposit-policy.ts";
 import type { BankPaymentInstructions } from "./predeposit-payment-instructions.ts";
-export type PdfAttachment={name:string;mime:string;bytes:Uint8Array;sha256:string};
+export type PdfAttachment={kind?:"signed_agreement"|"executed_contract";name:string;mime:string;bytes:Uint8Array;sha256:string};
 export async function renderInvoiceDocument(args:{
  invoice:Invoice;invoiceNumber:string;fontBytes:Uint8Array;templateBody?:string;
  logo?:Uint8Array;signature?:Uint8Array;bank?:BankPaymentInstructions;
  customerCopy?:boolean;attachments?:PdfAttachment[];agreementOnly?:boolean;approved?:boolean;complianceReview?:{assessment:unknown;recorded_at:string};
 }):Promise<Uint8Array>{
- if(args.customerCopy&&(args.attachments?.length||args.templateBody||args.signature||args.complianceReview))throw Error("Invoice copies cannot contain private compliance documents or unverified agreements");
+ if(args.customerCopy&&(args.attachments?.some(a=>!["signed_agreement","executed_contract"].includes(a.kind||""))||args.templateBody||args.signature||args.complianceReview))throw Error("Invoice copies cannot contain private compliance documents or unverified agreements");
  const doc=await PDFDocument.create();doc.registerFontkit(fontkit);
  const font=await doc.embedFont(args.fontBytes,{subset:true});
  const money=(n:number)=>{const v=BigInt(n);return String(v/100n)+"."+String(v%100n).padStart(2,"0");};
@@ -83,8 +83,8 @@ export async function renderInvoiceDocument(args:{
  }
  const attachments=args.attachments||[];
  if(attachments.length && !args.agreementOnly){
-  title("Evidence manifest");text("Original files are retained separately. Copies below are for review.",9,muted);
-  for(const a of attachments){text(a.name,10);text("SHA-256: "+a.sha256,8,muted);}
+  title(args.customerCopy?"Attached agreement":"Evidence manifest");text(args.customerCopy?"A copy of the commercial agreement follows.":"Original files are retained separately. Copies below are for review.",9,muted);
+  for(const a of attachments){text(a.name,10);if(!args.customerCopy)text("SHA-256: "+a.sha256,8,muted);}
   for(const a of attachments){
    if(a.mime==="application/pdf"){
     const original=await PDFDocument.load(a.bytes,{ignoreEncryption:false});

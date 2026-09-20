@@ -9,3 +9,5 @@ In `enforce` mode, this download path provides billing only; approved payment ex
 Invoice copies are regenerated from owner-scoped saved drafts or immutable submitted revisions, with server-side seller and bank data, private storage and short-lived authenticated downloads. Customer copies omit internal commercial-risk declarations and supporting evidence.
 
 The hub is optional for every merchant, including newly approved businesses. Approval and activation emails introduce it as a document-preparation tool. Business broadcasts offer the same guidance; no campaign is sent automatically by this release. Publish the customer UI before deploying the email templates. Retain the existing banking review/request process.
+
+Invoice export can include a selected custom contract or a generated agreement when an approved template, saved signature and per-invoice signature consent are present. This is not an invoice-approval requirement. Rejected evidence is not included. Only commercial contracts are appended to the buyer PDF; CRM, source-of-funds, logistics records and internal assessments stay private.

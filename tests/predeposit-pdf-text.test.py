@@ -21,3 +21,5 @@ assert 'UNDER REVIEW - NOT PAYMENT INSTRUCTIONS' not in observation
 for private in ['Source of funds','Use of funds:','Evidence assessment:','Evidence manifest']:
     assert private not in observation, private
 print('PASS: observation invoice includes the selected bank details without private review data')
+
+assert 'Attached agreement' in observation and 'Signed purchase order - original evidence' in observation

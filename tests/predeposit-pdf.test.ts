@@ -49,5 +49,5 @@ await assert.rejects(()=>renderInvoiceDocument({...common,customerCopy:true}),/I
 await assert.rejects(()=>renderInvoiceDocument({invoice,invoiceNumber:"QA",fontBytes:font,customerCopy:true,attachments:[{name:"private",mime:"application/pdf",bytes:evidence,sha256:"a".repeat(64)}]}),/Invoice copies cannot/);
 console.log("PASS: invoice-only copy omits bank details and cannot include compliance attachments");
 
-const observation=await renderInvoiceDocument({invoice,invoiceNumber:"QA-2026-001",fontBytes:font,customerCopy:true,bank:{invoice_reference:"QA-2026-001",account_id:"va-test",currency:"GBP",amount:"125.00",beneficiary_name:"Example Bank Beneficiary",bank_name:"Test Bank",account_number:"12345678",sort_code:"12-34-56",required_payment_reference:"TEST-ONLY"}});
+const observation=await renderInvoiceDocument({invoice,invoiceNumber:"QA-2026-001",fontBytes:font,customerCopy:true,bank:{invoice_reference:"QA-2026-001",account_id:"va-test",currency:"GBP",amount:"125.00",beneficiary_name:"Example Bank Beneficiary",bank_name:"Test Bank",account_number:"12345678",sort_code:"12-34-56",required_payment_reference:"TEST-ONLY"},attachments:[{kind:"executed_contract",name:"Commercial agreement",mime:"application/pdf",bytes:evidence,sha256:await sha256(evidence)}]});
 await Deno.writeFile("/tmp/predeposit-pdf-qa/observation-invoice.pdf",observation);

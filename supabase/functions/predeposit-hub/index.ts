@@ -187,7 +187,7 @@ Deno.serve(async req=>{
     const biz=checked<any>(await db.from("business_profiles").select("company_name,country").eq("user_id",owner).single());
     merchant={legal_name:biz.company_name,incorporation_country:biz.country};
     payload=draft.payload;invoiceNumber=draft.invoice_number;id=draft.id;revision=draft.version;
-    branding=checked<any>(await db.from("predeposit_branding").select("logo_asset_id").eq("owner_user_id",owner).maybeSingle());
+    branding=checked<any>(await db.from("predeposit_branding").select("*").eq("owner_user_id",owner).maybeSingle());
    }
    const invoice=invoiceCopy(payload,merchant,id,revision);
    let logo:Uint8Array|undefined;
@@ -208,7 +208,33 @@ Deno.serve(async req=>{
     const currentPolicy=await loadPolicy(db);
     bank=generateObservedInvoiceInstructions(owner,invoice,account,currentPolicy.mode);
    }
-   const bytes=await renderInvoiceDocument({invoice,invoiceNumber,fontBytes:await fontBytes(db),logo,customerCopy:true,bank});
+   const font=await fontBytes(db),attachments:any[]=[];
+   if(invoiceId){
+    const contracts=(payload.documents||[]).filter((d:any)=>["signed_agreement","executed_contract"].includes(d.kind));
+    for(const document of contracts){
+     const asset=checked<any>(await db.from("predeposit_assets").select("*").eq("id",document.id).eq("owner_user_id",owner).single());
+     if(asset.sha256!==document.sha256||asset.kind!==document.kind)throw Error("Stored evidence integrity check failed");
+     if(asset.scan_status==="rejected"||asset.verification_status==="rejected")continue;
+     attachments.push({kind:asset.kind,name:"Commercial agreement",mime:asset.mime_type,bytes:await loadAssetBytes(db,asset),sha256:asset.sha256});
+    }
+   }else if(payload.contract_path==="custom"){
+    const ids=payload.document_ids||[];
+    const assets=ids.length?checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",ids).eq("kind","executed_contract")):[];
+    if(assets.length>1)throw Error("Select one contract for this invoice");
+    for(const asset of assets){
+     if(asset.scan_status==="rejected"||asset.verification_status==="rejected")continue;
+     attachments.push({kind:"executed_contract",name:"Commercial agreement",mime:asset.mime_type,bytes:await loadAssetBytes(db,asset),sha256:asset.sha256});
+    }
+   }else if(payload.signature_consent===true&&payload.agreement_version&&branding?.signature_asset_id&&branding?.signer_name){
+    const template=checked<any>(await db.from("predeposit_agreement_templates").select("*").eq("version",payload.agreement_version).eq("status","approved").maybeSingle());
+    const signature=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.signature_asset_id).eq("owner_user_id",owner).single());
+    if(template&&signature.kind==="signature"&&signature.scan_status!=="rejected"&&signature.verification_status!=="rejected"){
+     const executed={...invoice,agreement:{version:template.version,terms_sha256:await sha256(template.body),signature_sha256:signature.sha256,signed_by:branding.signer_name,signed_at:new Date().toISOString(),signature_consent:true}};
+     const agreement=await renderInvoiceDocument({invoice:executed,invoiceNumber,fontBytes:font,templateBody:template.body,logo,signature:await loadAssetBytes(db,signature),agreementOnly:true});
+     attachments.push({kind:"signed_agreement",name:"Commercial agreement",mime:"application/pdf",bytes:agreement,sha256:await sha256(agreement)});
+    }
+   }
+   const bytes=await renderInvoiceDocument({invoice,invoiceNumber,fontBytes:font,logo,customerCopy:true,bank,attachments});
    const digest=await sha256(bytes),path=owner+"/invoice-copies/"+id+"/"+crypto.randomUUID()+".pdf";
    checked(await db.storage.from(BUCKET).upload(path,bytes,{contentType:"application/pdf",upsert:false}));
    if(invoiceId)checked(await db.from("predeposit_access_log").insert({invoice_id:invoiceId,actor_user_id:owner,action:"invoice_copy_exported",metadata:{sha256:digest,revision,bank_details_included:!!bank,mode:policy.mode}}));
