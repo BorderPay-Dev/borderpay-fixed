@@ -47,9 +47,11 @@ const SIGNUP_CAPTCHA_SECRET = Deno.env.get("SIGNUP_CAPTCHA_SECRET") ?? "";
 const ONBOARDING_TOKEN_SIGNING_SECRET = Deno.env.get("ONBOARDING_TOKEN_SIGNING_SECRET") ?? "";
 const SIGNUP_CAPTCHA_VERIFY_URL =
   Deno.env.get("SIGNUP_CAPTCHA_VERIFY_URL") ?? "https://challenges.cloudflare.com/turnstile/v0/siteverify";
-const RECAPTCHA_ENTERPRISE_PROJECT_ID = Deno.env.get("RECAPTCHA_ENTERPRISE_PROJECT_ID") ?? "";
-const RECAPTCHA_ENTERPRISE_API_KEY = Deno.env.get("RECAPTCHA_ENTERPRISE_API_KEY") ?? "";
-const RECAPTCHA_ENTERPRISE_SITE_KEY = Deno.env.get("RECAPTCHA_ENTERPRISE_SITE_KEY") ?? "";
+import { resolveSignupCaptchaConfig, signupCaptchaAssessmentFailure } from "../_shared/signup-captcha-config.ts";
+const signupCaptchaConfig = resolveSignupCaptchaConfig(Deno.env.toObject());
+const RECAPTCHA_ENTERPRISE_PROJECT_ID = signupCaptchaConfig.projectId;
+const RECAPTCHA_ENTERPRISE_API_KEY = signupCaptchaConfig.apiKey;
+const RECAPTCHA_ENTERPRISE_SITE_KEY = signupCaptchaConfig.siteKey;
 const RECAPTCHA_MIN_SCORE = Math.min(1, Math.max(0, Number(Deno.env.get("RECAPTCHA_MIN_SCORE") || "0.7")));
 const RECAPTCHA_ALLOWED_HOSTNAMES = new Set(
   (Deno.env.get("RECAPTCHA_ALLOWED_HOSTNAMES") || "app.borderpayafrica.com")
@@ -154,7 +156,8 @@ async function verifySignupCaptcha(
   remoteIp: string | null,
   requestOrigin: string,
   database: any,
-): Promise<{ ok: true } | { ok: false; code: string; error: string }> {
+): Promise<{ ok: true } | { ok: false; code: string; error: string; status?: number }> {
+  if (!signupCaptchaConfig.valid) return { ok: false, code: "captcha_not_configured", error: "Signup verification is temporarily unavailable. Please try again shortly.", status: 503 };
   const enterpriseConfigured = Boolean(
     RECAPTCHA_ENTERPRISE_PROJECT_ID && RECAPTCHA_ENTERPRISE_API_KEY && RECAPTCHA_ENTERPRISE_SITE_KEY,
   );
@@ -172,6 +175,7 @@ async function verifySignupCaptcha(
           "Content-Type": "application/json",
           "X-Goog-Api-Key": RECAPTCHA_ENTERPRISE_API_KEY,
         },
+        signal: AbortSignal.timeout(10_000),
         body: JSON.stringify({
           event: {
             token,
@@ -182,14 +186,17 @@ async function verifySignupCaptcha(
         }),
       });
       const assessment = await response.json().catch(() => ({} as Record<string, unknown>)) as {
-        tokenProperties?: { valid?: boolean; hostname?: string; action?: string };
+        tokenProperties?: { valid?: boolean; hostname?: string; action?: string; invalidReason?: string };
+        error?: { status?: string };
         riskAnalysis?: { score?: number; reasons?: string[] };
       };
       const hostname = String(assessment.tokenProperties?.hostname || "").toLowerCase();
       const action = String(assessment.tokenProperties?.action || "");
       const score = Number(assessment.riskAnalysis?.score ?? -1);
-      if (!response.ok || assessment.tokenProperties?.valid !== true) {
-        return { ok: false, code: "captcha_failed", error: "CAPTCHA validation failed." };
+      const assessmentFailure = signupCaptchaAssessmentFailure(response.ok, assessment.tokenProperties?.valid);
+      if (assessmentFailure) {
+        console.warn(JSON.stringify({ tag: "signup_captcha_assessment_failed", http_status: response.status, provider_status: assessment.error?.status || null, invalid_reason: assessment.tokenProperties?.invalidReason || null }));
+        return assessmentFailure;
       }
       let allowedHostname = RECAPTCHA_ALLOWED_HOSTNAMES.has(hostname);
       if (!allowedHostname && requestOrigin === `https://${hostname}`) {
@@ -383,7 +390,7 @@ Deno.serve(async (req: Request) => {
       ? { ok: true } as const
       : await verifySignupCaptcha(captchaToken, requestIp, req.headers.get("origin") || "", supabaseAdmin);
     if (!captchaCheck.ok) {
-      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, 400);
+      return json({ success: false, code: captchaCheck.code, error: captchaCheck.error }, captchaCheck.status || 400);
     }
 
 
