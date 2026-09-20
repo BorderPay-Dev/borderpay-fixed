@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import re
 from pathlib import Path
 from va_audit_source import audited_source
 
@@ -14,7 +15,7 @@ checks = {
     "VA endpoint loads both canonical status fields": '.select("account_status,bridge_account_status")' in va,
     "VA endpoint fails closed if status cannot be read": 'if(accessProfileError||!accessProfile)throw Error("Account access status unavailable")' in va and 'catch{return unavailable();}' in boundary and 'status:503' in boundary,
     "VA endpoint returns a frozen denial": 'code:"account_frozen"' in va and 'status:423' in va,
-    "status guard precedes capabilities and Bridge traffic": va.index('const { data: accessProfile') < va.index('if (action === "capabilities")') < va.index('logControlledBridgeTraffic("bridge-virtual-account"'),
+    "status guard precedes capabilities and Bridge traffic": bool(re.search(r"const\s*\{\s*data:\s*accessProfile", va)) and boundary.index("await deps.checkAccess(userId)") < boundary.index("const response=await deps.handle(req)") and va.index('if (action === "capabilities")') < va.index('logControlledBridgeTraffic("bridge-virtual-account"'),
     "profile response exposes local freeze evidence": all(value in profile for value in ('account_status:', 'account_frozen_at:', 'account_frozen_reason:')),
     "released-client compatibility maps blocks to paused":
         'const clientBridgeAccountStatus = accountAccessRestricted' in profile
