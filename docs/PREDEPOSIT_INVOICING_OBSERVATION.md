@@ -11,3 +11,5 @@ Invoice copies are regenerated from owner-scoped saved drafts or immutable submi
 The hub is optional for every merchant, including newly approved businesses. Approval and activation emails introduce it as a document-preparation tool. Business broadcasts offer the same guidance; no campaign is sent automatically by this release. Publish the customer UI before deploying the email templates. Retain the existing banking review/request process.
 
 Invoice export can include a selected custom contract or a generated agreement when an approved template, saved signature and per-invoice signature consent are present. This is not an invoice-approval requirement. Rejected evidence is not included. Only commercial contracts are appended to the buyer PDF; CRM, source-of-funds, logistics records and internal assessments stay private.
+
+A paused, unavailable or unselected receiving account does not prevent an invoice export. If current account eligibility or financial-read security cannot be established, the export omits bank instructions and returns a clear merchant notice. This fallback never exposes bank coordinates or changes account status.

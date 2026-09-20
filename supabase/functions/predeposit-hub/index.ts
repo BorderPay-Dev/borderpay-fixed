@@ -195,11 +195,12 @@ Deno.serve(async req=>{
     const asset=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.logo_asset_id).eq("owner_user_id",owner).single());
     if(asset.kind==="logo"&&asset.scan_status!=="rejected"&&asset.verification_status!=="rejected")logo=await loadAssetBytes(db,asset);
    }
-   let bank;
-   if(policy.mode==="observe"){
+   let bank,bankNotice="";
+   if(policy.mode==="observe"&&invoice.receiving_account_id){
+    try{
     const userDb=createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_ANON_KEY")!,{global:{headers:{Authorization:"Bearer "+token}},auth:{persistSession:false}});
     const allowed=await userDb.rpc("can_read_bridge_financial_data",{p_user_id:owner});
-    if(allowed.error||allowed.data!==true)return reply({success:false,error:"Complete the required security check before viewing bank details"},403);
+    if(allowed.error||allowed.data!==true)throw Error("Complete the required security check before viewing bank details");
     const accounts=await loadInvoiceAccounts(db,owner);
     // The seller and bank details are server-derived; never accept bank fields from the draft.
     if(accounts.merchant.legal_name!==invoice.merchant.legal_name)throw Error("Business legal details changed; create a new invoice");
@@ -207,6 +208,7 @@ Deno.serve(async req=>{
     if(!account)throw Error("Select an active receiving account for this invoice");
     const currentPolicy=await loadPolicy(db);
     bank=generateObservedInvoiceInstructions(owner,invoice,account,currentPolicy.mode);
+    }catch{bankNotice="Your invoice is ready without bank details. Check your receiving account and security status before sharing payment instructions.";}
    }
    const font=await fontBytes(db),attachments:any[]=[];
    if(invoiceId){
@@ -239,7 +241,7 @@ Deno.serve(async req=>{
    checked(await db.storage.from(BUCKET).upload(path,bytes,{contentType:"application/pdf",upsert:false}));
    if(invoiceId)checked(await db.from("predeposit_access_log").insert({invoice_id:invoiceId,actor_user_id:owner,action:"invoice_copy_exported",metadata:{sha256:digest,revision,bank_details_included:!!bank,mode:policy.mode}}));
    const signed=checked<any>(await db.storage.from(BUCKET).createSignedUrl(path,60,{download:invoiceNumber.replace(/[^A-Za-z0-9_-]/g,"_")+".pdf"}));
-   return reply({success:true,data:{url:signed.signedUrl,expires_in:60,sha256:digest}});
+   return reply({success:true,data:{url:signed.signedUrl,expires_in:60,sha256:digest,bank_details_included:!!bank,notice:bankNotice}});
   }
   if(action==="download"){
    const row=await ownInvoice(uuid(body.invoice_id),owner);if(row.status!=="approved")return reply({success:false,error:"Invoice approval is required before bank details can be shared"},409);
