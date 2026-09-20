@@ -8,7 +8,7 @@ import { canonicalJson, sha256, POLICY_VERSION, type Invoice, type ReviewContext
 import { loadInvoiceAiConfig } from "./predeposit-ai-config.ts";
 import { screenInvoice } from "./predeposit-azure.ts";
 import { generateBankPaymentInstructions } from "./predeposit-payment-instructions.ts";
-function pdf(lines:string[]):Uint8Array{
+export function pdf(lines:string[]):Uint8Array{
  const stream="BT /F1 12 Tf 40 790 Td "+lines.map((s,i)=>(i?"0 -22 Td ":"")+"("+s.replace(/[\\()]/g,"\\$&")+") Tj").join("\n")+" ET";
  const objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [3 0 R] /Count 1 >>","<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>","<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>","<< /Length "+new TextEncoder().encode(stream).length+" >>\nstream\n"+stream+"\nendstream"];
  let body="%PDF-1.4\n";const offsets=[0];

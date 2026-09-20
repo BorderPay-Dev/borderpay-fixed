@@ -51,4 +51,22 @@ try{
  await page.setViewportSize({width:1440,height:1000});await page.getByRole('button',{name:'Invoice builder',exact:true}).click();
  await page.screenshot({path:'/tmp/predeposit-pdf-qa/merchant-desktop.png',fullPage:true});
  console.log('PASS: mobile and desktop invoice workspace, saved draft, GBP notice, submission, flagged feedback and locked bank details');
+
+ await page.goto('http://127.0.0.1:4173/tests/fixtures/invoice-ui.html');
+ await page.getByRole('button',{name:'Review my documents',exact:true}).click();
+ await page.getByRole('button',{name:'Compare my documents',exact:true}).click();
+ await page.getByRole('alert').filter({hasText:'upload both'}).waitFor();
+ assert.equal(await page.evaluate(()=>window.__invoiceCalls.filter(c=>c.action==='review_documents').length),0);
+ await page.getByLabel('Your invoice PDF').setInputFiles({name:'existing-invoice.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4 synthetic')});
+ await page.getByText('existing-invoice.pdf',{exact:true}).waitFor();
+ await page.getByLabel('Your contract or statement of work').setInputFiles({name:'signed-contract.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.4 synthetic')});
+ await page.getByText('signed-contract.pdf',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Compare my documents',exact:true}).click();
+ await page.getByText('Invoice GBP 1500.00 differs from contract GBP 1250.00. Correct the invoice or provide a signed amendment.').waitFor();
+ assert.equal(await page.evaluate(()=>window.__invoiceCalls.filter(c=>c.action==='save_draft'||c.action==='submit').length),0);
+ await page.screenshot({path:'/tmp/predeposit-pdf-qa/uploaded-documents-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ await page.screenshot({path:'/tmp/predeposit-pdf-qa/uploaded-documents-mobile.png',fullPage:true});
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Upload comparison must fit mobile');
+ console.log('PASS: existing invoice/contract upload, incomplete-pair guidance and corrections without retyping invoice');
 }finally{await browser.close();}

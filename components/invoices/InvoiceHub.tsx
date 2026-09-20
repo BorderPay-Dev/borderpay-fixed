@@ -6,6 +6,7 @@ import {backendAPI} from '../../utils/api/backendAPI';
 import {useThemeClasses} from '../../utils/i18n/ThemeLanguageContext';
 import {FloatingBackButton} from '../common/FloatingBackButton';
 import './InvoiceHub.css';
+import DocumentComparison from './DocumentComparison';
 
 const empty=()=>({currency:'USD',receiving_account_id:'',buyer:{legal_name:'',type:'company',address:'',country:'',tax_id:''},
  remitter:{legal_name:'',type:'company',relationship:''},category:'digital_services',order_source:'direct_b2b',order_platform:'',order_reference:'',tracking_numbers:[],
@@ -144,9 +145,9 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  {error&&<div ref={errorBox} tabIndex={-1} role="alert" className="ih-error">{error}<button type="button" onClick={()=>run(async()=>{await refresh(true);})}>Retry</button></div>}
  {notice&&<p role="status" className="ih-notice">{notice}</p>}
  {data.enabled===false?<section className="ih-card"><h2>Invoicing is being prepared</h2><p>We will make this workspace available when the review service is ready.</p></section>:<>
- <nav className="ih-tabs" aria-label="Invoicing modules">{[['invoice','Invoice builder'],['contract','B2B agreement'],['branding','Branding & signature']].map(([id,label])=><button key={id} type="button" aria-pressed={tab===id} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+ <nav className="ih-tabs" aria-label="Invoicing modules">{[['invoice','Invoice builder'],['documents','Review my documents'],['contract','B2B agreement'],['branding','Branding & signature']].map(([id,label])=><button key={id} type="button" aria-pressed={tab===id} onClick={()=>setTab(id)}>{label}</button>)}</nav>
  <fieldset disabled={busy} className="ih-workspace">
- {tab==='branding'?<section className="ih-card"><h2>Company branding & signature</h2><p className="ih-muted">Your verified company name appears on every document. A saved signature is applied only when you authorize that invoice.</p>
+ {tab==='documents'?<DocumentComparison enabled={data.enabled===true}/>:tab==='branding'?<section className="ih-card"><h2>Company branding & signature</h2><p className="ih-muted">Your verified company name appears on every document. A saved signature is applied only when you authorize that invoice.</p>
  <Field label="Authorized signer's name" value={brand.signer_name} onChange={(v:string)=>{brandEdits.current.add('signer_name');setBrand({...brand,signer_name:v});}}/>
  <label className="ih-upload">Company logo · PNG or JPEG<input type="file" accept="image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,'logo');});e.target.value='';}}/></label>{brand.logo_asset_id&&<p className="ih-muted">Logo uploaded</p>}
  <SignaturePad busy={busy||data.enabled!==true} onSave={(f:File)=>run(async()=>{await upload(f,'signature');})}/>{brand.signature_asset_id&&<p className="ih-muted">Signature uploaded</p>}
