@@ -4,8 +4,15 @@ import {createRoot} from 'react-dom/client';
 import InvoiceHub from '../../components/invoices/InvoiceHub';
 import {backendAPI} from '../../utils/api/backendAPI';
 const draft={id:'draft-1',version:1,invoice_number:'TEST-001',payload:{currency:'GBP',receiving_account_id:'va-1',buyer:{legal_name:'Buyer Ltd',type:'company',address:'10 Test Street, London',country:'GB',tax_id:'GB123456'},remitter:{legal_name:'Buyer Ltd',type:'company',relationship:'Corporate customer paying its invoice.'},category:'digital_services',order_source:'direct_b2b',order_platform:'',order_reference:'',tracking_numbers:[],items:[{description:'Enterprise software licence, September 2026, 20 seats',quantity:1,unit_amount_minor:12500,deliverable_reference:'LIC-804'}],source_of_funds:'Buyer operating revenue from commercial business activities.',fund_utilization:'Software subscription delivery and development costs.',discovery_channel:'',cross_border_justification:'',commercial_end_use:'',contract_path:'generated',agreement_version:'v1',signature_consent:true,document_ids:[],instalments:{expected_count:1,commercial_reason:''}}};
+const params=new URLSearchParams(location.search);
+let releaseBootstrap:()=>void=()=>{},releaseAccounts:()=>void=()=>{};
+const bootstrapGate=params.has('defer_bootstrap')?new Promise<void>(r=>releaseBootstrap=r):Promise.resolve();
+const accountsGate=params.has('defer_accounts')?new Promise<void>(r=>releaseAccounts=r):Promise.resolve();
+(window as any).__releaseBootstrap=()=>releaseBootstrap();
+(window as any).__releaseAccounts=()=>releaseAccounts();
 let status='queued';const calls:any[]=[];(window as any).__invoiceCalls=calls;
-backendAPI.predeposit.request=async(action,body)=>{calls.push({action,body});if(action==='bootstrap')return {success:true,data:{enabled:true,merchant:{incorporation_country:'GB'},accounts:[{id:'va-1',currency:'GBP',status:'active',label:'GBP receiving account'}],templates:[{version:'v1',title:'Standard agreement',body:'Seller supplies the invoice deliverables to the buyer under this agreement.'}],branding:{signer_name:'Test Director',signature_asset_id:'signature-1'},assets:[],drafts:[draft],invoices:[]}} as any;
+backendAPI.predeposit.request=async(action,body)=>{calls.push({action,body});if(action==='bootstrap'){await bootstrapGate;return {success:true,data:{enabled:true,merchant:{incorporation_country:'GB'},accounts:[{id:'va-1',currency:'GBP',status:'active',label:'GBP receiving account'}],templates:[{version:'v1',title:'Standard agreement',body:'Seller supplies the invoice deliverables to the buyer under this agreement.'}],branding:{signer_name:'Test Director',signature_asset_id:'signature-1'},assets:[],drafts:[draft],invoices:[]}} as any;}
+ if(action==='accounts'){await accountsGate;return {success:true,data:{accounts_verified:true,accounts:[{id:'va-1',currency:'GBP',status:'active',label:'GBP receiving account'}],account_warning:''}} as any;}
  if(action==='save_draft')return {success:true,data:{...draft,version:2}} as any;
  if(action==='submit')return {success:true,data:{id:'invoice-1',status}} as any;
  if(action==='get_invoice')return {success:true,data:{id:'invoice-1',invoice_number:'TEST-001',status,reasons:status==='action_required'?['contract_value_mismatch']:[]}} as any;

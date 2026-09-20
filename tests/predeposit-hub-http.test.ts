@@ -84,3 +84,38 @@ Deno.test("observation invoices include only the current owned account; enforcem
  assert.throws(()=>generateObservedInvoiceInstructions(owner,{...inv,buyer:{type:"individual"}},account,"observe"),/GBP/);
  assert.throws(()=>generateObservedInvoiceInstructions(owner,inv,{...account,sort_code:""},"observe"),/sort code/);
 });
+
+Deno.test("workspace bootstrap uses owned local account labels without contacting the provider",async()=>{
+ const original=globalThis.fetch;
+ globalThis.fetch=async(input,init)=>{
+  const req=new Request(input,init),url=new URL(req.url);
+  assert.equal(url.origin,base,"Opening the invoice workspace must not wait for a provider API");
+  if(url.pathname==="/auth/v1/user")return Response.json({id:owner});
+  if(url.pathname.endsWith("/admin_users"))return Response.json([]);
+  if(url.pathname.endsWith("/user_profiles"))return Response.json([{account_type:"business",bridge_customer_id:"old-profile-customer"}]);
+  if(url.pathname.endsWith("/predeposit_policy"))return Response.json({mode:"observe",config:{hub_enabled:true}});
+  if(url.pathname.endsWith("/business_profiles"))return Response.json([{company_name:"Example Ltd",country:"GB",bridge_customer_id:"current-customer"}]);
+  if(url.pathname.endsWith("/bridge_virtual_accounts")){
+   assert.equal(url.searchParams.get("bridge_customer_id"),"eq.current-customer");
+   assert.equal(url.searchParams.get("or"),"(user_id.eq."+owner+",business_user_id.eq."+owner+")");
+   assert.equal(url.searchParams.get("status"),"eq.active");
+   assert.equal(url.searchParams.get("select"),"bridge_virtual_account_id,currency,status");
+   return Response.json([{bridge_virtual_account_id:"va-cached",currency:"gbp",status:"active",account_details:{iban:"NEVER-EXPOSE-THIS"}}]);
+  }
+  if(url.pathname.endsWith("/predeposit_agreement_templates"))return Response.json([{version:"approved-v1",title:"Agreement",body:"Terms",status:"approved"}]);
+  if(["predeposit_branding","predeposit_assets","predeposit_drafts","predeposit_invoices"].some(name=>url.pathname.endsWith("/"+name))){
+   assert.equal(url.searchParams.get("owner_user_id"),"eq."+owner);
+   return Response.json([]);
+  }
+  throw Error("Unexpected bootstrap dependency: "+url.pathname);
+ };
+ try{
+  const response=await handler(new Request(base,{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer test-session"},body:JSON.stringify({action:"bootstrap"})}));
+  assert.equal(response.status,200);const payload=await response.json();
+  assert.equal(payload.data.merchant.incorporation_country,"GB");
+  assert.deepEqual(payload.data.accounts,[{id:"va-cached",currency:"GBP",status:"active",label:"GBP receiving account"}]);
+  assert.equal(payload.data.templates[0].version,"approved-v1");
+  assert.equal(payload.data.accounts_pending,true);
+  assert.doesNotMatch(JSON.stringify(payload),/NEVER-EXPOSE/);
+ }finally{globalThis.fetch=original;}
+});

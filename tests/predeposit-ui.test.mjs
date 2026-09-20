@@ -3,6 +3,26 @@ const {chromium}=await import(process.env.PLAYWRIGHT_MODULE);
 const browser=await chromium.launch({headless:true});
 try{
  const page=await browser.newPage({viewport:{width:390,height:844},deviceScaleFactor:1});
+ // Hold both network responses until explicitly released: rendering and typing
+ // must work even if the provider never responds.
+ await page.goto('http://127.0.0.1:4173/tests/fixtures/invoice-ui.html?defer_bootstrap=1&defer_accounts=1');
+ await page.getByLabel('Invoice reference').waitFor({timeout:2000});
+ await page.getByLabel('Invoice reference').fill('TYPED-BEFORE-DATA');
+ assert.equal(await page.getByRole('button',{name:'Save draft',exact:true}).isDisabled(),true);
+ await page.getByRole('button',{name:'Branding & signature',exact:true}).click();
+ await page.getByLabel("Authorized signer's name").fill('My typed signer');
+ await page.evaluate(()=>window.__releaseBootstrap());
+ await page.getByRole('button',{name:'Save branding',exact:true}).waitFor();
+ await page.waitForFunction(()=>window.__invoiceCalls.some(c=>c.action==='accounts'));
+ await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Save branding'&&!b.disabled));
+ assert.equal(await page.getByLabel("Authorized signer's name").inputValue(),'My typed signer');
+ await page.getByRole('button',{name:'Invoice builder',exact:true}).click();
+ assert.equal(await page.getByLabel('Invoice reference').inputValue(),'TYPED-BEFORE-DATA');
+ assert.equal(await page.getByRole('button',{name:'Save draft',exact:true}).isEnabled(),true);
+ await page.evaluate(()=>window.__releaseAccounts());
+ await page.waitForFunction(()=>!document.body.innerText.includes('Refreshing account availability'));
+ assert.equal(await page.getByLabel('Invoice reference').inputValue(),'TYPED-BEFORE-DATA');
+ console.log('PASS: usable form before bootstrap, provider refresh does not block editing, typed values survive both responses');
  await page.goto('http://127.0.0.1:4173/tests/fixtures/invoice-ui.html');
  await page.getByRole('heading',{name:'Invoice & Agreement Hub'}).waitFor();
  await page.getByLabel('Continue a saved draft').selectOption('draft-1');

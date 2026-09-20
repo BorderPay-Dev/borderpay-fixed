@@ -33,7 +33,7 @@ Deno.serve(async req=>{
   const owner=auth.user.id;
   const admin=checked<any>(await db.from("admin_users").select("role").eq("user_id",owner).maybeSingle());
   const canReview=["ADMIN_SUPER","SUPER_ADMIN","ADMIN","COMPLIANCE","ADMIN_COMPLIANCE"].includes(String(admin?.role||"").toUpperCase());
-  const profile=checked<any>(await db.from("user_profiles").select("account_type").eq("id",owner).maybeSingle());
+  const profile=checked<any>(await db.from("user_profiles").select("account_type,bridge_customer_id").eq("id",owner).maybeSingle());
   if(profile?.account_type!=="business"&&!canReview)return reply({success:false,error:"The invoice hub is for business accounts"},403);
   const policy=await loadPolicy(db);
   const multipart=(req.headers.get("content-type")||"").startsWith("multipart/form-data");
@@ -137,16 +137,33 @@ Deno.serve(async req=>{
   }
   if(action==="bootstrap"){
    if(policy.config?.hub_enabled!==true)return reply({success:true,data:{enabled:false,accounts:[],templates:[]}});
-   let accounts:any=null,accountWarning="";
-   try{accounts=await loadInvoiceAccounts(db,owner);}catch{accountWarning="Receiving accounts are unavailable. You can prepare documents; payment details require an active approved business account.";}
-   return reply({success:true,data:{enabled:true,payment_review_required:policy.mode==="enforce",merchant:accounts?.merchant||null,accounts:(accounts?.accounts||[]).map((a:any)=>({id:a.id,currency:a.currency,status:a.status,label:a.currency+" receiving account"})),account_warning:accountWarning,
-    templates:checked(await db.from("predeposit_agreement_templates").select("version,title,body,status").eq("status","approved")),
-    branding:checked(await db.from("predeposit_branding").select("*").eq("owner_user_id",owner).maybeSingle()),
-    assets:checked(await db.from("predeposit_assets").select("id,kind,mime_type,size_bytes,verification_status,created_at").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(200)),
-    drafts:checked(await db.from("predeposit_drafts").select("*").eq("owner_user_id",owner).order("updated_at",{ascending:false}).limit(100)),
-    invoices:checked(await db.from("predeposit_invoices").select("id,invoice_number,revision,currency,total_minor,status,created_at").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(100))}});
+   // Screen data comes from local records; never wait for provider API calls here.
+   const [business,templates,branding,assets,drafts,invoices]=await Promise.all([
+    db.from("business_profiles").select("company_name,country,bridge_customer_id").eq("user_id",owner).maybeSingle(),
+    db.from("predeposit_agreement_templates").select("version,title,body,status").eq("status","approved"),
+    db.from("predeposit_branding").select("*").eq("owner_user_id",owner).maybeSingle(),
+    db.from("predeposit_assets").select("id,kind,mime_type,size_bytes,verification_status,created_at").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(200),
+    db.from("predeposit_drafts").select("*").eq("owner_user_id",owner).order("updated_at",{ascending:false}).limit(100),
+    db.from("predeposit_invoices").select("id,invoice_number,revision,currency,total_minor,status,created_at").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(100),
+   ]);
+   const biz=checked<any>(business),customerId=biz?.bridge_customer_id||profile?.bridge_customer_id;
+   const cached=customerId?await db.from("bridge_virtual_accounts").select("bridge_virtual_account_id,currency,status")
+    .or("user_id.eq."+owner+",business_user_id.eq."+owner).eq("bridge_customer_id",customerId).eq("status","active").limit(100):{data:[],error:null};
+   const accountLabels=(cached.error?[]:cached.data||[]).filter((a:any)=>a.bridge_virtual_account_id&&["USD","EUR","GBP"].includes(String(a.currency).toUpperCase())).map((a:any)=>({id:a.bridge_virtual_account_id,currency:String(a.currency).toUpperCase(),status:a.status,label:String(a.currency).toUpperCase()+" receiving account"}));
+   return reply({success:true,data:{enabled:true,payment_review_required:policy.mode==="enforce",
+    merchant:biz?{legal_name:biz.company_name,incorporation_country:biz.country}:null,accounts:accountLabels,accounts_pending:true,
+    account_warning:cached.error?"Saved receiving accounts are temporarily unavailable. You can continue preparing your invoice.":"",
+    templates:checked<any>(templates),branding:checked<any>(branding),assets:checked<any>(assets),drafts:checked<any>(drafts),invoices:checked<any>(invoices)}});
   }
   if(policy.config?.hub_enabled!==true)return reply({success:false,error:"Invoicing is not enabled"},503);
+  if(action==="accounts"){
+   try{
+    const accounts=await loadInvoiceAccounts(db,owner);
+    return reply({success:true,data:{accounts_verified:true,accounts:accounts.accounts.map(a=>({id:a.id,currency:a.currency,status:a.status,label:a.currency+" receiving account"})),account_warning:""}});
+   }catch{
+    return reply({success:true,data:{accounts_verified:false,account_warning:"Account availability could not be refreshed. You can continue preparing your invoice; bank details are checked when you download."}});
+   }
+  }
   if(action==="save_draft"){
    const payload=parseDraft(body.payload);
    if(body.id){
