@@ -9,13 +9,14 @@ Checks:
 """
 
 from pathlib import Path
+from va_audit_source import audited_source
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def read(rel: str) -> str:
-    return (ROOT / rel).read_text(encoding="utf-8")
+    return audited_source(ROOT / rel)
 
 
 def must(name: str, cond: bool, msg: str) -> None:

@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 from pathlib import Path
+from va_audit_source import audited_source
 
 ROOT = Path(__file__).resolve().parents[2]
-va = (ROOT / "supabase/functions/bridge-virtual-account/index.ts").read_text()
+va = audited_source(ROOT / "supabase/functions/bridge-virtual-account/index.ts")
 profile = (ROOT / "supabase/functions/get-user-profile/index.ts").read_text()
 client = (ROOT / "utils/bridgeAccountStatus.ts").read_text()
+
+boundary = (ROOT / "supabase/functions/_shared/predeposit-http-boundary.ts").read_text()
 
 checks = {
     "VA endpoint recognizes frozen and offboarded states": all(value in va for value in ('"frozen"', '"offboarded"', '"suspended"')),
     "VA endpoint loads both canonical status fields": '.select("account_status,bridge_account_status")' in va,
-    "VA endpoint fails closed if status cannot be read": 'code: "account_status_unavailable"' in va and '}, 503)' in va,
-    "VA endpoint returns a frozen denial": 'code: "account_frozen"' in va and '}, 423)' in va,
+    "VA endpoint fails closed if status cannot be read": 'if(accessProfileError||!accessProfile)throw Error("Account access status unavailable")' in va and 'catch{return unavailable();}' in boundary and 'status:503' in boundary,
+    "VA endpoint returns a frozen denial": 'code:"account_frozen"' in va and 'status:423' in va,
     "status guard precedes capabilities and Bridge traffic": va.index('const { data: accessProfile') < va.index('if (action === "capabilities")') < va.index('logControlledBridgeTraffic("bridge-virtual-account"'),
     "profile response exposes local freeze evidence": all(value in profile for value in ('account_status:', 'account_frozen_at:', 'account_frozen_reason:')),
     "released-client compatibility maps blocks to paused":

@@ -43,6 +43,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from va_audit_source import audited_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,7 +127,7 @@ def assert_required_imports() -> list[str]:
         if not index.exists():
             findings.append(f"missing edge function: {fn_name}/index.ts")
             continue
-        src = index.read_text()
+        src = audited_source(index)
         if "bridge-country-policy" not in src:
             findings.append(f"{fn_name}/index.ts: does not import bridge-country-policy")
     return findings
@@ -151,6 +152,17 @@ def assert_frontend_mirror() -> list[str]:
             findings.append(
                 f"{name}: backend vs frontend differ — only-backend={only_b}, only-frontend={only_f}"
             )
+    preserved = (EDGE_FUNCTIONS / "bridge-virtual-account/production-v384/_shared/providers/bridge-country-policy.js").read_text()
+    for name in ("BRIDGE_PROHIBITED_COUNTRIES", "BRIDGE_UNAVAILABLE_COUNTRIES", "BRIDGE_CONTROLLED_COUNTRIES",
+                 "BRIDGE_VA_NO_US_RAIL", "BRIDGE_VA_NO_SEPA_FPS_RAIL", "BRIDGE_CUSTODIAL_WALLET_UNSUPPORTED_COUNTRIES"):
+        # Internal rail sets need not be exported.
+        def codes(text):
+            match = re.search(rf"\b{name}[^=]*=\s*new\s+Set\s*\(\s*\[([^\]]*)\]", text, re.DOTALL)
+            if not match:
+                raise AssertionError(f"Missing policy set {name}")
+            return set(re.findall(r'["\']([A-Z]{2,3})["\']', match.group(1)))
+        if codes(preserved) != codes(backend_src):
+            findings.append(f"{name}: preserved live VA policy differs from shared policy")
     return findings
 
 
@@ -171,7 +183,7 @@ def assert_gate_before_reuse() -> list[str]:
         index = EDGE_FUNCTIONS / fn_name / "index.ts"
         if not index.exists():
             continue
-        src   = index.read_text()
+        src   = audited_source(index)
         lines = src.splitlines()
         gate_line  = None
         reuse_line = None

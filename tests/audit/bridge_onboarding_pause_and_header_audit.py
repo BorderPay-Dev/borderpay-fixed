@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from va_audit_source import audited_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -26,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def read(rel: str) -> str:
     path = ROOT / rel
-    return path.read_text(encoding="utf-8") if path.is_file() else ""
+    return audited_source(path) if path.is_file() else ""
 
 
 def before(src: str, first: str, second: str) -> bool:
