@@ -3,9 +3,11 @@ Deno.test("October notices render safely with distinct active and restricted mes
   for (const template of ["business.banking_transition_active", "business.banking_transition_restricted"] as const) {
     const email = renderTemplate(template, { full_name: "<script>alert(1)</script> User", transition_status: "frozen", action_url: "https://attacker.invalid" });
     if (email.html.includes("<script>") || email.html.includes("attacker.invalid")) throw new Error("unsafe interpolation");
+    const links = [...email.html.matchAll(/href="([^"]+)"/g)].map(match => new URL(match[1]).href);
+    if (!links.some(href => href === "https://app.borderpayafrica.com/")) throw new Error("missing exact CTA");
     for (const body of [email.html, email.text]) {
       if (!body.includes("October 2026") || body.includes("this month")) throw new Error("wrong rollout date");
-      if (!body.includes("https://app.borderpayafrica.com")) throw new Error("missing CTA");
+
     }
   }
   const active = renderTemplate("business.banking_transition_active", {});
