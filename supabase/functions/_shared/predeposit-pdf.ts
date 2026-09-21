@@ -35,7 +35,8 @@ export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
   const width = 595.28, height = 841.89, left = 44, right = width - 44, bottom = 768;
   const ink = rgb(.078, .137, .122), muted = rgb(.396, .451, .424);
   const pale = rgb(.949, .961, .945), rule = rgb(.863, .890, .867), lime = rgb(.780, 1, 0), white = rgb(1, 1, 1);
-  let page: PDFPage, y = 0, documentKind = args.agreementOnly ? "AGREEMENT" : "INVOICE";
+  let page!: PDFPage;
+  let y = 0, documentKind = args.agreementOnly ? "AGREEMENT" : "INVOICE";
   const generated = new Set<PDFPage>();
   const money = (n: number) => {
     const v = BigInt(n);
