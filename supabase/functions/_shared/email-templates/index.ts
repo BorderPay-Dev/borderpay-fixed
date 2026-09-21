@@ -69,7 +69,6 @@ import { render as partnerAccessInvite }                from "./partner/access-i
 
 export type TemplateName =
   | "business.banking_transition"
-  | "individual.banking_transition"
   | "business.invoice_contract_hub"
   | "business.subscription_external_invoice"
   | "individual.subscription_external_invoice"
@@ -132,7 +131,6 @@ type Renderer = (props: any) => RenderedEmail;
 
 export const TEMPLATES: Record<TemplateName, Renderer> = {
   "business.banking_transition": bankingTransition,
-  "individual.banking_transition": bankingTransition,
   "business.invoice_contract_hub": businessInvoiceContractHub,
   "business.subscription_external_invoice": renderExternalInvoice,
   "individual.subscription_external_invoice": renderExternalInvoice,
