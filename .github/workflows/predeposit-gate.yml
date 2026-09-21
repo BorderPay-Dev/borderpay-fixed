@@ -30,7 +30,8 @@ jobs:
       - name: Render invoice PDF fixtures
         run: |
           curl -fsSL https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf -o /tmp/predeposit-font.ttf
-          deno run --no-config --allow-read=/tmp/predeposit-font.ttf --allow-write=/tmp/predeposit-pdf-qa tests/predeposit-pdf.test.ts
+          curl -fsSL https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf -o /tmp/predeposit-bold.ttf
+          deno run --no-config --allow-read=/tmp/predeposit-font.ttf,/tmp/predeposit-bold.ttf,public/logo-color.png --allow-write=/tmp/predeposit-pdf-qa tests/predeposit-pdf.test.ts
           sudo apt-get update -qq
           sudo apt-get install -y poppler-utils
           pdftoppm -scale-to 1300 -png /tmp/predeposit-pdf-qa/approved.pdf /tmp/predeposit-pdf-qa/approved
@@ -40,6 +41,9 @@ jobs:
           pdftoppm -scale-to 1300 -png /tmp/predeposit-pdf-qa/invoice-copy.pdf /tmp/predeposit-pdf-qa/invoice-copy
           pdftotext /tmp/predeposit-pdf-qa/observation-invoice.pdf /tmp/predeposit-pdf-qa/observation-invoice.txt
           pdftoppm -scale-to 1300 -png /tmp/predeposit-pdf-qa/observation-invoice.pdf /tmp/predeposit-pdf-qa/observation-invoice
+          pdftotext /tmp/predeposit-pdf-qa/long-invoice.pdf /tmp/predeposit-pdf-qa/long-invoice.txt
+          pdftotext /tmp/predeposit-pdf-qa/agreement.pdf /tmp/predeposit-pdf-qa/agreement.txt
+          pdftotext /tmp/predeposit-pdf-qa/usd-invoice.pdf /tmp/predeposit-pdf-qa/usd-invoice.txt
           python3 tests/predeposit-pdf-text.test.py
       - uses: actions/upload-artifact@v4
         if: always()

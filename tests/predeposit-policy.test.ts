@@ -143,15 +143,15 @@ Deno.test("approved invoice formats the selected GBP account including sort code
  const {invoice,context}=fixture();
  const approval={status:"approved",payload_sha256:await assessedDigest(invoice,context),policy_version:"borderpay-predeposit-2.4.0",approval_expires_at:"2026-09-21T09:00:00Z",dossier_sha256:h("e")};
  const account={id:"va-gbp-1",owner_user_id:"merchant-1",currency:"GBP",status:"active",beneficiary_name:"Verified GBP Beneficiary",bank_name:"Example Bank",account_number:"12345678",sort_code:"12-34-56",required_payment_reference:"PROVIDER-REF"};
- const result=await generateBankPaymentInstructions("merchant-1",invoice,context,approval,account);
+ const result=await generateBankPaymentInstructions("merchant-1",invoice,context,approval,account,context.now);
  assert.equal(result.amount,"125.00");assert.equal(result.sort_code,"12-34-56");assert.equal(result.beneficiary_name,"Verified GBP Beneficiary");assert.equal(result.required_payment_reference,"PROVIDER-REF");
- await assert.rejects(()=>generateBankPaymentInstructions("other-user",invoice,context,approval,account));
- await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,{...approval,status:"review_required"},account));
- await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,{...account,status:"paused"}));
- await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,{...account,sort_code:""}));
- await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,{...approval,approval_expires_at:"2026-09-19T00:00:00Z"},account));
+ await assert.rejects(()=>generateBankPaymentInstructions("other-user",invoice,context,approval,account,context.now));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,{...approval,status:"review_required"},account,context.now));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,{...account,status:"paused"},context.now));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,{...account,sort_code:""},context.now));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,{...approval,approval_expires_at:"2026-09-19T00:00:00Z"},account,context.now));
  invoice.remitter.type="individual";approval.payload_sha256=await assessedDigest(invoice,context);
- await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,account));
+ await assert.rejects(()=>generateBankPaymentInstructions("merchant-1",invoice,context,approval,account,context.now));
 });
 
 Deno.test("USD and EUR instruction blocks expose only the selected account's currency fields",async()=>{

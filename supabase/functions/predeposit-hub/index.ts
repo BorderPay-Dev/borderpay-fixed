@@ -1,3 +1,4 @@
+import { loadPdfStyleAssets } from "../_shared/predeposit-pdf-assets.ts";
 declare const EdgeRuntime: {waitUntil(promise:Promise<unknown>):void};
 import {processDocumentCheck,validateReviewAssets} from "../_shared/predeposit-document-checks.ts";
 import {DOCUMENT_CHECK_VERSION} from "../_shared/predeposit-document-comparison.ts";
@@ -282,11 +283,11 @@ Deno.serve(async req=>{
     const signature=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.signature_asset_id).eq("owner_user_id",owner).single());
     if(template&&signature.kind==="signature"&&signature.scan_status!=="rejected"&&signature.verification_status!=="rejected"){
      const executed={...invoice,agreement:{version:template.version,terms_sha256:await sha256(template.body),signature_sha256:signature.sha256,signed_by:branding.signer_name,signed_at:new Date().toISOString(),signature_consent:true}};
-     const agreement=await renderInvoiceDocument({invoice:executed,invoiceNumber,fontBytes:font,templateBody:template.body,logo,signature:await loadAssetBytes(db,signature),agreementOnly:true});
+     const agreement=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice:executed,invoiceNumber,fontBytes:font,templateBody:template.body,logo,signature:await loadAssetBytes(db,signature),agreementOnly:true});
      attachments.push({kind:"signed_agreement",name:"Commercial agreement",mime:"application/pdf",bytes:agreement,sha256:await sha256(agreement)});
     }
    }
-   const bytes=await renderInvoiceDocument({invoice,invoiceNumber,fontBytes:font,logo,customerCopy:true,bank,attachments});
+   const bytes=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice,invoiceNumber,fontBytes:font,logo,customerCopy:true,bank,attachments});
    const digest=await sha256(bytes),path=owner+"/invoice-copies/"+id+"/"+crypto.randomUUID()+".pdf";
    checked(await db.storage.from(BUCKET).upload(path,bytes,{contentType:"application/pdf",upsert:false}));
    if(invoiceId)checked(await db.from("predeposit_access_log").insert({invoice_id:invoiceId,actor_user_id:owner,action:"invoice_copy_exported",metadata:{sha256:digest,revision,bank_details_included:!!bank,mode:policy.mode}}));
