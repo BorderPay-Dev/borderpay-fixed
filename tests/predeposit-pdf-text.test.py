@@ -23,3 +23,19 @@ for private in ['Source of funds','Use of funds:','Evidence assessment:','Eviden
 print('PASS: observation invoice includes the selected bank details without private review data')
 
 assert 'Attached agreement' in observation and 'Signed purchase order - original evidence' in observation
+
+long=(p/'long-invoice.txt').read_text()
+assert 'DELIVERABLE-1' in long and 'DELIVERABLE-45' in long
+assert '11,110.50 GBP' in long
+assert long.count('DESCRIPTION') > 2
+for text in [copy, observation, long]:
+    assert 'INVOICE TOTAL' in text and 'Powered by BorderPay' in text
+    for fictional in ['VAT (20%)', '05 Oct 2026', 'Northline', 'Atelier Commerce', 'Due within 14 days']:
+        assert fictional not in text, fictional
+agreement=(p/'agreement.txt').read_text()
+assert 'AGREEMENT' in agreement and 'CONTRACT VALUE' in agreement
+assert 'Signature not applied' in agreement and 'Accepted:' not in agreement
+assert 'UNIT PRICE' not in agreement, 'Agreement-only export must not repeat the billing table'
+usd=(p/'usd-invoice.txt').read_text()
+assert 'DEMO-ROUTING' in usd and 'DEMO-ACCOUNT' in usd and '125.00 USD' in usd
+print('PASS: repeated table headers, exact totals, standalone agreement and no invented dates or taxes')

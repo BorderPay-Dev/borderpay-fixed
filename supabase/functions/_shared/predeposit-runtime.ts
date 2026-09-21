@@ -1,3 +1,4 @@
+import { loadPdfStyleAssets } from "./predeposit-pdf-assets.ts";
 import { sha256, canonicalJson, invoiceTotalMinor, normalizedLegalName, evaluateInvoice, assessedDigest, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
 import { parseDraft } from "./predeposit-input.ts";
 import { loadInvoiceAccounts } from "./predeposit-accounts.ts";
@@ -59,7 +60,7 @@ export async function submitInvoice(db:any,owner:string,draftId:string,version:n
  if(invoice.currency==="GBP"&&(invoice.buyer.type!=="company"||invoice.remitter.type!=="company"))throw Error("GBP invoices require a corporate buyer and corporate remitter");
  if(template){
   const logo=assets.find(a=>a.id===branding?.logo_asset_id);
-  const pdf=await renderInvoiceDocument({invoice,invoiceNumber:draft.invoice_number,fontBytes:await fontBytes(db),templateBody:template.body,agreementOnly:true,
+  const pdf=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice,invoiceNumber:draft.invoice_number,fontBytes:await fontBytes(db),templateBody:template.body,agreementOnly:true,
    signature:await loadAssetBytes(db,signature),...(logo?{logo:await loadAssetBytes(db,logo)}:{})});
   const generated=await saveAsset(db,owner,"signed_agreement",pdf,"application/pdf",true);assets.push(generated);invoice.documents.push({id:generated.id,kind:"signed_agreement",sha256:generated.sha256});
  }
@@ -78,7 +79,7 @@ export async function invoiceDossier(db:any,row:any,context:ReviewContext,bank?:
  const branding=row.review_context.branding;
  let logo:Uint8Array|undefined;
  if(branding?.logo_asset_id){const a=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.logo_asset_id).eq("owner_user_id",row.owner_user_id).single());logo=await loadAssetBytes(db,a);}
- const bytes=await renderInvoiceDocument({invoice:row.payload,invoiceNumber:row.invoice_number,fontBytes:await fontBytes(db),attachments,logo,bank,approved:!!bank||row.assessment?.status==="approved",...(!bank?{complianceReview:{assessment:row.assessment||{status:"screening"},recorded_at:new Date().toISOString()}}:{})});
+ const bytes=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice:row.payload,invoiceNumber:row.invoice_number,fontBytes:await fontBytes(db),attachments,logo,bank,approved:!!bank||row.assessment?.status==="approved",...(!bank?{complianceReview:{assessment:row.assessment||{status:"screening"},recorded_at:new Date().toISOString()}}:{})});
  const hash=await sha256(bytes),path=row.owner_user_id+"/dossiers/"+row.id+"/"+crypto.randomUUID()+".pdf";
  checked(await db.storage.from(BUCKET).upload(path,bytes,{contentType:"application/pdf",upsert:false}));
  return {path,sha256:hash};
