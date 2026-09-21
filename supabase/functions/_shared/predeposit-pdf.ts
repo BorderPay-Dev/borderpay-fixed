@@ -149,8 +149,10 @@ export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
       const desc = wrap(item.description, 262, 9.5, bold).map(s => ({ s, size: 9.5, face: bold, color: ink }));
       const ref = item.deliverable_reference ? wrap("Reference: " + item.deliverable_reference, 262, 8).map(s => ({ s, size: 8, face: font, color: muted })) : [];
       const rows = [...desc, ...ref]; let offset = 0;
+      const finalRowSpace = Math.max(46, rows.length * 14 + 24) + 92;
+      if (index === inv.items.length - 1 && finalRowSpace < bottom - 180 && y + finalRowSpace > bottom) { newPage("INVOICE"); tableHeader(); }
       while (offset < rows.length) {
-        if (y + 45 > bottom) { newPage("INVOICE"); tableHeader(); }
+        if (y + 46 > bottom) { newPage("INVOICE"); tableHeader(); }
         const capacity = Math.max(1, Math.floor((bottom - y - 24) / 14));
         const count = Math.min(rows.length - offset, capacity), h = Math.max(46, count * 14 + 24);
         if (index % 2) rect(left, y, right - left, h, rgb(.973, .980, .969));
