@@ -243,7 +243,7 @@ export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
         headingRows.forEach((row, i) => text(row, left + 31, y + i * 15, 11, bold)); y += headingRows.length * 15 + 9;
       } else paragraph(part, 9.3, ink, 31);
     }
-    y += 14; ensure(152);
+    y += 14;
     const signer = wrap(inv.agreement?.signed_by || "", 224, 9, bold);
     const signHeight = Math.max(145, 125 + signer.length * 13);
     ensure(signHeight); rect(left, y, right - left, signHeight);
@@ -256,7 +256,8 @@ export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
     } else text("Signature not applied", left + 14, y + 40, 9, font, muted);
     text("BUYER ACCEPTANCE", 315, y + 12, 7.5, bold, muted);
     block("Retain evidence of the buyer's acceptance with the commercial records. The merchant's signature does not establish the buyer's acceptance.", 315, y + 34, 220, 8.5, font, muted, 12);
-    y += signHeight + 16; paragraph("Agreement version: " + inv.agreement.version, 8, muted);
+    text("Agreement version: " + inv.agreement.version, left + 14, y + signHeight - 16, 7, font, muted);
+    y += signHeight + 16;
   }
   if (!args.customerCopy && !args.agreementOnly && !args.bank) {
     newPage("DOSSIER");
