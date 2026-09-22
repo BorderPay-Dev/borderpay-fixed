@@ -1,6 +1,9 @@
+import { renderRestrictionNotice } from '../account-restriction.ts';
 import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 interface Props {
+  restriction_kind?: 'receiving_paused' | 'fraud_hold';
+  receiving_currencies?: string[];
   full_name?: string;
   reason_public?: string;
   support_url?: string;
@@ -8,6 +11,7 @@ interface Props {
 }
 
 export function render(props: Props = {}): RenderedEmail {
+  if (props.restriction_kind === 'receiving_paused' || props.restriction_kind === 'fraud_hold') return renderRestrictionNotice(props.restriction_kind, props.receiving_currencies || []);
   const fullName = String(props.full_name || "").trim() || "there";
   const reasonPublic = String(props.reason_public || "Your account is temporarily restricted while we complete a review.").trim();
   const supportUrl = String(props.support_url || "https://app.borderpayafrica.com/settings/support").trim();

@@ -1,3 +1,4 @@
+import { isRecordedFraudHold } from '../_shared/account-restriction-copy.ts';
 /**
  * process-pending-events — background worker for the unified webhook queue.
  *
@@ -154,6 +155,30 @@ async function emailKycDecisionBestEffort(
   } catch (e) {
     console.log(`webhook-email kyc/kyb best-effort error: ${(e as Error).message}`);
   }
+}
+
+
+/** One notice per provider pause transition. No replay/bulk campaign is run. */
+async function emailPausedAccountBestEffort(userId: string, accountType: AccountType, eventId: string): Promise<void> {
+ try {
+  if (!SEND_EMAIL_TOKEN) return;
+  const rcpt=await resolveEmailRecipient(userId); if(!rcpt)return;
+  const [{data:p,error:profileError},{data:au},{data:vas,error:vaError}]=await Promise.all([
+   supabase.from('user_profiles').select('account_status,account_frozen_at,account_frozen_reason,bridge_account_status,bridge_account_paused_at').eq('id',userId).maybeSingle(),
+   supabase.auth.admin.getUserById(userId),
+   supabase.from('bridge_virtual_accounts').select('currency').or(`user_id.eq.${userId},business_user_id.eq.${userId}`)
+  ]);
+  if(profileError||!p||vaError||p.bridge_account_status!=='paused'||au?.user?.email?.toLowerCase()!==rcpt.email.toLowerCase())return;
+  const hardHold=!!p.account_frozen_at||!['active','approved','pending_kyc'].includes(String(p.account_status||'').toLowerCase());
+  const kind=hardHold ? (isRecordedFraudHold(p.account_frozen_reason)?'fraud_hold':undefined) : 'receiving_paused';
+  const res=await fetch(`${SUPABASE_URL}/functions/v1/send-email`,{
+   method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${SEND_EMAIL_TOKEN}`},
+   body:JSON.stringify({template:`${accountType}.account_suspended`,to:rcpt.email,user_id:userId,
+    idempotency_key:`wh:account-pause:${userId}:${p.bridge_account_paused_at||eventId}`,
+    props:{full_name:rcpt.full_name,restriction_kind:kind,receiving_currencies:(vas||[]).map((v:any)=>String(v.currency).toUpperCase())}})
+  });
+  if(!res.ok)console.log('webhook-email account pause failed: HTTP '+res.status);
+ }catch{console.log('webhook-email account pause unavailable');}
 }
 
 /** One-time customer notice for a business that requires operator-led UBO follow-up. */
@@ -1132,6 +1157,9 @@ async function handleBridgeCustomerStatus(ev: PendingEvent): Promise<void> {
       } catch { /* best-effort: never fail the webhook on email */ }
     }
 
+    if (accountStatus === "paused" && ev.event_type === "customer.updated.status_transitioned") {
+      await emailPausedAccountBestEffort(jurisdictionOwner.resolved, jurisdictionOwner.account_type, ev.event_id);
+    }
     if (["awaiting_ubo", "needs_ubos"].includes(accountStatus)) {
       try {
         const owner = await resolveOwnerFromBridgeCustomer(String(customer));
