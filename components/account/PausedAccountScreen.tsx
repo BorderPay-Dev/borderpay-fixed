@@ -1,4 +1,3 @@
-import { isRecordedFraudHold, restrictionNotice } from '../../supabase/functions/_shared/account-restriction-copy';
 import React from 'react';
 import { LockKeyhole } from 'lucide-react';
 import { formatBridgePausedDate } from '../../utils/bridgeAccountStatus';
@@ -9,7 +8,6 @@ const PAUSED_ACCOUNT_REASON =
 interface PausedAccountScreenProps { pausedAt?: string | null; reason?: string | null; locallyFrozen?: boolean; onSignOut: () => void; }
 
 export function PausedAccountScreen({ pausedAt, reason, locallyFrozen = false, onSignOut }: PausedAccountScreenProps) {
-  const fraud = locallyFrozen && isRecordedFraudHold(reason);
   const pausedDate = formatBridgePausedDate(pausedAt);
 
   return (
@@ -26,10 +24,9 @@ export function PausedAccountScreen({ pausedAt, reason, locallyFrozen = false, o
         <h1 className="text-2xl font-bold tracking-tight">Your account is {locallyFrozen ? 'frozen' : 'paused'}</h1>
         <p className="mt-4 text-sm leading-6 text-white/70">
           {pausedDate ? `This customer was ${locallyFrozen ? 'frozen' : 'paused'} on ${pausedDate} due to: ` : `This customer was ${locallyFrozen ? 'frozen' : 'paused'} due to: `}
-          {fraud ? restrictionNotice('fraud_hold').paragraphs[0] : (reason || PAUSED_ACCOUNT_REASON)}
+          {reason || PAUSED_ACCOUNT_REASON}
         </p>
 
-        {fraud && restrictionNotice('fraud_hold').paragraphs.slice(1).map(text => <p key={text} className="mt-4 text-sm leading-6 text-white/70">{text}</p>)}
         <p className="mt-5 text-xs leading-5 text-white/45">
           You do not need to submit another verification request. BorderPay will contact you if anything is required.
         </p>

@@ -23,12 +23,14 @@ export function PausedAccountWorkspace({ userId, name, isBusiness, onSignOut, on
  const [error, setError] = useState('');
  const load = useCallback(async () => {
   setLoading(true); setError(''); setSummary(null);
+  try {
   const { data, error: failed } = await supabase.rpc('paused_account_wallet_summary');
   if (failed) setError(failed.message.includes('FINANCIAL_AUTH_REQUIRED')
    ? 'Please authenticate again to view your financial information.'
    : 'We could not load your wallet information. Please try again or contact support.');
   else setSummary(data as Summary);
-  setLoading(false);
+  } catch { setError('We could not load your wallet information. Please try again or contact support.'); }
+  finally { setLoading(false); }
  }, [userId]);
  useEffect(() => { void load(); }, [load]);
  const locked = summary?.mode === 'locked';
