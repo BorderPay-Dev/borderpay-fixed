@@ -261,6 +261,7 @@ Deno.serve(async (req: Request) => {
           text: rendered.text,
           sender_name: whiteLabel.senderName,
           reply_to: whiteLabel.replyTo,
+          ...(attachments.length ? { attachments } : {}),
         },
       },
       p_occurred_at: new Date().toISOString(),
