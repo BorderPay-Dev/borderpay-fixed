@@ -38,6 +38,7 @@ import { PrivacyPolicyScreen } from '../legal/PrivacyPolicyScreen';
 import { PreferencesScreen } from './PreferencesScreen';
 import { CountryEligibilityScreen } from '../compliance/CountryEligibilityScreen';
 import { PausedAccountScreen } from '../account/PausedAccountScreen';
+import { PausedAccountWorkspace } from '../account/PausedAccountWorkspace';
 import { HelpCenterScreen } from '../settings/HelpCenterScreen';
 import { SupportScreen } from '../settings/SupportScreen';
 import { CardsScreen } from '../cards/CardsScreen';
@@ -65,7 +66,7 @@ import {
 } from '../../utils/performance/navigationPerf';
 import { loadAfricanPolicyRows } from '../../utils/africanRailsPolicyCache';
 import { canUseAfricanRails } from '../../utils/africanRailsAccess';
-import { isBridgeAccountPaused } from '../../utils/bridgeAccountStatus';
+import { isBridgeAccountPaused, isReceivingOnlyPause } from '../../utils/bridgeAccountStatus';
 import { initializeNativePush } from '../../utils/notifications/nativePush';
 
 // ─── Lazy-loaded screens ──────────────────────────────────────────────
@@ -471,12 +472,12 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     try { return sessionStorage.getItem('borderpay_verification_embed_return_enabled') !== '0'; } catch { return true; }
   });
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
-  const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean }>(() => {
+  const [pausedAccount, setPausedAccount] = useState<{ paused: boolean; pausedAt: string | null; reason: string | null; locallyFrozen: boolean; receivingOnly: boolean }>(() => {
     try {
       const cached = JSON.parse(localStorage.getItem('borderpay_user') || 'null');
-      return { paused: isBridgeAccountPaused(cached), pausedAt: cached?.account_frozen_at || cached?.bridge_account_paused_at || null, reason: cached?.account_frozen_reason || null, locallyFrozen: String(cached?.account_status || '').toLowerCase() === 'frozen' };
+      return { paused: isBridgeAccountPaused(cached), receivingOnly: isReceivingOnlyPause(cached), pausedAt: cached?.account_frozen_at || cached?.bridge_account_paused_at || null, reason: cached?.account_frozen_reason || null, locallyFrozen: String(cached?.account_status || '').toLowerCase() === 'frozen' };
     } catch {
-      return { paused: false, pausedAt: null, reason: null, locallyFrozen: false };
+      return { paused: false, pausedAt: null, reason: null, locallyFrozen: false, receivingOnly: false };
     }
   });
 
@@ -568,7 +569,7 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
         if (cancelled) return;
         if (r?.success && r.data?.user) {
           const u: any = r.data.user;
-          setPausedAccount({ paused: isBridgeAccountPaused(u), pausedAt: u.account_frozen_at || u.bridge_account_paused_at || null, reason: u.account_frozen_reason || null, locallyFrozen: String(u.account_status || '').toLowerCase() === 'frozen' });
+          setPausedAccount({ paused: isBridgeAccountPaused(u), receivingOnly: isReceivingOnlyPause(u), pausedAt: u.account_frozen_at || u.bridge_account_paused_at || null, reason: u.account_frozen_reason || null, locallyFrozen: String(u.account_status || '').toLowerCase() === 'frozen' });
           let cached: any = {};
           try { cached = JSON.parse(localStorage.getItem('borderpay_user') || '{}'); } catch { cached = {}; }
           const cachedBusinessName = String(localStorage.getItem(`borderpay_business_name_v1:${userId}`) || '').trim();
@@ -1208,6 +1209,9 @@ export function MainApp({ userId, onLogout, onLock, newDeviceDetected, onDismiss
     }
   };
 
+  if (pausedAccount.paused && pausedAccount.receivingOnly) {
+    return <PausedAccountWorkspace key={userId} userId={userId} name={shellUserName} isBusiness={accountType === 'business'} onSignOut={onLogout} onLock={onLock} />;
+  }
   if (pausedAccount.paused) {
     return <PausedAccountScreen pausedAt={pausedAccount.pausedAt} reason={pausedAccount.reason} locallyFrozen={pausedAccount.locallyFrozen} onSignOut={onLogout} />;
   }

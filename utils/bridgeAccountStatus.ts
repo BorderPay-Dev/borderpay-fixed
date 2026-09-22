@@ -2,6 +2,8 @@ export interface BridgeAccountStatusLike {
   account_status?: string | null;
   bridge_account_status?: string | null;
   bridge_account_paused_at?: string | null;
+  bridge_provider_account_status?: string | null;
+  account_frozen_at?: string | null;
 }
 
 const normalizeStatus = (value: unknown) => String(value ?? '').trim().toLowerCase();
@@ -24,4 +26,13 @@ export function formatBridgePausedDate(value?: string | null): string | null {
     year: '2-digit',
     timeZone: 'UTC',
   }).format(date);
+}
+
+/** Only an explicitly reported provider pause gets a limited workspace.
+ * Legacy compatibility 'paused' can represent closed/frozen accounts, so it
+ * must not unlock navigation without the raw provider status. */
+export function isReceivingOnlyPause(profile: BridgeAccountStatusLike | null | undefined): boolean {
+  return normalizeStatus(profile?.bridge_provider_account_status) === 'paused'
+    && ['active', 'approved', 'pending_kyc'].includes(normalizeStatus(profile?.account_status))
+    && !profile?.account_frozen_at;
 }

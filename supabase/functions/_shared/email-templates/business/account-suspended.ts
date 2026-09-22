@@ -1,6 +1,9 @@
+import { renderRestrictionNotice } from '../account-restriction.ts';
 import { htmlLayout, textLayout, BORDERPAY_BRAND, RenderedEmail } from "../layout.ts";
 
 interface Props {
+  restriction_kind?: 'receiving_paused' | 'fraud_hold';
+  receiving_currencies?: string[];
   company_name?: string;
   full_name?: string;
   reason_public?: string;
@@ -9,6 +12,7 @@ interface Props {
 }
 
 export function render(props: Props = {}): RenderedEmail {
+  if (props.restriction_kind === 'receiving_paused' || props.restriction_kind === 'fraud_hold') return renderRestrictionNotice(props.restriction_kind, props.receiving_currencies || []);
   const companyName = String(props.company_name || "").trim() || "your business account";
   const fullName = String(props.full_name || "").trim();
   const reasonPublic = String(props.reason_public || "Your business account is temporarily restricted while we complete a review.").trim();
