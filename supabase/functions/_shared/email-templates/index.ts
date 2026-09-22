@@ -1,3 +1,4 @@
+import { render as accountStatement } from "./account-statement.ts";
 import { renderActive as bankingTransitionActive, renderRestricted as bankingTransitionRestricted } from "./banking-transition.ts";
 import {render as businessInvoiceContractHub} from "./business/invoice-contract-hub.ts";
 import { renderExternalInvoice, renderPaymentStatus } from "./subscription/maintenance.ts";
@@ -68,6 +69,7 @@ import { render as partnerApplicationDecision } from "./partner/application-deci
 import { render as partnerAccessInvite }                from "./partner/access-invite.ts";
 
 export type TemplateName =
+  | "account.statement"
   | "business.banking_transition_active"
   | "business.banking_transition_restricted"
   | "business.invoice_contract_hub"
@@ -131,6 +133,7 @@ export type TemplateName =
 type Renderer = (props: any) => RenderedEmail;
 
 export const TEMPLATES: Record<TemplateName, Renderer> = {
+  "account.statement": accountStatement,
   "business.banking_transition_active": bankingTransitionActive,
   "business.banking_transition_restricted": bankingTransitionRestricted,
   "business.invoice_contract_hub": businessInvoiceContractHub,
