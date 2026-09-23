@@ -52,7 +52,7 @@ jobs:
             if grep -q "{{" /tmp/predeposit-pdf-qa/$kind-agreement.txt; then exit 1; fi
           done
           python3 tests/predeposit-pdf-text.test.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: invoice-pdf-review
@@ -88,7 +88,7 @@ jobs:
           npx vite --host 127.0.0.1 --port 4173 > /tmp/predeposit-vite.log 2>&1 &
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4173 >/dev/null && break; sleep 1; done
           PLAYWRIGHT_MODULE=file:///tmp/predeposit-browser/node_modules/playwright/index.mjs node tests/predeposit-ui.test.mjs
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: invoice-ui-review
