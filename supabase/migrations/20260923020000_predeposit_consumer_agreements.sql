@@ -9,7 +9,7 @@ Buyer: {{buyer}}
 Commercial reference: {{invoice}}
 Contract value: {{amount}} {{currency}}
 
-DRAFT FOR REVIEW — NOT EXECUTED
+DRAFT FOR REVIEW - NOT EXECUTED
 These standard terms require adaptation to the product, sales channel and applicable consumer law before use. They do not record the consumer's acceptance.
 
 1. Parties and scope
@@ -56,7 +56,7 @@ Buyer: {{buyer}}
 Commercial reference: {{invoice}}
 Contract value: {{amount}} {{currency}}
 
-DRAFT FOR REVIEW — NOT EXECUTED
+DRAFT FOR REVIEW - NOT EXECUTED
 These standard terms require adaptation to the product, sales channel and applicable consumer law before use. They do not record the consumer's acceptance.
 
 1. Parties and scope

@@ -1,5 +1,5 @@
 import { assessedDigest, evaluateInvoice, type AiReview, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
-export const PROMPT_VERSION = "predeposit-rfi-2.4.1";
+export const PROMPT_VERSION = "predeposit-rfi-2.4.2-consumer";
 export type AzureConfig = { endpoint: string; deployment: string; apiVersion: string; apiKey: string; requestProfile?: "standard" | "gpt5" };
 export function completionOptions(config:AzureConfig,budget:number){
  return config.requestProfile==="gpt5"
