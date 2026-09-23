@@ -1,3 +1,4 @@
+import {agreementType, isConsumerSale, agreementSaleError, isPlatformOrder, AGREEMENT_LABELS} from '../../supabase/functions/_shared/predeposit-agreement';
 import React,{useEffect,useRef,useState} from 'react';
 import {Browser} from '@capacitor/browser';
 import {Capacitor} from '@capacitor/core';
@@ -8,14 +9,15 @@ import {FloatingBackButton} from '../common/FloatingBackButton';
 import './InvoiceHub.css';
 import DocumentComparison from './DocumentComparison';
 
-const empty=()=>({currency:'USD',receiving_account_id:'',buyer:{legal_name:'',type:'company',address:'',country:'',tax_id:''},
+const empty=()=>({agreement_type:'b2b',consumer_terms:{delivery:'',cancellations_returns:'',support_contact:'',additional_charges:''},currency:'USD',receiving_account_id:'',buyer:{legal_name:'',type:'company',address:'',country:'',tax_id:''},
  remitter:{legal_name:'',type:'company',relationship:''},category:'digital_services',order_source:'direct_b2b',order_platform:'',order_reference:'',tracking_numbers:[],
  items:[{description:'',quantity:1,unit_amount_minor:0,deliverable_reference:''}],source_of_funds:'',fund_utilization:'',discovery_channel:'',cross_border_justification:'',commercial_end_use:'',
  contract_path:'generated',agreement_version:'',signature_consent:false,document_ids:[],instalments:{expected_count:1,commercial_reason:''}});
 const labels:Record<string,string>={executed_contract:'Signed contract / statement of work',purchase_order:'Purchase order',buyer_business_proof:'Buyer registration / tax proof',end_use_declaration:'Commercial end-use declaration',logistics:'Logistics / bill of lading',source_of_funds:'Source of funds',order_dashboard:'Store or CRM dashboard screenshot',platform_order_export:'Official order export PDF',warehouse_receipt:'Warehouse / fulfillment receipt',dispatch_log:'Dispatch log / packing slip'};
 const reasonText:Record<string,string>={
  receiving_account_invalid:'Select an active receiving account matching the invoice currency.',gbp_b2b_only:'GBP requires a corporate buyer and corporate sender.',
- buyer_details_missing:'Complete the buyer’s legal name, billing address, country and tax ID.',remitter_mismatch:'The sender differs from the buyer. Attach an executed agreement explaining the relationship.',
+ agreement_type_mismatch:'Select an individual consumer for D2C or B2C, or use B2B for a business buyer.',consumer_terms_missing:'Complete delivery, cancellation / returns, support contact and additional charges in Agreement.',
+ buyer_details_missing:'Complete the buyer’s name, billing address and country, plus tax ID for a business buyer.',remitter_mismatch:'The sender differs from the buyer. Attach an executed agreement explaining the relationship.',
  vague_description:'Describe each deliverable in detail and include an order or delivery reference.',source_of_funds_missing:'Explain where the buyer’s payment funds come from.',fund_utilization_missing:'Explain how your business will use this payment.',
  cross_border_context_missing:'Explain how the buyer found you and why they are buying internationally.',logistics_missing:'Attach logistics or physical possession evidence.',
  contract_entity_mismatch:'The contract’s buyer or seller does not match the invoice.',contract_value_mismatch:'The contract amount or currency differs from the invoice.',
@@ -68,6 +70,13 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  const run=async(fn:()=>Promise<void>)=>{if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await fn();}catch(e){if(live.current)setError(e instanceof Error?e.message:'Please try again');}finally{lock.current=false;if(live.current)setBusy(false);}};
  useEffect(()=>{if(!selected||!['queued','screening'].includes(selected.status))return;let cancel=false;const t=setTimeout(()=>call('get_invoice',{invoice_id:selected.id}).then(d=>{if(!cancel)setSelected(d);}).catch(e=>{if(!cancel)setError(e.message);}),5000);return()=>{cancel=true;clearTimeout(t);};},[selected]);
  useEffect(()=>{if(error){errorBox.current?.focus();errorBox.current?.scrollIntoView({block:'center',behavior:'smooth'});}},[error]);
+ const saleType=agreementType(form.agreement_type),consumer=isConsumerSale(saleType);
+ const matchingTemplates=data.templates.filter((t:any)=>agreementType(t.agreement_type)===saleType);
+ const selectedTemplate=matchingTemplates.find((t:any)=>t.version===form.agreement_version);
+ const changeAgreementType=(value:string)=>setForm((f:any)=>({...f,agreement_type:value,agreement_version:'',signature_consent:false,
+  consumer_terms:f.consumer_terms||{delivery:'',cancellations_returns:'',support_contact:'',additional_charges:''},
+  buyer:{...f.buyer,type:value==='b2b'?'company':'individual'},remitter:{...f.remitter,type:value==='b2b'?'company':'individual'},
+  order_source:isPlatformOrder(f.order_source)?f.order_source:value==='b2b'?'direct_b2b':'direct_consumer'}));
  const validateInvoice=(review=false)=>{
   const missing:string[]=[];
   const need=(ok:boolean,label:string)=>{if(!ok)missing.push(label);};
@@ -85,10 +94,13 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
   });
   const sum=form.items.reduce((n:number,i:any)=>n+i.quantity*i.unit_amount_minor,0);
   need(Number.isSafeInteger(sum)&&sum>0,'a valid invoice total');
-  if(form.currency==='GBP')need(form.buyer.type==='company'&&form.remitter.type==='company','corporate buyer and sender for GBP (strictly B2B)');
+  const saleError=agreementSaleError(form);if(saleError)missing.push(saleError);
+  if(consumer&&form.contract_path==='generated'&&form.agreement_version){
+   for(const [key,label] of [['delivery','delivery arrangements'],['cancellations_returns','cancellation and return terms'],['support_contact','customer support contact'],['additional_charges','additional charges (enter None when applicable)']])need(enough(form.consumer_terms?.[key],3),label);
+  }
   if(review){
    need(!!form.receiving_account_id,'receiving account for document review');
-   need(enough(form.buyer.tax_id,2),'buyer’s tax / registration ID');
+   if(!consumer)need(enough(form.buyer.tax_id,2),'buyer’s tax / registration ID');
    need(enough(form.remitter.legal_name,2),'bank sender’s legal name');
    need(enough(form.remitter.relationship,12),'commercial relationship (at least 12 characters)');
    need(enough(form.source_of_funds,30),'source of funds (at least 30 characters)');
@@ -100,19 +112,19 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
    const kinds=new Set(data.assets.filter((a:any)=>form.document_ids.includes(a.id)).map((a:any)=>a.kind));
    if(form.contract_path==='custom')need(kinds.has('executed_contract'),'signed contract / statement of work');
    else{
-    need(data.templates.some((a:any)=>a.version===form.agreement_version),'approved template in B2B agreement');
+    need(matchingTemplates.some((a:any)=>a.version===form.agreement_version&&a.status==='approved'),'approved template in Agreement');
     need(!!data.branding?.signature_asset_id&&enough(data.branding?.signer_name,2),'saved signer name and signature in Branding & signature');
-    need(form.signature_consent===true,'signature authorization in B2B agreement');
+    need(form.signature_consent===true,'signature authorization in Agreement');
    }
    if(form.category==='physical_goods'){
     need(kinds.has('logistics'),'logistics / physical possession proof');
     need(kinds.has('warehouse_receipt')||kinds.has('dispatch_log')||form.tracking_numbers.length>0,'warehouse receipt, dispatch log or tracking number');
    }
-   if(form.order_source!=='direct_b2b'){
+   if(isPlatformOrder(form.order_source)){
     need(enough(form.order_platform,2)&&enough(form.order_reference,2),'platform name and order reference');
     need(kinds.has('order_dashboard')||kinds.has('platform_order_export'),'order screenshot or official platform export');
    }
-   if(['individual','sole_proprietor'].includes(form.buyer.type)||form.remitter.type==='individual'){
+   if(!consumer&&(['individual','sole_proprietor'].includes(form.buyer.type)||form.remitter.type==='individual')){
     need(kinds.has('buyer_business_proof'),'buyer’s business registration proof');
     need(kinds.has('end_use_declaration')&&enough(form.commercial_end_use,30),'commercial end-use declaration');
     need(kinds.has('executed_contract'),'executed contract for the individual commercial buyer');
@@ -134,10 +146,10 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  const types=[['company','Company'],['sole_proprietor','Sole proprietor'],['individual','Individual'],['government','Government / public body']];
  const updateItem=(index:number,key:string,value:any)=>setForm((f:any)=>({...f,items:f.items.map((i:any,n:number)=>n===index?{...i,[key]:value}:i)}));
  const requiredKinds=new Set<string>();
- if(form.contract_path==='custom'||form.buyer.type!=='company'||form.remitter.legal_name!==form.buyer.legal_name)requiredKinds.add('executed_contract');
+ if(form.contract_path==='custom'||(!consumer&&form.buyer.type!=='company')||form.remitter.legal_name!==form.buyer.legal_name)requiredKinds.add('executed_contract');
  if(form.category==='physical_goods'){requiredKinds.add('logistics');requiredKinds.add('warehouse_receipt');requiredKinds.add('dispatch_log');}
- if(form.order_source!=='direct_b2b'){requiredKinds.add('order_dashboard');requiredKinds.add('platform_order_export');}
- if(['individual','sole_proprietor'].includes(form.buyer.type)){requiredKinds.add('buyer_business_proof');requiredKinds.add('end_use_declaration');}
+ if(isPlatformOrder(form.order_source)){requiredKinds.add('order_dashboard');requiredKinds.add('platform_order_export');}
+ if(!consumer&&['individual','sole_proprietor'].includes(form.buyer.type)){requiredKinds.add('buyer_business_proof');requiredKinds.add('end_use_declaration');}
  const uploadSlot=([kind,label]:[string,string])=><label key={kind} className="ih-upload">{label}<input type="file" disabled={data.enabled!==true} accept="application/pdf,image/png,image/jpeg" onChange={e=>{const f=e.target.files?.[0];if(f)run(async()=>{await upload(f,kind);});e.target.value='';}}/></label>;
  const total=form.items.reduce((a:number,i:any)=>a+i.quantity*i.unit_amount_minor,0);
  return <main className={'invoice-hub '+tc.bg+' '+tc.text} data-light={tc.isLight}><FloatingBackButton onBack={onBack}/>
@@ -145,7 +157,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  {error&&<div ref={errorBox} tabIndex={-1} role="alert" className="ih-error">{error}<button type="button" onClick={()=>run(async()=>{await refresh(true);})}>Retry</button></div>}
  {notice&&<p role="status" className="ih-notice">{notice}</p>}
  {data.enabled===false?<section className="ih-card"><h2>Invoicing is being prepared</h2><p>We will make this workspace available when the review service is ready.</p></section>:<>
- <nav className="ih-tabs" aria-label="Invoicing modules">{[['invoice','Invoice builder'],['documents','Review my documents'],['contract','B2B agreement'],['branding','Branding & signature']].map(([id,label])=><button key={id} type="button" aria-pressed={tab===id} onClick={()=>setTab(id)}>{label}</button>)}</nav>
+ <nav className="ih-tabs" aria-label="Invoicing modules">{[['invoice','Invoice builder'],['documents','Review my documents'],['contract','Agreement'],['branding','Branding & signature']].map(([id,label])=><button key={id} type="button" aria-pressed={tab===id} onClick={()=>setTab(id)}>{label}</button>)}</nav>
  <fieldset disabled={busy} className="ih-workspace">
  {tab==='documents'?<DocumentComparison enabled={data.enabled===true}/>:tab==='branding'?<section className="ih-card"><h2>Company branding & signature</h2><p className="ih-muted">Your verified company name appears on every document. A saved signature is applied only when you authorize that invoice.</p>
  <Field label="Authorized signer's name" value={brand.signer_name} onChange={(v:string)=>{brandEdits.current.add('signer_name');setBrand({...brand,signer_name:v});}}/>
@@ -155,6 +167,8 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  <button className="ih-primary" type="button" disabled={data.enabled!==true} onClick={()=>run(async()=>{await call('save_branding',brand);setData((p:any)=>({...p,branding:{...brand}}));brandEdits.current.clear();setNotice('Branding and signature saved.');})}>Save branding</button></section>:<>
  {tab==='invoice'&&<><section className="ih-card"><div className="ih-section-heading"><h2>Invoice details</h2><button type="button" onClick={()=>{setDraft(null);setNumber('');setForm(empty());setSelected(null);}}>New invoice</button></div>
  {data.drafts.length>0&&<Select label="Continue a saved draft" value={draft?.id||''} onChange={(v:string)=>{const d=data.drafts.find((x:any)=>x.id===v);if(d){setDraft(d);setNumber(d.invoice_number);setForm(d.payload);setSelected(null);}}} options={[['','Select draft'],...data.drafts.map((d:any)=>[d.id,d.invoice_number])]}/>}
+ <Select label="Agreement type" value={saleType} onChange={changeAgreementType} options={[['b2b','B2B — Business to business'],['d2c','D2C — Own brand to consumer'],['b2c','B2C — Business to consumer']]}/>
+ <p className="ih-muted">{consumer?'For personal purchases by an individual. D2C is for direct sales of your own brand; B2C covers retail and service sales to consumers. The receiving account’s payer eligibility still applies.':'For business purchases by companies and other commercial buyers.'}</p>
  <Select label="Invoice currency" value={form.currency} onChange={(currency:string)=>setForm({...form,currency,receiving_account_id:''} )} options={[['USD','USD'],['EUR','EUR'],['GBP','GBP']]}/>
  <div className="ih-grid"><Field label="Invoice reference" value={number} onChange={setNumber} required/><Select label="Receiving account" value={form.receiving_account_id} onChange={(id:string)=>{const a=data.accounts.find((a:any)=>a.id===id);setForm({...form,receiving_account_id:id,currency:a?.currency||form.currency});}} options={[['','Choose USD, EUR or GBP'],...data.accounts.filter((a:any)=>a.currency===form.currency).map((a:any)=>[a.id,a.label])]}/></div>
  {accountsRefreshing&&<small role="status">Refreshing account availability… You can keep filling in your invoice.</small>}
@@ -164,7 +178,7 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  <Select label="Buyer type" value={form.buyer.type} onChange={(v:string)=>nested('buyer','type',v)} options={types}/>
  <Field label="Billing address" value={form.buyer.address} onChange={(v:string)=>nested('buyer','address',v)} required/>
  <Field label="Buyer country (2-letter code)" value={form.buyer.country} onChange={(v:string)=>nested('buyer','country',v.toUpperCase().slice(0,2))} help="For example GB, FR or US" required/>
- <Field label="Tax / VAT / registration ID" value={form.buyer.tax_id} onChange={(v:string)=>nested('buyer','tax_id',v)} required/>
+ {!consumer&&<Field label="Tax / VAT / registration ID" value={form.buyer.tax_id} onChange={(v:string)=>nested('buyer','tax_id',v)} required/>}
  <Field label="Bank sender's legal name" value={form.remitter.legal_name} onChange={(v:string)=>nested('remitter','legal_name',v)} required/>
  <Select label="Sender type" value={form.remitter.type} onChange={(v:string)=>nested('remitter','type',v)} options={types}/><Field label="Commercial relationship" value={form.remitter.relationship} onChange={(v:string)=>nested('remitter','relationship',v)} required/>
  </div><button type="button" onClick={()=>set('remitter',{...form.remitter,legal_name:form.buyer.legal_name,type:form.buyer.type})}>Use buyer as sender</button></section>
@@ -179,18 +193,20 @@ export default function InvoiceHub({onBack}:{onBack:()=>void}){
  {form.buyer.type!=='company'&&<Field label="Commercial end use: resale, manufacturing or internal use" multiline value={form.commercial_end_use} onChange={(v:string)=>set('commercial_end_use',v)}/>}
  <Field label="Expected number of payments" type="number" value={form.instalments.expected_count} onChange={(v:string)=>nested('instalments','expected_count',Number(v))}/>
  {form.instalments.expected_count>1&&<Field label="Commercial reason for installments" multiline value={form.instalments.commercial_reason} onChange={(v:string)=>nested('instalments','commercial_reason',v)}/>}
- </section><section className="ih-card"><h2>Order evidence</h2><Select label="Order source" value={form.order_source} onChange={(v:string)=>set('order_source',v)} options={[['direct_b2b','Direct B2B contract'],['ecommerce','E-commerce / online store'],['crm','CRM invoice']]}/>
- {form.order_source!=='direct_b2b'&&<><div className="ih-grid"><Field label="Platform / store name" value={form.order_platform} onChange={(v:string)=>set('order_platform',v)}/><Field label="Order reference" value={form.order_reference} onChange={(v:string)=>set('order_reference',v)}/></div><p className="ih-muted">Upload a dashboard screenshot or official export with the buyer, items, total, currency, order history, checkout time, payment and fulfillment status, and IP/device context.</p></>}
+ </section><section className="ih-card"><h2>Order evidence</h2><Select label="Order source" value={form.order_source} onChange={(v:string)=>set('order_source',v)} options={[[consumer?'direct_consumer':'direct_b2b',consumer?'Direct consumer order':'Direct B2B contract'],['ecommerce','E-commerce / online store'],['crm','CRM invoice']]}/>
+ {isPlatformOrder(form.order_source)&&<><div className="ih-grid"><Field label="Platform / store name" value={form.order_platform} onChange={(v:string)=>set('order_platform',v)}/><Field label="Order reference" value={form.order_reference} onChange={(v:string)=>set('order_reference',v)}/></div><p className="ih-muted">Upload a dashboard screenshot or official export with the buyer, items, total, currency, order history, checkout time, payment and fulfillment status, and IP/device context.</p></>}
  {form.category==='physical_goods'&&<><p className="ih-notice">Physical goods require logistics or possession proof and warehouse/dispatch evidence or verified tracking.</p><Field label="Carrier tracking numbers (one per line)" multiline value={form.tracking_numbers.join('\n')} onChange={(v:string)=>set('tracking_numbers',v.split('\n').map(s=>s.trim()).filter(Boolean))}/></>}
  <div className="ih-grid">{Object.entries(labels).filter(([k])=>requiredKinds.has(k)).map(uploadSlot)}</div>
  <details className="ih-more"><summary>Additional supporting documents</summary><div className="ih-grid">{Object.entries(labels).filter(([k])=>!requiredKinds.has(k)).map(uploadSlot)}</div></details>
  <p className="ih-muted">PDF, PNG or JPEG · up to 20 MB per file. Attach only evidence needed for this invoice.</p>
  {data.assets.filter((a:any)=>!['logo','signature','signed_agreement'].includes(a.kind)).map((a:any)=><label className="ih-check" key={a.id}><input type="checkbox" checked={form.document_ids.includes(a.id)} onChange={e=>set('document_ids',e.target.checked?[...form.document_ids,a.id]:form.document_ids.filter((id:string)=>id!==a.id))}/>{labels[a.kind]||a.kind} · {new Date(a.created_at).toLocaleDateString()} · {a.id.slice(0,8)}</label>)}
  </section></>}
- {tab==='contract'&&<section className="ih-card"><h2>Commercial agreement</h2><Select label="Contract workflow" value={form.contract_path} onChange={(v:string)=>set('contract_path',v)} options={[['generated','Generate a B2B agreement'],['custom','Use my signed contract / SOW']]}/>
- {form.contract_path==='generated'?<><Select label="Approved agreement template" value={form.agreement_version} onChange={(v:string)=>set('agreement_version',v)} options={[['','Select a template'],...data.templates.map((t:any)=>[t.version,t.title+' · '+t.version])]}/>
- <pre className="ih-terms">{data.templates.find((t:any)=>t.version===form.agreement_version)?.body||'Select a template to review its terms. Buyer, seller, invoice amount and currency will be filled from your invoice.'}</pre>
- <label className="ih-check"><input type="checkbox" checked={form.signature_consent} onChange={e=>set('signature_consent',e.target.checked)}/>I have read these terms and authorize my saved signature for this invoice’s agreement.</label>
+ {tab==='contract'&&<section className="ih-card"><h2>{AGREEMENT_LABELS[saleType]}</h2><Select label="Contract workflow" value={form.contract_path} onChange={(v:string)=>set('contract_path',v)} options={[['generated','Generate a '+saleType.toUpperCase()+' agreement'],['custom','Use my signed contract / SOW']]}/>
+ {form.contract_path==='generated'?<><Select label="Agreement template" value={form.agreement_version} onChange={(v:string)=>setForm((f:any)=>({...f,agreement_version:v,signature_consent:false}))} options={[['','Select a template'],...matchingTemplates.map((t:any)=>[t.version,t.title+(t.status==='draft'?' · Draft for review':'')+' · '+t.version])]}/>
+ <pre className="ih-terms">{selectedTemplate?.body||'Select a template to review its terms. Buyer, seller, invoice amount and currency will be filled from your invoice.'}</pre>
+ {consumer&&<div className="ih-grid">{[['delivery','Delivery / performance arrangements'],['cancellations_returns','Cancellation, withdrawal and returns'],['support_contact','Customer support contact'],['additional_charges','Taxes / delivery / additional charges']].map(([key,label])=><Field key={key} label={label} value={form.consumer_terms?.[key]||''} onChange={(v:string)=>nested('consumer_terms',key,v)} multiline required/>)}</div>}
+ {selectedTemplate?.status==='draft'&&<p className="ih-notice">Draft for review. Download your invoice to include this unsigned agreement. Signature and document-review approval require an approved template version.</p>}
+ <label className="ih-check"><input type="checkbox" disabled={selectedTemplate?.status!=='approved'} checked={form.signature_consent} onChange={e=>set('signature_consent',e.target.checked)}/>I have read these terms and authorize my saved signature for this invoice’s agreement.</label>
  {!brand.signature_asset_id&&<button type="button" onClick={()=>setTab('branding')}>Set up signature</button>}</>:<><p>Upload the executed contract or statement of work under Order evidence. Its parties, currency, financial value, scope and signatures will be checked against this invoice.</p><button type="button" onClick={()=>setTab('invoice')}>Attach contract</button></>}
  </section>}
  <fieldset disabled={data.enabled!==true} className="ih-actions ih-sticky" style={{border:0,padding:0,margin:0,minWidth:0}}><button type="button" onClick={()=>run(async()=>{await save();await refresh();setNotice('Draft saved.');})}>Save draft</button>

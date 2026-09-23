@@ -1,23 +1,26 @@
+import {agreementType, AGREEMENT_LABELS, requireConsumerTerms} from "./predeposit-agreement.ts";
 import { PDFDocument, rgb, type PDFPage, type PDFFont } from "npm:pdf-lib@1.17.1";
 import fontkit from "npm:@pdf-lib/fontkit@1.1.1";
 import type { Invoice } from "./predeposit-policy.ts";
 import type { BankPaymentInstructions } from "./predeposit-payment-instructions.ts";
 
 export const INVOICE_PDF_DESIGN_VERSION = "borderpay-b2b-2026-09";
-export type PdfAttachment = { kind?: "signed_agreement" | "executed_contract"; name: string; mime: string; bytes: Uint8Array; sha256: string };
+export type PdfAttachment = { kind?: "signed_agreement" | "draft_agreement" | "executed_contract"; name: string; mime: string; bytes: Uint8Array; sha256: string };
 export type PdfStyleAssets = { boldFontBytes?: Uint8Array; brandLogo?: Uint8Array };
 type Args = PdfStyleAssets & {
   invoice: Invoice; invoiceNumber: string; fontBytes: Uint8Array; templateBody?: string;
   logo?: Uint8Array; signature?: Uint8Array; bank?: BankPaymentInstructions;
-  customerCopy?: boolean; attachments?: PdfAttachment[]; agreementOnly?: boolean; approved?: boolean;
+  customerCopy?: boolean; attachments?: PdfAttachment[]; agreementOnly?: boolean; agreementDraft?: boolean; approved?: boolean;
   complianceReview?: { assessment: unknown; recorded_at: string };
 };
 
 /** Presentation only: totals, bank eligibility and executed documents remain server-owned. */
 export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
-  if (args.customerCopy && (args.attachments?.some(a => !["signed_agreement", "executed_contract"].includes(a.kind || "")) || args.templateBody || args.signature || args.complianceReview)) {
+  if (args.customerCopy && (args.attachments?.some(a => !["signed_agreement", "draft_agreement", "executed_contract"].includes(a.kind || "")) || args.templateBody || args.signature || args.complianceReview)) {
     throw Error("Invoice copies cannot contain private compliance documents or unverified agreements");
   }
+  if(args.agreementDraft&&args.signature)throw Error("Draft agreements cannot carry an execution signature");
+  if(args.templateBody)requireConsumerTerms(args.invoice);
   if (args.signature && args.invoice.agreement?.signature_consent !== true) throw Error("Signature consent is required");
   const inv = args.invoice;
   let total = 0;
@@ -90,7 +93,7 @@ export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
       nameLines.slice(0, 2).forEach((s, i) => text(s, left, 39 + i * 19, 15, bold));
     }
     text(kind, right, 35, kind === "AGREEMENT" ? 27 : 31, bold, ink, "right");
-    text(kind === "AGREEMENT" ? "B2B commercial agreement" : kind === "DOSSIER" ? "Supporting commercial records" : "Commercial invoice", right, 77, 8.5, font, muted, "right");
+    text(kind === "AGREEMENT" ? (args.agreementDraft ? "DRAFT - " : "") + AGREEMENT_LABELS[agreementType(inv.agreement_type)] : kind === "DOSSIER" ? "Supporting commercial records" : "Commercial invoice", right, 77, 8.5, font, muted, "right");
     if (continuation) {
       line(100); y = block("Invoice: " + args.invoiceNumber, left, 114, right - left - 90, 8.5, bold, muted, 12) + 17;
       text(inv.currency, right, 114, 8.5, bold, muted, "right");
@@ -219,18 +222,20 @@ export async function renderInvoiceDocument(args: Args): Promise<Uint8Array> {
   newPage(documentKind, false); metadata();
   if (args.customerCopy && !args.bank) { paragraph("INVOICE COPY - PAYMENT DETAILS NOT INCLUDED", 8, muted); y += 14; }
   else if (!args.customerCopy && !args.approved && !args.agreementOnly) { paragraph("UNDER REVIEW - NOT PAYMENT INSTRUCTIONS", 8, muted); y += 14; }
+  if(args.agreementDraft){paragraph("DRAFT FOR REVIEW - NOT EXECUTED. Do not present this agreement as signed or approved.",9,muted);y+=12;}
   parties();
   if (!args.agreementOnly) { items(); totalPanel(); bankInstructions(); }
 
   if (args.templateBody) {
     if (!args.agreementOnly) { newPage("AGREEMENT", false); metadata(); parties(); }
     const terms = args.templateBody.replaceAll("{{seller}}", inv.merchant.legal_name).replaceAll("{{buyer}}", inv.buyer.legal_name)
+      .replaceAll("{{delivery}}",inv.consumer_terms?.delivery||"").replaceAll("{{cancellations_returns}}",inv.consumer_terms?.cancellations_returns||"").replaceAll("{{support_contact}}",inv.consumer_terms?.support_contact||"").replaceAll("{{additional_charges}}",inv.consumer_terms?.additional_charges||"")
       .replaceAll("{{amount}}", money(total)).replaceAll("{{currency}}", inv.currency).replaceAll("{{invoice}}", args.invoiceNumber);
     ensure(70); rect(left, y, right - left, 53);
     text("CONTRACT VALUE", left + 14, y + 10, 7.5, bold, muted);
     text(money(total) + " " + inv.currency, left + 14, y + 25, 15, bold); y += 75;
     // These identical fields are already printed above. All contractual clauses remain verbatim.
-    const duplicate = new Set(["B2B COMMERCIAL AGREEMENT", "Seller: " + inv.merchant.legal_name, "Buyer: " + inv.buyer.legal_name,
+    const duplicate = new Set(["B2B COMMERCIAL AGREEMENT", "D2C DIRECT-TO-CONSUMER AGREEMENT", "B2C CONSUMER SALES AGREEMENT", "Seller: " + inv.merchant.legal_name, "Buyer: " + inv.buyer.legal_name,
       "Commercial reference: " + args.invoiceNumber, "Contract value: " + money(total) + " " + inv.currency]);
     for (const part of terms.split("\n")) {
       if (duplicate.has(part.trim())) continue;

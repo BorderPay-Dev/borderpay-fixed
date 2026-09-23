@@ -1,3 +1,4 @@
+import {assertAgreementSale, assertTemplateType, requireConsumerTerms, agreementType} from "./predeposit-agreement.ts";
 import { loadPdfStyleAssets } from "./predeposit-pdf-assets.ts";
 import { sha256, canonicalJson, invoiceTotalMinor, normalizedLegalName, evaluateInvoice, assessedDigest, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
 import { parseDraft } from "./predeposit-input.ts";
@@ -32,9 +33,9 @@ export async function contextFor(db:any,owner:string,invoice:Invoice,accounts:an
  const history=await db.from("predeposit_invoices").select("total_minor,invoice_number").eq("owner_user_id",owner).eq("buyer_identity_hash",buyerHash).eq("currency",invoice.currency).gte("created_at",since).neq("status","rejected").limit(1001);
  const seen=new Map<string,number>();for(const r of history.data||[])seen.set(r.invoice_number,Number(r.total_minor));
  const verified=checked<any[]>(await db.from("predeposit_assets").select("sha256").eq("owner_user_id",owner).eq("verification_status","verified").eq("scan_status","clean"));
- const templates=checked<any[]>(await db.from("predeposit_agreement_templates").select("version").eq("status","approved"));
+ const templates=checked<any[]>(await db.from("predeposit_agreement_templates").select("version,agreement_type").eq("status","approved"));
  return {merchantUserId:owner,receivingAccount:{id:account.id,owner_user_id:owner,currency:account.currency,status:account.status},
-  verifiedMerchant:accounts.merchant,jurisdictionPolicy:policy.config?.jurisdiction_policy||null,approvedAgreementVersions:templates.map(t=>t.version),
+  verifiedMerchant:accounts.merchant,jurisdictionPolicy:policy.config?.jurisdiction_policy||null,approvedAgreementVersions:templates.filter(t=>agreementType(t.agreement_type)===agreementType(invoice.agreement_type)).map(t=>t.version),
   history:{available:!history.error&&(history.data||[]).length<=1000,buyer_invoice_count_30d:seen.size,same_currency_total_minor_30d:[...seen.values()].reduce((a,b)=>a+b,0)},
   structuring:policy.config?.structuring||null,verifiedEvidenceHashes:verified.map(a=>a.sha256),orderEvidence:null,contractEvidence:null,trackingVerifications:[],now:new Date().toISOString()};
 }
@@ -45,6 +46,8 @@ export async function submitInvoice(db:any,owner:string,draftId:string,version:n
  if(prior)return prior;
  const fields=parseDraft(draft.payload),policy=await loadPolicy(db),accounts=await loadInvoiceAccounts(db,owner);
  if(policy.config?.hub_enabled!==true)throw Error("Invoicing is not enabled");
+ assertAgreementSale(fields);
+ if(fields.contract_path==="generated")requireConsumerTerms(fields);
  const branding=checked<any>(await db.from("predeposit_branding").select("*").eq("owner_user_id",owner).maybeSingle());
  const ids=[...new Set([...fields.document_ids,branding?.logo_asset_id,branding?.signature_asset_id].filter(Boolean))];
  const assets: any[]=ids.length?checked<any[]>(await db.from("predeposit_assets").select("*").eq("owner_user_id",owner).in("id",ids)):[];
@@ -52,6 +55,7 @@ export async function submitInvoice(db:any,owner:string,draftId:string,version:n
  if(assets.filter(a=>a.kind==="executed_contract").length>1 || assets.filter(a=>["order_dashboard","platform_order_export"].includes(a.kind)).length>1)throw Error("Select one contract and one order proof per revision");
  const signature=assets.find(a=>a.id===branding?.signature_asset_id&&a.kind==="signature");
  const template=fields.contract_path==="generated"?checked<any>(await db.from("predeposit_agreement_templates").select("*").eq("version",fields.agreement_version).eq("status","approved").maybeSingle()):null;
+ if(template)assertTemplateType(template,fields);
  if(fields.contract_path==="generated" && (!template || !signature || !fields.signature_consent || !branding?.signer_name))throw Error("Select an approved agreement and authorize your saved signature");
  const invoice:Invoice={...fields,id:crypto.randomUUID(),revision:version,merchant:{legal_name:accounts.merchant.legal_name,incorporation_country:accounts.merchant.incorporation_country},
   documents:assets.filter(a=>!["logo","signature"].includes(a.kind)).map(a=>({id:a.id,kind:a.kind,sha256:a.sha256})),

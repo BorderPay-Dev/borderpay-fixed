@@ -1,3 +1,4 @@
+import {agreementSaleError, isConsumerSale, consumerTermsComplete, type AgreementType, type ConsumerTerms} from "./predeposit-agreement.ts";
 /**
  * BorderPay pre-deposit review policy v2.4.
  * Advisory AI never overrides required evidence, account controls or a human-review flag.
@@ -6,7 +7,7 @@
  */
 export const POLICY_VERSION = "borderpay-predeposit-2.4.0";
 export type Reason =
- | "invoice_incomplete" | "invalid_amount" | "buyer_details_missing"
+ | "agreement_type_mismatch" | "consumer_terms_missing" | "invoice_incomplete" | "invalid_amount" | "buyer_details_missing"
  | "remitter_mismatch" | "individual_commercial_buyer" | "source_of_funds_missing"
  | "vague_description" | "fund_utilization_missing" | "agreement_missing"
  | "signature_missing" | "cross_border_context_missing" | "logistics_missing"
@@ -22,12 +23,13 @@ export type DocumentKind = "signed_agreement" | "executed_contract" | "purchase_
  | "order_dashboard" | "platform_order_export" | "warehouse_receipt" | "dispatch_log";
 export type Evidence = { id: string; kind: DocumentKind; sha256: string; };
 export type Invoice = {
+ agreement_type?: AgreementType; consumer_terms?: ConsumerTerms;
  id: string; revision: number; currency: "USD" | "EUR" | "GBP"; receiving_account_id: string;
  merchant: { legal_name: string; incorporation_country: string };
  buyer: { legal_name: string; type: "company" | "sole_proprietor" | "individual" | "government"; address: string; country: string; tax_id: string };
  remitter: { legal_name: string; type: "company" | "sole_proprietor" | "individual" | "government"; relationship: string };
  category: "digital_services" | "physical_goods";
- order_source: "direct_b2b" | "ecommerce" | "crm";
+ order_source: "direct_b2b" | "direct_consumer" | "ecommerce" | "crm";
  order_platform: string; order_reference: string; tracking_numbers: string[];
  items: { description: string; quantity: number; unit_amount_minor: number; deliverable_reference: string }[];
  source_of_funds: string; fund_utilization: string;
@@ -128,6 +130,10 @@ export function invoiceTotalMinor(items: Pick<Invoice["items"][number], "quantit
 }
 export function evaluateInvoice(invoice: Invoice, context: ReviewContext, ai: AiReview | null = null): Assessment {
  const actions = new Set<Reason>(); const review = new Set<Reason>(); const required = new Set<DocumentKind>(invoice.contract_path==="custom"?["executed_contract"]:["signed_agreement"]);
+ const consumer = isConsumerSale(invoice.agreement_type);
+ const saleError = agreementSaleError(invoice);
+ if(saleError)actions.add(invoice.currency==="GBP"?"gbp_b2b_only":"agreement_type_mismatch");
+ if(consumer&&invoice.contract_path==="generated"&&!consumerTermsComplete(invoice.consumer_terms))actions.add("consumer_terms_missing");
  const total = invoiceTotalMinor(invoice.items);
  const account=context.receivingAccount;
  if(!account || !meaningful(invoice.receiving_account_id) || account.id!==invoice.receiving_account_id
@@ -145,11 +151,11 @@ export function evaluateInvoice(invoice: Invoice, context: ReviewContext, ai: Ai
    || invoice.merchant.incorporation_country.trim().toUpperCase() !== merchantCountry) actions.add("invoice_incomplete");
  if (total === null) actions.add("invalid_amount");
  if (!meaningful(invoice.buyer.legal_name,2) || !meaningful(invoice.buyer.address,8) || !/^[A-Z]{2}$/.test(country || "")
-   || !meaningful(invoice.buyer.tax_id,2) || !["company","sole_proprietor","individual","government"].includes(invoice.buyer.type)) actions.add("buyer_details_missing");
+   || (!consumer && !meaningful(invoice.buyer.tax_id,2)) || !["company","sole_proprietor","individual","government"].includes(invoice.buyer.type)) actions.add("buyer_details_missing");
  if (!meaningful(invoice.remitter.legal_name,2) || !meaningful(invoice.remitter.relationship,12)
    || normalizedLegalName(invoice.remitter.legal_name) !== normalizedLegalName(invoice.buyer.legal_name)
    || invoice.remitter.type !== invoice.buyer.type) { review.add("remitter_mismatch");required.add("executed_contract"); }
- if (invoice.buyer.type === "individual" || invoice.buyer.type === "sole_proprietor" || invoice.remitter.type === "individual") {
+ if (!consumer && (invoice.buyer.type === "individual" || invoice.buyer.type === "sole_proprietor" || invoice.remitter.type === "individual")) {
   review.add("individual_commercial_buyer");required.add("buyer_business_proof");required.add("executed_contract");required.add("end_use_declaration");
   if (!meaningful(invoice.commercial_end_use,30)) actions.add("end_use_missing");
  }
@@ -199,7 +205,7 @@ export function evaluateInvoice(invoice: Invoice, context: ReviewContext, ai: Ai
   else if (!context.verifiedEvidenceHashes.includes(doc.sha256)) review.add("evidence_unverified");
  }
 
- if (!["direct_b2b","ecommerce","crm"].includes(invoice.order_source)) actions.add("order_source_missing");
+ if (!["direct_b2b","direct_consumer","ecommerce","crm"].includes(invoice.order_source)) actions.add("order_source_missing");
  if (invoice.order_source==="ecommerce" || invoice.order_source==="crm") {
   if(!meaningful(invoice.order_platform,2) || !meaningful(invoice.order_reference,2)) actions.add("order_source_missing");
   const proof=invoice.documents.find(d=>["order_dashboard","platform_order_export"].includes(d.kind) && hash(d.sha256));

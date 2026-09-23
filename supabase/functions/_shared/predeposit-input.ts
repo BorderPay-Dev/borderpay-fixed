@@ -2,11 +2,13 @@ import { z } from "npm:zod@3.25.76";
 const text=(max=2000)=>z.string().trim().max(max);
 const type=z.enum(["company","sole_proprietor","individual","government"]);
 export const draftSchema=z.object({
+ agreement_type:z.enum(["b2b","d2c","b2c"]).default("b2b"),
+ consumer_terms:z.object({delivery:text(4000),cancellations_returns:text(6000),support_contact:text(1000),additional_charges:text(2000)}).default({delivery:"",cancellations_returns:"",support_contact:"",additional_charges:""}),
  currency:z.enum(["USD","EUR","GBP"]),receiving_account_id:text(200),
  buyer:z.object({legal_name:text(300),type,address:text(1200),country:text(2),tax_id:text(100)}),
  remitter:z.object({legal_name:text(300),type,relationship:text()}),
  category:z.enum(["digital_services","physical_goods"]),
- order_source:z.enum(["direct_b2b","ecommerce","crm"]),order_platform:text(200),order_reference:text(200),
+ order_source:z.enum(["direct_b2b","direct_consumer","ecommerce","crm"]),order_platform:text(200),order_reference:text(200),
  tracking_numbers:z.array(text(200)).max(20),
  items:z.array(z.object({description:text(2000),quantity:z.number().int().positive().max(1000000),unit_amount_minor:z.number().int().positive().max(9007199254740991),deliverable_reference:text(300)})).min(1).max(100),
  source_of_funds:text(6000),fund_utilization:text(6000),discovery_channel:text(),cross_border_justification:text(6000),commercial_end_use:text(6000),

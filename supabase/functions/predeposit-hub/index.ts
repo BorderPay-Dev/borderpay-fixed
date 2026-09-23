@@ -1,3 +1,4 @@
+import {agreementType, assertTemplateType, requireConsumerTerms} from "../_shared/predeposit-agreement.ts";
 import { loadPdfStyleAssets } from "../_shared/predeposit-pdf-assets.ts";
 declare const EdgeRuntime: {waitUntil(promise:Promise<unknown>):void};
 import {processDocumentCheck,validateReviewAssets} from "../_shared/predeposit-document-checks.ts";
@@ -105,9 +106,9 @@ Deno.serve(async req=>{
     if(!["ADMIN_SUPER","SUPER_ADMIN","ADMIN"].includes(String(admin.role).toUpperCase()))return reply({success:false,error:"Super admin approval required"},403);
     const version=String(body.version||"").trim(),text=String(body.text||"").trim();if(!version||text.length<300||text.length>30000)throw Error("A versioned agreement of 300 to 30000 characters is required");
     const status=body.approved===true?"approved":"draft";
-    const existing=checked<any>(await db.from("predeposit_agreement_templates").select("status").eq("version",version).maybeSingle());
+    const existing=checked<any>(await db.from("predeposit_agreement_templates").select("status,agreement_type").eq("version",version).maybeSingle());
     if(existing?.status==="approved")throw Error("Approved terms are immutable; create a new template version");
-    checked(await db.from("predeposit_agreement_templates").upsert({version,title:String(body.title||"B2B Commercial Agreement"),body:text,status,approved_by:body.approved?owner:null,approved_at:body.approved?new Date().toISOString():null}));
+    checked(await db.from("predeposit_agreement_templates").upsert({version,agreement_type:agreementType(body.agreement_type??existing?.agreement_type),title:String(body.title||"Commercial Agreement"),body:text,status,approved_by:body.approved?owner:null,approved_at:body.approved?new Date().toISOString():null}));
     checked(await db.from("predeposit_operator_log").insert({actor_user_id:owner,action,object_id:version,details:{rationale,status,terms_sha256:await sha256(text)}}));
     return reply({success:true});
    }
@@ -174,7 +175,7 @@ Deno.serve(async req=>{
    // Screen data comes from local records; never wait for provider API calls here.
    const [business,templates,branding,assets,drafts,invoices]=await Promise.all([
     db.from("business_profiles").select("company_name,country,bridge_customer_id").eq("user_id",owner).maybeSingle(),
-    db.from("predeposit_agreement_templates").select("version,title,body,status").eq("status","approved"),
+    db.from("predeposit_agreement_templates").select("version,title,body,status,agreement_type").in("status",["approved","draft"]),
     db.from("predeposit_branding").select("*").eq("owner_user_id",owner).maybeSingle(),
     db.from("predeposit_assets").select("id,kind,mime_type,size_bytes,verification_status,created_at").eq("owner_user_id",owner).order("created_at",{ascending:false}).limit(200),
     db.from("predeposit_drafts").select("*").eq("owner_user_id",owner).order("updated_at",{ascending:false}).limit(100),
@@ -278,13 +279,22 @@ Deno.serve(async req=>{
      if(asset.scan_status==="rejected"||asset.verification_status==="rejected")continue;
      attachments.push({kind:"executed_contract",name:"Commercial agreement",mime:asset.mime_type,bytes:await loadAssetBytes(db,asset),sha256:asset.sha256});
     }
-   }else if(payload.signature_consent===true&&payload.agreement_version&&branding?.signature_asset_id&&branding?.signer_name){
-    const template=checked<any>(await db.from("predeposit_agreement_templates").select("*").eq("version",payload.agreement_version).eq("status","approved").maybeSingle());
-    const signature=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.signature_asset_id).eq("owner_user_id",owner).single());
-    if(template&&signature.kind==="signature"&&signature.scan_status!=="rejected"&&signature.verification_status!=="rejected"){
-     const executed={...invoice,agreement:{version:template.version,terms_sha256:await sha256(template.body),signature_sha256:signature.sha256,signed_by:branding.signer_name,signed_at:new Date().toISOString(),signature_consent:true}};
-     const agreement=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice:executed,invoiceNumber,fontBytes:font,templateBody:template.body,logo,signature:await loadAssetBytes(db,signature),agreementOnly:true});
-     attachments.push({kind:"signed_agreement",name:"Commercial agreement",mime:"application/pdf",bytes:agreement,sha256:await sha256(agreement)});
+   }else if(payload.agreement_version){
+    const template=checked<any>(await db.from("predeposit_agreement_templates").select("*").eq("version",payload.agreement_version).in("status",["approved","draft"]).maybeSingle());
+    if(!template)throw Error("Select an available agreement template");
+    assertTemplateType(template,invoice);requireConsumerTerms(invoice);
+    if(template.status==="draft"){
+     const unsigned={...invoice,agreement:{...invoice.agreement,version:template.version,signature_consent:false}};
+     const agreement=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice:unsigned,invoiceNumber,fontBytes:font,templateBody:template.body,logo,agreementOnly:true,agreementDraft:true});
+     attachments.push({kind:"draft_agreement",name:"Draft agreement - not executed",mime:"application/pdf",bytes:agreement,sha256:await sha256(agreement)});
+     bankNotice=[bankNotice,"The attached agreement is a draft for review. No signature has been applied."].filter(Boolean).join(" ");
+    }else if(payload.signature_consent===true&&branding?.signature_asset_id&&branding?.signer_name){
+     const signature=checked<any>(await db.from("predeposit_assets").select("*").eq("id",branding.signature_asset_id).eq("owner_user_id",owner).single());
+     if(signature.kind==="signature"&&signature.scan_status!=="rejected"&&signature.verification_status!=="rejected"){
+      const executed={...invoice,agreement:{version:template.version,terms_sha256:await sha256(template.body),signature_sha256:signature.sha256,signed_by:branding.signer_name,signed_at:new Date().toISOString(),signature_consent:true}};
+      const agreement=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice:executed,invoiceNumber,fontBytes:font,templateBody:template.body,logo,signature:await loadAssetBytes(db,signature),agreementOnly:true});
+      attachments.push({kind:"signed_agreement",name:"Commercial agreement",mime:"application/pdf",bytes:agreement,sha256:await sha256(agreement)});
+     }
     }
    }
    const bytes=await renderInvoiceDocument({...await loadPdfStyleAssets(db),invoice,invoiceNumber,fontBytes:font,logo,customerCopy:true,bank,attachments});
