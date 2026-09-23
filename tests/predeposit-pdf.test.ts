@@ -75,3 +75,15 @@ const usdcopy=await renderInvoiceDocument({invoice:{...invoice,currency:"USD"},i
 await Deno.writeFile("/tmp/predeposit-pdf-qa/usd-invoice.pdf",usdcopy);
 assert.equal((await PDFDocument.load(usdcopy)).getSubject(),"borderpay-b2b-2026-09");
 console.log("PASS: B2B layout, pagination, currency rails and unauthorized signatures");
+
+const consumerMigration=await Deno.readTextFile("supabase/migrations/20260923020000_predeposit_consumer_agreements.sql");
+const consumerBodies=[...consumerMigration.matchAll(/\$terms\$([\s\S]*?)\$terms\$/g)].map(m=>m[1]);
+for(const [i,type] of (["d2c","b2c"] as const).entries()){
+ const inv=structuredClone(invoice);inv.agreement_type=type;inv.currency="EUR";inv.buyer={...inv.buyer,type:"individual",legal_name:"Alex Example",tax_id:""};
+ inv.consumer_terms={delivery:"Ship within five business days using tracked delivery.",cancellations_returns:"Contact support to exercise applicable statutory cancellation and return rights.",support_contact:"support@example.test",additional_charges:"None; invoice total includes the disclosed taxes and delivery charges."};
+ inv.agreement={...inv.agreement,version:"borderpay-"+type+"-draft-1",signature_consent:false};
+ const draftPdf=await renderInvoiceDocument({invoice:inv,invoiceNumber:"CONSUMER-001",fontBytes:font,boldFontBytes:boldFont,brandLogo,templateBody:consumerBodies[i],agreementOnly:true,agreementDraft:true});
+ await Deno.writeFile("/tmp/predeposit-pdf-qa/"+type+"-agreement.pdf",draftPdf);
+ assert.ok((await PDFDocument.load(draftPdf)).getPageCount()>=2);
+ await assert.rejects(()=>renderInvoiceDocument({invoice:inv,invoiceNumber:"DRAFT",fontBytes:font,templateBody:consumerBodies[i],signature,agreementDraft:true}),/Draft agreements cannot/);
+}

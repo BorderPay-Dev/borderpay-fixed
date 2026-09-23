@@ -1,3 +1,4 @@
+import {agreementType, assertTemplateType, assertAgreementSale} from "../supabase/functions/_shared/predeposit-agreement.ts";
 import assert from "node:assert/strict";
 import { evaluateInvoice, invoiceTotalMinor, assessedDigest, compareOrderEvidence, type Invoice, type ReviewContext, type OrderEvidence } from "../supabase/functions/_shared/predeposit-policy.ts";
 import { screenInvoice, assessWithAi } from "../supabase/functions/_shared/predeposit-azure.ts";
@@ -267,4 +268,28 @@ Deno.test("optional document checks do not invent missing bank policy or clear u
  assert.equal(applyDocumentReviewScope(strict,context,undefined,"observe").status,"review_required");
  context.verifiedEvidenceHashes=[];assert.notEqual(applyDocumentReviewScope(evaluateInvoice(invoice,context,ai),context,"document_checks","observe").status,"approved");
  context.history.available=false;assert.ok(applyDocumentReviewScope(evaluateInvoice(invoice,context,ai),context,"document_checks","observe").reasons.includes("history_unavailable"));
+});
+
+Deno.test("consumer sales do not require business registration, but preserve payer and logistics checks",()=>{
+ for(const type of ["d2c","b2c"] as const){
+  const {invoice,context}=fixture();invoice.agreement_type=type;invoice.currency="EUR";context.receivingAccount!.currency="EUR";
+  invoice.buyer={...invoice.buyer,type:"individual",legal_name:"Example Consumer",tax_id:""};
+  invoice.remitter={...invoice.remitter,type:"individual",legal_name:"Example Consumer"};invoice.order_source="direct_consumer";
+  invoice.consumer_terms={delivery:"Digital access within one business day",cancellations_returns:"Contact support for applicable withdrawal rights and refunds",support_contact:"support@example.test",additional_charges:"None"};
+  assert.equal(evaluateInvoice(invoice,context).status,"ready_for_ai");
+  invoice.remitter.legal_name="Different Person";assert.ok(evaluateInvoice(invoice,context).reasons.includes("remitter_mismatch"));
+  invoice.remitter.legal_name=invoice.buyer.legal_name;invoice.category="physical_goods";
+  assert.ok(evaluateInvoice(invoice,context).reasons.includes("logistics_missing"));
+  invoice.consumer_terms.delivery="";assert.ok(evaluateInvoice(invoice,context).reasons.includes("consumer_terms_missing"));
+ }
+});
+Deno.test("agreement type cannot bypass GBP or mix consumer templates with business buyers",()=>{
+ assert.equal(agreementType(undefined),"b2b");
+ assert.throws(()=>agreementType("unknown"),/Select/);
+ const {invoice,context}=fixture();invoice.agreement_type="d2c";
+ assert.ok(evaluateInvoice(invoice,context).reasons.includes("gbp_b2b_only"));
+ assert.throws(()=>assertAgreementSale(invoice),/GBP/);
+ invoice.currency="EUR";assert.throws(()=>assertAgreementSale(invoice),/individual consumer/);
+ assert.throws(()=>assertTemplateType({agreement_type:"b2b"},invoice),/matching/);
+ assert.doesNotThrow(()=>assertTemplateType({agreement_type:"d2c"},invoice));
 });

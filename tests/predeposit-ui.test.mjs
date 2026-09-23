@@ -37,8 +37,9 @@ try{
  assert.equal(await page.getByText('12345678').count(),0);
  await page.screenshot({path:'/tmp/predeposit-pdf-qa/merchant-mobile.png',fullPage:true});
  await page.getByRole('button',{name:'Download invoice',exact:true}).waitFor();
- await page.getByRole('button',{name:'B2B agreement',exact:true}).click();
- await page.getByLabel('Approved agreement template').selectOption('v1');
+ await page.getByRole('button',{name:'Agreement',exact:true}).click();
+ await page.getByLabel('Agreement template').selectOption('v1');
+ await page.getByRole('checkbox',{name:/I have read these terms/}).check();
  await page.getByRole('button',{name:'Check invoice & documents',exact:true}).click();
  await page.getByText('Review is processing.',{exact:false}).waitFor();
  assert.equal(await page.getByRole('button',{name:'Download invoice & payment details'}).count(),0);
@@ -69,4 +70,25 @@ try{
  await page.screenshot({path:'/tmp/predeposit-pdf-qa/uploaded-documents-mobile.png',fullPage:true});
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Upload comparison must fit mobile');
  console.log('PASS: existing invoice/contract upload, incomplete-pair guidance and corrections without retyping invoice');
+
+ await page.goto('http://127.0.0.1:4173/tests/fixtures/invoice-ui.html');
+ await page.getByLabel('Agreement type').selectOption('d2c');
+ assert.equal(await page.getByLabel('Tax / VAT / registration ID').count(),0);
+ await page.getByRole('button',{name:'Agreement',exact:true}).click();
+ await page.getByLabel('Agreement template').selectOption('consumer-draft');
+ assert.equal(await page.getByRole('checkbox',{name:/I have read these terms/}).isDisabled(),true);
+ assert.equal(await page.getByLabel('Agreement template').locator('option[value="v1"]').count(),0);
+ await page.getByLabel('Delivery / performance arrangements').fill('Ship within five business days');
+ await page.getByLabel('Cancellation, withdrawal and returns').fill('Contact support to exercise applicable statutory withdrawal rights.');
+ await page.getByLabel('Customer support contact').fill('support@example.test');
+ await page.getByLabel('Taxes / delivery / additional charges').fill('None');
+ await page.screenshot({path:'/tmp/predeposit-pdf-qa/consumer-agreement-mobile.png',fullPage:true});
+ await page.getByRole('button',{name:'Invoice builder',exact:true}).click();
+ await page.getByLabel('Agreement type').selectOption('b2c');
+ await page.getByRole('button',{name:'Agreement',exact:true}).click();
+ assert.equal(await page.getByLabel('Agreement template').inputValue(),'');
+ await page.getByLabel('Agreement template').selectOption('retail-draft');
+ await page.setViewportSize({width:1440,height:1000});
+ await page.screenshot({path:'/tmp/predeposit-pdf-qa/consumer-agreement-desktop.png',fullPage:true});
+ console.log('PASS: consumer types, matching templates, no business tax ID, draft signatures blocked and consent reset');
 }finally{await browser.close();}

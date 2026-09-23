@@ -1,3 +1,4 @@
+import {assertAgreementSale} from "./predeposit-agreement.ts";
 import { assessedDigest, evaluateInvoice, invoiceTotalMinor, POLICY_VERSION, type Invoice, type ReviewContext } from "./predeposit-policy.ts";
 
 export type ApprovedInvoiceRecord = {
@@ -43,6 +44,7 @@ export function generateObservedInvoiceInstructions(owner:string,invoice:Invoice
  return formatInstructions(invoice,account,total);
 }
 function formatInstructions(invoice:Invoice,account:ReceivingAccountDetails,totalMinor:number):BankPaymentInstructions{
+ assertAgreementSale(invoice);
  // Preserve the strict GBP business-to-business rule even on a manually approved record.
  if(invoice.currency==="GBP" && (invoice.buyer.type!=="company" || invoice.remitter.type!=="company"))throw Error("GBP requires a corporate buyer and corporate remitter");
  if(!account.beneficiary_name?.trim() || !account.bank_name?.trim())throw Error("Verified bank details are incomplete");
