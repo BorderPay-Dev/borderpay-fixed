@@ -30,5 +30,5 @@ begin
  end loop;
  return to_jsonb(i);
 end;$function$
-
+;
 commit;
