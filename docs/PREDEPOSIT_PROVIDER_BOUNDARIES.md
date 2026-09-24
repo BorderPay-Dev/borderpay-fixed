@@ -7,11 +7,6 @@ The invoice evidence record is provider-neutral, but each receiving account rema
 ## Bridge
 The first runtime account reader uses the existing authenticated Bridge adapter. It reads live customer and virtual-account status and preserves the actual beneficiary and mandatory payment reference. It creates no VA and initiates no transfer.
 
-## Conduit
-The public v2 sandbox API describes USD domestic, EUR SEPA and GBP domestic deposit instructions. USD ACH and Fedwire can have different routing numbers: the collection rail must be selected explicitly. Sandbox and production keys, customers and evidence must stay separate. Existing Bridge KYB approval is not Conduit approval. Conduit integration and account-level B2B collection permission require sandbox testing and the agreed production onboarding process before activation.
-
-Reference: https://docs.conduit.financial/api-reference/virtual-accounts/list-customer-virtual-accounts
-
 ## Borderless
 The public virtual-account guide says VAs generally accept first-party deposits, not third-party deposits, and lists US/EU availability. Do not expose a Borderless VA to an invoice buyer merely because the account is active. Require explicit third-party B2B collection permission for the specific product/account and currency. GBP support must be confirmed separately.
 

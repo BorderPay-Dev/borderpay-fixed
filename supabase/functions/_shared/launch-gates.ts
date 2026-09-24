@@ -26,7 +26,7 @@ export function bridgeOnboardingPausedBody() {
   return {
     success: false,
     code: BRIDGE_ONBOARDING_PAUSED_CODE,
-    error: "Verification is paused until BorderPay launches money movement. You can keep using your account.",
+    error: "Your BorderPay account is saved. Verification for new accounts is temporarily unavailable while we prepare our next banking provider. You can sign in and manage your profile.",
   };
 }
 

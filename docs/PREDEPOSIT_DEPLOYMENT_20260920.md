@@ -20,7 +20,7 @@ No transfer, receiving account, customer verification, or provider hold was chan
 - Compliance approval of the draft agreement and versioned jurisdiction/structuring thresholds.
 - Reconcile the live bridge-virtual-account provisioning graph before enabling the mandatory read boundary. It has enrollment, destination, status and fee differences from repository main.
 - Signed incoming-deposit event matching and provider-specific RFI submission adapters.
-- Conduit/Borderless live collection entitlement and verified customer bindings; neither is enabled for live invoice collection here.
+- Additional provider live collection entitlement and verified customer bindings; no additional provider is enabled for live invoice collection here.
 - Native file-picker/signature/PDF testing and new store builds. No new mobile release was submitted.
 
 ## Verification

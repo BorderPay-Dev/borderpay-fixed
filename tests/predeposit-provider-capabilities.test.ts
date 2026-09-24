@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {assertCollectionEntitlement,assertNoComplianceBypass,type CollectionEntitlement} from "../supabase/functions/_shared/predeposit-provider-capabilities.ts";
-const e:CollectionEntitlement={provider:"conduit",environment:"sandbox",customer_id:"customer",account_id:"account",currency:"GBP",third_party_b2b:true,provider_approval_reference:"test-approval",enabled:true,expires_at:null};
+const e:CollectionEntitlement={provider:"bridge",environment:"sandbox",customer_id:"customer",account_id:"account",currency:"GBP",third_party_b2b:true,provider_approval_reference:"test-approval",enabled:true,expires_at:null};
 Deno.test("provider permissions bind environment, merchant, account and currency",()=>{
  assert.doesNotThrow(()=>assertCollectionEntitlement(e,e));
  for(const field of ["provider","environment","customer_id","account_id","currency"]){assert.throws(()=>assertCollectionEntitlement(e,{...e,[field]:"different"}));}
