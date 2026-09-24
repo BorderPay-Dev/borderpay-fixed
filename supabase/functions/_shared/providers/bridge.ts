@@ -1,3 +1,4 @@
+import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../launch-gates.ts";
 import { bridgeBusinessNameFields } from "./bridge-business-name.ts";
 import { transferInitiation, type WalletInitiationRequirement } from "../bridge-transfer-initiation.ts";
 /**
@@ -58,6 +59,10 @@ export class BridgeProvider implements PaymentProvider {
 
   // ── Identity ──────────────────────────────────────────────────────────────
   async createCustomer(input: CustomerCreateInput): Promise<CustomerCreateResult> {
+    if (!bridgeOnboardingEnabled()) {
+      const paused = bridgeOnboardingPausedBody();
+      throw new BridgeProviderError(paused.error, { status: 503, bridge_code: paused.code });
+    }
     const body: Record<string, unknown> = {
       type:           input.account_type,             // 'individual' | 'business'
       email:          input.email,

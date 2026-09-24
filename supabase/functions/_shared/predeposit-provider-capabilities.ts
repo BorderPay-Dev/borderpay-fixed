@@ -1,5 +1,5 @@
 export type CollectionEntitlement={
- provider:"bridge"|"conduit"|"borderless";environment:"sandbox"|"production";
+ provider:"bridge"|"borderless";environment:"sandbox"|"production";
  customer_id:string;account_id:string;currency:"USD"|"EUR"|"GBP";
  third_party_b2b:boolean;provider_approval_reference:string|null;
  enabled:boolean;expires_at:string|null;

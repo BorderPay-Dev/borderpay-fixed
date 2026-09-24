@@ -1,0 +1,23 @@
+name: Provider onboarding hold
+on:
+  pull_request:
+    paths:
+      - 'supabase/functions/_shared/launch-gates.ts'
+      - 'supabase/functions/_shared/providers/bridge.ts'
+      - 'supabase/functions/bridge-missing-customer-migration/**'
+      - 'tests/provider-onboarding-hold.test.ts'
+      - '.github/workflows/provider-onboarding-hold.yml'
+permissions:
+  contents: read
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --no-check --allow-env tests/provider-onboarding-hold.test.ts tests/predeposit-provider-capabilities.test.ts
+      - name: Audit remaining retired provider references
+        run: |
+          git grep -l -i conduit -- ':!package-lock.json' || true
