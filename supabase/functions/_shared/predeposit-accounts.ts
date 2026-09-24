@@ -2,7 +2,7 @@ import { bridgeProvider } from "./providers/bridge.ts";
 import { loadAndAssertBridgeIdentityInvariant } from "./bridge-identity-invariant.ts";
 import { getFinancialAccessBlock } from "./account-access.ts";
 import type { ReceivingAccountDetails } from "./predeposit-payment-instructions.ts";
-export type MerchantAccounts={provider:"bridge"|"conduit"|"borderless";customer_id:string;merchant:{legal_name:string;incorporation_country:string;active:boolean;approved:boolean};accounts:ReceivingAccountDetails[]};
+export type MerchantAccounts={provider:"bridge"|"borderless";customer_id:string;merchant:{legal_name:string;incorporation_country:string;active:boolean;approved:boolean};accounts:ReceivingAccountDetails[]};
 export async function loadInvoiceAccounts(db:any,userId:string):Promise<MerchantAccounts>{
  const block=await getFinancialAccessBlock(db,userId);if(block)throw Error("Account financial access is unavailable");
  const identity=await loadAndAssertBridgeIdentityInvariant(db,userId);
@@ -29,5 +29,5 @@ export async function loadInvoiceAccounts(db:any,userId:string):Promise<Merchant
  });
  return {provider:"bridge",customer_id:identity.context.bridge_customer_id,merchant:{legal_name:biz.company_name,incorporation_country:biz.country,active:true,approved:true},accounts};
 }
-// Conduit/Borderless adapters must implement this same contract and their own live
+// Additional provider adapters must implement this same contract and their own live
 // eligibility/status checks. No provider is enabled or selected on a client's request.

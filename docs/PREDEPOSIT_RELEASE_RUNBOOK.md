@@ -3,7 +3,7 @@
 ## Implemented source
 Merchant invoice builder, agreement selection, branding/signature capture, conditional evidence uploads, authenticated private upload/download endpoints, review queue, OCR and Azure review adapters, manual field verification, invoice revision snapshots, private RFI dossiers, and approved buyer payment PDFs.
 
-The initial runtime receiving-account adapter reads Bridge. Conduit/Borderless permissions and environment checks are prepared as a shared contract; these providers are not active runtime adapters in this release.
+The initial runtime receiving-account adapter reads Bridge. Additional provider permissions and environment checks are prepared as a shared contract; these providers are not active runtime adapters in this release.
 
 ## Required configuration
 - AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION (existing project values).
