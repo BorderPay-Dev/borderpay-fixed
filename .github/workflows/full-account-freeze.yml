@@ -4,6 +4,7 @@ on:
     paths:
       - 'supabase/migrations/20260925130000_restore_existing_full_account_freeze.sql'
       - 'tests/sql/full_freeze_*.sql'
+      - 'scripts/ci/lifecycle_write_matrix.json'
       - '.github/workflows/full-account-freeze.yml'
   workflow_dispatch:
 permissions:
