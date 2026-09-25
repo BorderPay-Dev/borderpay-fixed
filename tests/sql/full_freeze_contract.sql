@@ -45,3 +45,39 @@ do $$ begin
  assert not exists(select 1 from webhook_logs where event_id='bridge:queue-fail'),'queue parent rolls back for retry';
 end $$;
 select 'PASS: full freeze, mappings, signature rejection, grants, duplicate delivery, fraud preservation, no auto-unlock and atomic rollback' as result;
+
+-- Exercise the existing guard under the role used by PostgREST customers.
+begin;
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000002',true);
+set local role authenticated;
+do $$ begin
+ update user_profiles set updated_at=now() where bridge_customer_id='active-individual';
+ begin
+  update user_profiles set account_status='active',account_frozen_at=null where bridge_customer_id='active-individual';
+  raise exception 'customer cleared full freeze';
+ exception when insufficient_privilege then
+  assert sqlerrm='Compliance-managed account status fields cannot be changed by the customer.','must be denied by the existing compliance guard';
+ end;
+ begin
+  update user_profiles set bridge_account_status='active' where bridge_customer_id='active-individual';
+  raise exception 'customer forged provider status';
+ exception when insufficient_privilege then
+  assert sqlerrm='Compliance-managed account status fields cannot be changed by the customer.';
+ end;
+ assert (select account_status='frozen' and bridge_account_status='paused' from user_profiles where bridge_customer_id='active-individual');
+end $$;
+rollback;
+-- The verified admin and backend paths remain functional.
+begin;
+select set_config('request.jwt.claim.role','authenticated',true);
+select set_config('request.jwt.claim.sub','00000000-0000-4000-8000-000000000099',true);
+set local role authenticated;
+update user_profiles set account_frozen_reason='authorized admin note' where bridge_customer_id='active-individual';
+rollback;
+begin;
+select set_config('request.jwt.claim.role','service_role',true);
+set local role service_role;
+update user_profiles set account_frozen_reason='authorized backend note' where bridge_customer_id='active-individual';
+rollback;
+select 'PASS: customers cannot clear local freeze or forge provider status; backend/admin updates work' as result;

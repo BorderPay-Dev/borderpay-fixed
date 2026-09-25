@@ -10,7 +10,9 @@ Verified customer-paused webhooks freeze the mapped profile inside the existing
 business profile's effective Bridge customer. Transfer or virtual-account status
 events cannot freeze the customer. Invalid signatures, duplicate events, and failed
 queue writes retain the existing rejection, idempotency, and rollback semantics.
-Existing freeze reasons and dates survive, including fraud holds. Active/approval
+Existing freeze reasons and dates survive, including fraud holds. The existing
+compliance-field guard checks the caller context rather than its SECURITY DEFINER
+owner, so customers cannot clear those fields themselves. Active/approval
 events never clear the local freeze. There is no timed or automatic unlock.
 
 The existing wallet-summary RPC returns `mode: locked`; no balances or receiving

@@ -116,6 +116,47 @@ $$;
 revoke all on function public.paused_account_wallet_summary() from public,anon;
 grant execute on function public.paused_account_wallet_summary() to authenticated;
 
+-- Reuse the existing compliance-field guard. A SECURITY DEFINER function's
+-- current_user is its owner, not the caller; it must not exempt every customer.
+CREATE OR REPLACE FUNCTION public.guard_user_profile_compliance_status()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_role text := coalesce(nullif(current_setting('request.jwt.claim.role', true), ''), auth.role(), '');
+  v_is_admin boolean := false;
+begin
+  if v_role = 'service_role' or (v_role = '' and session_user in ('postgres', 'supabase_admin')) then
+    return new;
+  end if;
+
+  begin
+    v_is_admin := public.is_borderpay_admin();
+  exception when others then
+    v_is_admin := false;
+  end;
+  if v_is_admin then
+    return new;
+  end if;
+
+  if new.account_status is distinct from old.account_status
+     or new.account_frozen_at is distinct from old.account_frozen_at
+     or new.account_frozen_reason is distinct from old.account_frozen_reason
+     or new.account_frozen_by is distinct from old.account_frozen_by
+     or new.bridge_account_status is distinct from old.bridge_account_status
+     or new.bridge_account_paused_at is distinct from old.bridge_account_paused_at
+  then
+    raise exception using
+      errcode = '42501',
+      message = 'Compliance-managed account status fields cannot be changed by the customer.';
+  end if;
+
+  return new;
+end;
+$function$;
+
 -- Restore only Bridge-paused profiles that still have the receiving-only
 -- eligibility states. Preserve existing fraud reasons, dates, and stronger locks.
 update public.user_profiles
