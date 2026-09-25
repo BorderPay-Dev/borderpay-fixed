@@ -213,6 +213,38 @@
       ],
       "classification": "canonical_rpc",
       "future_rpc": "upsert_bridge_transfer_projection"
+    },
+    {
+      "id": "DBFN_RESTORE_FULL_FREEZE_BRIDGE_WEBHOOK_EVENTS",
+      "path_regex": "^supabase/migrations/20260925130000_restore_existing_full_account_freeze\\.sql$",
+      "table": "bridge_webhook_events",
+      "ops": [
+        "insert",
+        "update"
+      ],
+      "classification": "canonical_rpc",
+      "future_rpc": "ingest_bridge_event (existing atomic queue and full freeze)"
+    },
+    {
+      "id": "DBFN_RESTORE_FULL_FREEZE_PENDING_EVENTS",
+      "path_regex": "^supabase/migrations/20260925130000_restore_existing_full_account_freeze\\.sql$",
+      "table": "pending_events",
+      "ops": [
+        "insert"
+      ],
+      "classification": "canonical_rpc",
+      "future_rpc": "ingest_bridge_event (existing atomic queue and full freeze)"
+    },
+    {
+      "id": "DBFN_RESTORE_FULL_FREEZE_WEBHOOK_LOGS",
+      "path_regex": "^supabase/migrations/20260925130000_restore_existing_full_account_freeze\\.sql$",
+      "table": "webhook_logs",
+      "ops": [
+        "insert",
+        "update"
+      ],
+      "classification": "canonical_rpc",
+      "future_rpc": "ingest_bridge_event (existing atomic queue and full freeze)"
     }
   ]
 }
