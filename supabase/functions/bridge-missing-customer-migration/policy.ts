@@ -81,7 +81,7 @@ export function providerLinkReason(
   ) return "provider_customer_owned_by_another_user";
   if (
     profile.account_type === "business" &&
-    String(raw.business_name || raw.name || "").trim().toLowerCase() !==
+    String(raw.business_legal_name || raw.business_name || raw.name || "").trim().toLowerCase() !==
       String(business?.company_name || "").trim().toLowerCase()
   ) return "provider_company_name_mismatch";
   return null;
