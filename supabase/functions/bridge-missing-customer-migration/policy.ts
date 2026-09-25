@@ -64,6 +64,7 @@ export function providerLinkReason(
   raw: any,
   profile: any,
   business: any,
+  options: { allowMissingBusinessName?: boolean } = {},
 ): string | null {
   if (
     String(raw.email || raw.business_email || "").trim().toLowerCase() !==
@@ -79,9 +80,14 @@ export function providerLinkReason(
     raw.metadata?.borderpay_user_id &&
     raw.metadata.borderpay_user_id !== profile.id
   ) return "provider_customer_owned_by_another_user";
+  const companyName = String(
+    raw.business_legal_name || raw.business_name || raw.full_name || raw.name ||
+      "",
+  ).trim();
   if (
     profile.account_type === "business" &&
-    String(raw.business_legal_name || raw.business_name || raw.full_name || raw.name || "").trim().toLowerCase() !==
+    (companyName || !options.allowMissingBusinessName) &&
+    companyName.toLowerCase() !==
       String(business?.company_name || "").trim().toLowerCase()
   ) return "provider_company_name_mismatch";
   return null;

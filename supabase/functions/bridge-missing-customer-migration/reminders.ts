@@ -110,7 +110,12 @@ export async function remindBusiness(
     );
   }
   const customer = customerResult.data?.data ?? customerResult.data;
-  const identity = providerLinkReason(customer, p, b);
+  if (customer.id !== id) return skipped("provider_customer_id_mismatch");
+  // Existing mapped customers are authenticated by exact confirmed email, type,
+  // unique ownership and returned ID. Bridge may omit company name from this GET.
+  const identity = providerLinkReason(customer, p, b, {
+    allowMissingBusinessName: true,
+  });
   if (identity) return skipped(identity);
   const stage = reminderStage(customer);
   if (!stage) return skipped("no_customer_action_required");

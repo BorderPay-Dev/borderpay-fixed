@@ -134,7 +134,7 @@ Deno.test("live-status checks, recent-email suppression, dry-run and link dispat
         ? {
           email: profile.email,
           type: "business",
-          full_name: business.company_name,
+          id: "synthetic-customer",
           status,
           has_accepted_terms_of_service: accepted,
         }
