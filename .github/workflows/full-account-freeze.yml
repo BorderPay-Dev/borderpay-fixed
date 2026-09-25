@@ -1,0 +1,40 @@
+name: Existing full account freeze contract
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20260925130000_restore_existing_full_account_freeze.sql'
+      - 'tests/sql/full_freeze_*.sql'
+      - '.github/workflows/full-account-freeze.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  freeze-contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: freeze_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: disposable-ci-only
+      PGDATABASE: freeze_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Verify the existing freeze contract using synthetic data only
+        run: |
+          psql -v ON_ERROR_STOP=1 -f tests/sql/full_freeze_fixture.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260925130000_restore_existing_full_account_freeze.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260925130000_restore_existing_full_account_freeze.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/full_freeze_contract.sql
