@@ -1,3 +1,5 @@
+import { remindBusiness } from "./reminders.ts";
+import { bridgeFetch } from "../_shared/providers/bridge-client.ts";
 import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/launch-gates.ts";
 // bridge-missing-customer-migration
 //
@@ -343,11 +345,26 @@ Deno.serve(async (req: Request) => {
 
   if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
 
-  let body: { emails?: string[]; dry_run?: boolean; limit?: number; include_all_missing?: boolean; notify?: boolean } = {};
+  let body: { action?: string; user_ids?: string[]; emails?: string[]; dry_run?: boolean; limit?: number; include_all_missing?: boolean; notify?: boolean } = {};
   try {
     body = await req.json();
   } catch {
     return json({ success: false, error: "Invalid JSON" }, 400);
+  }
+
+  if (body.action === "remind_business_verification") {
+    const ids = [...new Set(body.user_ids || [])];
+    if (!ids.length || ids.length > 25 || ids.some(id => !/^[0-9a-f-]{36}$/i.test(id))) return json({ success: false, error: "1–25 valid user_ids required" }, 400);
+    const send = async (payload: unknown) => {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${SEND_EMAIL_TOKEN}` }, body: JSON.stringify(payload) });
+      return { ok: response.ok, body: await response.json().catch(() => ({})) };
+    };
+    const results = [];
+    for (const id of ids) {
+      try { results.push(await remindBusiness(supabase, bridgeFetch, send, id, body.dry_run !== false)); }
+      catch { results.push({ user_id: id, status: "error", reason: "reminder_request_failed" }); }
+    }
+    return json({ success: true, data: { dry_run: body.dry_run !== false, results } });
   }
 
   let emails = Array.isArray(body.emails) ? body.emails.map((v) => String(v)) : [];
