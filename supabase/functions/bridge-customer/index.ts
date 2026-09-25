@@ -4,7 +4,6 @@
 //
 // Response: { success, data: { bridge_customer_id, account_type } }
 
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import { isBridgeBlocked, bridgeCountryBlockResponse, logControlledBridgeTraffic } from "../_shared/providers/bridge-country-policy.ts";
@@ -35,12 +34,18 @@ Deno.serve(async (req) => {
   const user = userInfo?.user;
   if (authErr || !user) return json({ success: false, error: "Unauthorized" }, 401);
 
+  if (!user.email_confirmed_at) return json({ success: false, error: "Please verify your email first.", code: "email_not_verified" }, 403);
+
   const { data: profile } = await supa
     .from("user_profiles")
-    .select("id, email, full_name, account_type, country, phone, bridge_customer_id")
+    .select("id, email, full_name, account_type, country, phone, bridge_customer_id, account_status, bridge_account_status, account_frozen_at")
     .eq("id", user.id)
     .maybeSingle();
   if (!profile) return json({ success: false, error: "user_profiles row missing" }, 404);
+
+  if (profile.account_frozen_at || [profile.account_status, profile.bridge_account_status].some(status => ["frozen", "paused", "rejected", "disabled", "suspended", "closed", "offboarded"].includes(String(status || "").toLowerCase()))) {
+    return json({ success: false, error: "This account is restricted. Please contact support.", code: "account_restricted" }, 403);
+  }
 
   // Country eligibility FIRST — before any idempotent return. Round-10
   // CTO fix: the earlier version checked `bridge_customer_id` first and
@@ -66,12 +71,19 @@ Deno.serve(async (req) => {
   if (profile.account_type === "business") {
     const { data: biz } = await supa
       .from("business_profiles")
-      .select("company_name, registration_number")
+      .select("company_name, registration_number, bridge_customer_id, bridge_kyb_status, country")
       .eq("user_id", user.id)
       .maybeSingle();
+    if (!biz?.company_name) return json({ success: false, error: "Please complete your company details first." }, 400);
+    if (["rejected", "paused", "frozen", "offboarded"].includes(String(biz.bridge_kyb_status || "").toLowerCase())) return json({ success: false, error: "This account is restricted.", code: "account_restricted" }, 403);
+    if (biz.bridge_customer_id) return json({ success: true, data: { bridge_customer_id: biz.bridge_customer_id, account_type: profile.account_type, already_exists: true } });
+    if (isBridgeBlocked(biz.country || profile.country)) return json(bridgeCountryBlockResponse(biz.country || profile.country), 403);
+    profile.country = biz.country || profile.country;
     companyName = biz?.company_name;
     regNumber   = biz?.registration_number ?? undefined;
   }
+
+  if (!profile.country) return json({ success: false, error: "Please complete your country details first." }, 400);
 
   try {
     const result = await bridgeProvider.createCustomer({
