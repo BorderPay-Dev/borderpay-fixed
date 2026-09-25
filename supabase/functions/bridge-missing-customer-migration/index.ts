@@ -5,7 +5,7 @@ import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../_shared/
 // id. Unconfirmed users get a fresh verification email instead. This calls
 // Bridge only for email-confirmed users; it never writes fake provider ids.
 
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { exactServiceCredential, restrictionReason, providerLinkReason } from "./policy.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { bridgeProvider } from "../_shared/providers/bridge.ts";
 import {
@@ -35,29 +35,6 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-function timingSafeEqualStr(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const aa = enc.encode(a);
-  const bb = enc.encode(b);
-  if (aa.length !== bb.length) return false;
-  let out = 0;
-  for (let i = 0; i < aa.length; i += 1) out |= aa[i] ^ bb[i];
-  return out === 0;
-}
-
-function hasServiceRoleClaim(token: string): boolean {
-  const parts = token.split(".");
-  if (parts.length < 2) return false;
-  try {
-    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
-    const payload = JSON.parse(atob(padded));
-    return payload?.role === "service_role";
-  } catch {
-    return false;
-  }
-}
-
 function shouldLinkExistingBridgeCustomer(error: unknown): boolean {
   const raw = String((error as any)?.raw_text || "").toLowerCase();
   const msg = `${String((error as any)?.bridge_code || "")} ${String((error as any)?.bridge_error || "")} ${String((error as Error)?.message || "")}`.toLowerCase();
@@ -68,7 +45,7 @@ function shouldLinkExistingBridgeCustomer(error: unknown): boolean {
   );
 }
 
-async function linkExistingBridgeCustomer(profile: any, normalizedEmail: string) {
+async function linkExistingBridgeCustomer(profile: any, normalizedEmail: string, business: any) {
   const existing = await bridgeProvider.findCustomerByEmail(profile.email || normalizedEmail);
   if (!existing?.id) {
     return {
@@ -81,42 +58,36 @@ async function linkExistingBridgeCustomer(profile: any, normalizedEmail: string)
 
   const canonical = await bridgeProvider.getCustomerProfile(existing.id);
   const raw = (canonical.raw as any)?.data ?? canonical.raw ?? {};
-  const bridgeEmail = String(raw?.email ?? raw?.business_email ?? raw?.customer_email ?? "").trim().toLowerCase();
-  if (bridgeEmail && bridgeEmail !== normalizedEmail) {
-    return {
-      email: normalizedEmail,
-      user_id: profile.id,
-      status: "error",
-      reason: "existing_bridge_customer_email_mismatch",
-      bridge_customer_id: existing.id,
-      bridge_email: bridgeEmail,
-    };
+  const mismatch = providerLinkReason(raw, profile, business);
+  if (mismatch) return { email: normalizedEmail, user_id: profile.id, status: "skipped", reason: mismatch };
+  for (const [table, column] of [["user_profiles", "id"], ["business_profiles", "user_id"]]) {
+    const { data, error } = await supabase.from(table).select(column).eq("bridge_customer_id", existing.id).neq(column, profile.id).limit(1);
+    if (error || data?.length) return { email: normalizedEmail, status: "skipped", reason: "provider_mapping_requires_review" };
   }
-
   const now = new Date().toISOString();
-  const { error: updateErr } = await supabase
+  const { data: updatedProfiles, error: updateErr } = await supabase
     .from("user_profiles")
     .update({
       bridge_customer_id: existing.id,
-      bridge_kyc_status: "not_started",
       updated_at: now,
     })
-    .eq("id", profile.id);
-  if (updateErr) {
+    .eq("id", profile.id).is("bridge_customer_id", null).eq("account_status", "pending_kyc").is("account_frozen_at", null).select("id");
+  if (updateErr || updatedProfiles?.length !== 1) {
     return {
       email: normalizedEmail,
       user_id: profile.id,
       status: "error",
-      reason: `existing_bridge_customer_profile_update_failed: ${updateErr.message}`,
+      reason: `existing_bridge_customer_profile_update_failed: ${updateErr?.message || "profile_changed_during_repair"}`,
       bridge_customer_id: existing.id,
     };
   }
 
   if (profile.account_type === "business") {
-    await supabase
+    const { error: businessUpdateError } = await supabase
       .from("business_profiles")
       .update({ bridge_customer_id: existing.id, updated_at: now })
       .eq("user_id", profile.id);
+    if (businessUpdateError) return { email: normalizedEmail, status: "error", reason: "business_mapping_update_failed" };
   }
 
   return {
@@ -127,13 +98,13 @@ async function linkExistingBridgeCustomer(profile: any, normalizedEmail: string)
   };
 }
 
-async function migrateOne(email: string, dryRun: boolean) {
+async function migrateOne(email: string, dryRun: boolean, notify: boolean) {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return { email, status: "skipped", reason: "empty_email" };
 
   const { data: profiles, error: profileErr } = await supabase
     .from("user_profiles")
-    .select("id,email,full_name,account_type,country,phone,bridge_customer_id,is_admin")
+    .select("id,email,full_name,account_type,country,phone,bridge_customer_id,is_admin,is_demo,account_status,bridge_account_status,bridge_kyc_status,payment_provider,account_frozen_at,account_frozen_reason")
     .ilike("email", normalizedEmail)
     .limit(2);
   if (profileErr) return { email: normalizedEmail, status: "error", reason: profileErr.message };
@@ -148,6 +119,34 @@ async function migrateOne(email: string, dryRun: boolean) {
   if (authErr || !authUser?.user) {
     return { email: normalizedEmail, user_id: profile.id, status: "error", reason: authErr?.message || "auth_user_not_found" };
   }
+  const { data: businesses, error: bizError } = await supabase.from("business_profiles")
+    .select("company_name,registration_number,country,status,bridge_customer_id,bridge_kyb_status,user_id").eq("user_id", profile.id).limit(2);
+  if (bizError || (businesses?.length || 0) > 1) return { email: normalizedEmail, status: "skipped", reason: "business_mapping_requires_review" };
+  const business = businesses?.[0];
+  const restriction = restrictionReason(profile, business, authUser.user);
+  if (restriction) return { email: normalizedEmail, status: "skipped", reason: restriction };
+  // Respect IDs in BOTH profile tables before verification emails or provider calls.
+  if (profile.bridge_customer_id || business?.bridge_customer_id) return { email: normalizedEmail, status: "already_exists" };
+  if (profile.account_type === "business") {
+    if (!business?.company_name?.trim()) return { email: normalizedEmail, status: "skipped", reason: "missing_business_details" };
+    profile.country = business.country || profile.country;
+    // A confirmed replacement email may supersede an unconfirmed signup only when
+    // neither record has a provider customer. Never relink across customer emails.
+    const { data: allBusinesses, error } = await supabase.from("business_profiles")
+      .select("user_id,company_name,registration_number,country,bridge_customer_id");
+    if (error) return { email: normalizedEmail, status: "error", reason: "duplicate_check_failed" };
+    const normalize = (v: unknown) => String(v || "").trim().toLowerCase();
+    const siblings = (allBusinesses || []).filter((row: any) => row.user_id !== profile.id && normalize(row.country) === normalize(business.country) &&
+      (normalize(row.company_name) === normalize(business.company_name) || (business.registration_number && normalize(row.registration_number) === normalize(business.registration_number))));
+    for (const sibling of siblings) {
+      const { data: other, error: otherError } = await supabase.auth.admin.getUserById(sibling.user_id);
+      const { data: otherProfile, error: otherProfileError } = await supabase.from("user_profiles").select("bridge_customer_id").eq("id", sibling.user_id).maybeSingle();
+      if (otherError || otherProfileError || sibling.bridge_customer_id || otherProfile?.bridge_customer_id || other?.user?.email_confirmed_at || !authUser.user.email_confirmed_at)
+        return { email: normalizedEmail, status: "skipped", reason: "duplicate_business_requires_review" };
+    }
+  }
+  if (isBridgeBlocked(profile.country)) return { email: normalizedEmail, status: "skipped", reason: "country_blocked" };
+  if (!String(profile.country || "").trim()) return { email: normalizedEmail, status: "skipped", reason: "missing_country" };
   if (!authUser.user.email_confirmed_at) {
     if (dryRun) {
       return {
@@ -157,7 +156,12 @@ async function migrateOne(email: string, dryRun: boolean) {
         reason: "email_not_verified",
       };
     }
+    if (!notify) return { email: normalizedEmail, status: "skipped", reason: "email_not_verified" };
     const purpose = profile.account_type === "business" ? "signup_business" : "signup_individual";
+    const verificationKey = `verify-onboarding-resume-20260925:${profile.id}`;
+    const { data: prior, error: priorError } = await supabase.from("email_log").select("status").eq("idempotency_key", verificationKey).maybeSingle();
+    if (priorError) return { email: normalizedEmail, status: "error", reason: "email_history_unavailable" };
+    if (prior) return { email: normalizedEmail, status: "verification_email_already_requested", email_status: prior.status };
     const { data: tokenData, error: tokenErr } = await supabase.rpc("issue_email_token", {
       p_user_id: profile.id,
       p_purpose: purpose,
@@ -188,7 +192,7 @@ async function migrateOne(email: string, dryRun: boolean) {
         template,
         to: profile.email || normalizedEmail,
         user_id: profile.id,
-        idempotency_key: `verify-repair:${profile.id}:${(tokenData as string).slice(0, 16)}`,
+        idempotency_key: verificationKey,
         props: {
           full_name: profile.full_name,
           verification_url: verifyUrl,
@@ -207,7 +211,8 @@ async function migrateOne(email: string, dryRun: boolean) {
     return {
       email: normalizedEmail,
       user_id: profile.id,
-      status: "verification_email_sent",
+      status: "verification_email_requested",
+      email_status: (sendJson as any)?.data?.status || "sent",
       reason: "email_not_verified",
     };
   }
@@ -238,18 +243,8 @@ async function migrateOne(email: string, dryRun: boolean) {
     };
   }
 
-  let companyName: string | undefined;
-  let registrationNumber: string | undefined;
-  if (profile.account_type === "business") {
-    const { data: biz } = await supabase
-      .from("business_profiles")
-      .select("company_name,registration_number")
-      .eq("user_id", profile.id)
-      .maybeSingle();
-    companyName = (biz as any)?.company_name || undefined;
-    registrationNumber = (biz as any)?.registration_number || undefined;
-  }
-
+  const companyName = business?.company_name || undefined;
+  const registrationNumber = business?.registration_number || undefined;
   if (dryRun) {
     return {
       email: normalizedEmail,
@@ -274,29 +269,29 @@ async function migrateOne(email: string, dryRun: boolean) {
     });
 
     const now = new Date().toISOString();
-    const { error: updateErr } = await supabase
+    const { data: updatedProfiles, error: updateErr } = await supabase
       .from("user_profiles")
       .update({
         bridge_customer_id: created.provider_id,
-        bridge_kyc_status: "not_started",
         updated_at: now,
       })
-      .eq("id", profile.id);
-    if (updateErr) {
+      .eq("id", profile.id).is("bridge_customer_id", null).eq("account_status", "pending_kyc").is("account_frozen_at", null).select("id");
+    if (updateErr || updatedProfiles?.length !== 1) {
       return {
         email: normalizedEmail,
         user_id: profile.id,
         status: "error",
-        reason: `created_on_bridge_but_profile_update_failed: ${updateErr.message}`,
+        reason: `created_on_bridge_but_profile_update_failed: ${updateErr?.message || "profile_changed_during_repair"}`,
         bridge_customer_id: created.provider_id,
       };
     }
 
     if (profile.account_type === "business") {
-      await supabase
+      const { error: businessUpdateError } = await supabase
         .from("business_profiles")
         .update({ bridge_customer_id: created.provider_id, updated_at: now })
         .eq("user_id", profile.id);
+      if (businessUpdateError) return { email: normalizedEmail, status: "error", reason: "business_mapping_update_failed" };
     }
 
     return {
@@ -308,7 +303,7 @@ async function migrateOne(email: string, dryRun: boolean) {
   } catch (error) {
     if (shouldLinkExistingBridgeCustomer(error)) {
       try {
-        return await linkExistingBridgeCustomer(profile, normalizedEmail);
+        return await linkExistingBridgeCustomer(profile, normalizedEmail, business);
       } catch (linkError) {
         return {
           email: normalizedEmail,
@@ -340,15 +335,15 @@ async function migrateOne(email: string, dryRun: boolean) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ success: false, error: "POST only" }, 405);
-  if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
 
   const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
-  const serviceRoleEnvMatch = SERVICE_ROLE ? timingSafeEqualStr(token, SERVICE_ROLE) : false;
-  if (!serviceRoleEnvMatch && !hasServiceRoleClaim(token)) {
+  if (!exactServiceCredential(token, SERVICE_ROLE)) {
     return json({ success: false, error: "service role required" }, 401);
   }
 
-  let body: { emails?: string[]; dry_run?: boolean; limit?: number; include_all_missing?: boolean } = {};
+  if (!bridgeOnboardingEnabled()) return json(bridgeOnboardingPausedBody(), 503);
+
+  let body: { emails?: string[]; dry_run?: boolean; limit?: number; include_all_missing?: boolean; notify?: boolean } = {};
   try {
     body = await req.json();
   } catch {
@@ -375,7 +370,23 @@ Deno.serve(async (req: Request) => {
   const uniqueEmails = [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))];
   const results = [];
   for (const email of uniqueEmails) {
-    results.push(await migrateOne(email, body.dry_run === true));
+    const result = await migrateOne(email, body.dry_run === true, body.notify === true);
+    if (body.notify === true && body.dry_run !== true && ["created", "linked_existing"].includes(result.status)) {
+      try {
+      const { data: profile } = await supabase.from("user_profiles").select("id,full_name,account_type").ilike("email", email).single();
+      if (!profile) throw new Error("profile_unavailable");
+      const { data: business } = await supabase.from("business_profiles").select("company_name").eq("user_id", profile.id).maybeSingle();
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/send-email`, {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${SEND_EMAIL_TOKEN}` },
+        body: JSON.stringify({ template: profile.account_type === "business" ? "business.onboarding_lifecycle" : "individual.verification_reminder",
+          to: email, user_id: profile.id, idempotency_key: `welcome-onboarding-resume-20260925:${profile.id}`,
+          props: { company_name: business?.company_name, full_name: profile.full_name, stage: "day_1" } }),
+      });
+      const sent = await response.json().catch(() => ({}));
+      Object.assign(result, { email_status: response.ok && sent.success ? (sent.data?.status || "sent") : "failed" });
+      } catch { Object.assign(result, { email_status: "failed" }); }
+    }
+    results.push(result);
   }
 
   return json({

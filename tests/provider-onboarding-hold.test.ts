@@ -1,4 +1,4 @@
-import { bridgeProvider } from "../supabase/functions/_shared/providers/bridge.ts";
+import { BridgeProviderError, bridgeProvider } from "../supabase/functions/_shared/providers/bridge.ts";
 import { bridgeOnboardingEnabled, bridgeOnboardingPausedBody } from "../supabase/functions/_shared/launch-gates.ts";
 Deno.test("new provider customers cannot be created when onboarding is off", async () => {
   const previous=Deno.env.get("BRIDGE_ONBOARDING_ENABLED");const original=globalThis.fetch;let calls=0;
@@ -9,7 +9,7 @@ Deno.test("new provider customers cannot be created when onboarding is off", asy
       if(bridgeOnboardingEnabled())throw new Error("Gate failed open");
       let denied=false;
       try {await bridgeProvider.createCustomer({account_type:"business",email:"hold-test@example.invalid",company_name:"Synthetic Hold Test",country_code:"GB",borderpay_user_id:"synthetic-only"});}
-      catch(e){denied=e.status===503&&e.bridge_code==="bridge_onboarding_paused";}
+      catch(e){denied=e instanceof BridgeProviderError&&e.status===503&&e.bridge_code==="bridge_onboarding_paused";}
       if(!denied)throw new Error("Missing onboarding denial");
     }
     if(calls!==0)throw new Error("Provider was contacted");

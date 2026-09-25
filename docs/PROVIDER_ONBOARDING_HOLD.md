@@ -1,9 +1,9 @@
-# New-account provider hold — 24 September 2026
+# Temporary Bridge onboarding resume — 25 September 2026
 
-New registrations remain BorderPay accounts with no banking-provider customer ID. Keep `BRIDGE_ONBOARDING_ENABLED=false` in production. Email verification and profile creation remain available. Do not enable customer provisioning or hosted KYC/KYB until the next provider has an approved implementation.
+The account owner authorized resuming Bridge onboarding for new customers and repairing missing customer IDs until Mural is integrated. This supersedes the 24 September hold. Set `BRIDGE_ONBOARDING_ENABLED=true` only after deploying the authenticated repair endpoint and guarded customer endpoint. The gate remains fail-closed when absent, invalid, or false; use `false` to pause again.
 
-The customer, KYC and KYB endpoints and operator missing-customer repair all enforce the hold. Partner API verification uses the same KYC/KYB endpoints. The provider adapter also rejects direct customer creation while disabled. Existing transfers, balances, virtual accounts, restrictions and event processing are unchanged; this hold does not alter existing provider customer IDs or approvals.
+The operator repair requires the exact service credential; unverified JWT role claims are not accepted. Use an explicit email list and `dry_run:true` first. `notify:true` sends existing transactional verification templates to unconfirmed eligible users and continue-onboarding emails after successful provisioning. Repair emails use a durable per-user resume-operation idempotency key; inspect email_log for delivery status.
 
-Do not swap an API key to migrate customers. Provider selection and future activation require a separate implementation. No new provider is enabled by this change.
+Never create customers for restricted, demo, operator, ambiguous, or duplicate identities. Respect IDs in both user and business profiles. Prefer the sole confirmed signup over an unconfirmed duplicate only when neither has an existing provider mapping. Multiple confirmed signups or a business already linked elsewhere require operator review. Bridge country restrictions continue to apply. KYB approval is not implied by provisioning or email verification.
 
-Runtime verification: all four provisioning endpoints return `bridge_onboarding_paused` before provider traffic. Unit verification: disabled/missing/invalid onboarding configuration attempts zero outbound requests. Signup continues to store null provider customer IDs.
+Existing paused/frozen accounts remain frozen. This operation does not move funds, approve applications, enable Mural, or require mobile builds.
