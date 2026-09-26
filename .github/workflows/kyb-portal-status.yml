@@ -1,0 +1,23 @@
+name: KYB submitted status projection
+on:
+  push:
+    branches: [feat/kyb-session-handoff]
+    paths: ['supabase/functions/_shared/kyb-portal-status.ts', 'supabase/functions/get-user-profile/index.ts', 'tests/unit/kyb_portal_status_test.ts', '.github/workflows/kyb-portal-status.yml']
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test tests/unit/kyb_portal_status_test.ts tests/unit/kyb_portal_handoff_test.ts
+      - run: python3 tests/audit/get_user_profile_kyb_payload_audit.py
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - run: supabase functions deploy get-user-profile --project-ref orwrcpwsffjlvzuraxjc --use-api
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.KYB_EDGE_DEPLOY_TOKEN }}
