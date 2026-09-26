@@ -1,0 +1,45 @@
+name: KYB portal handoff
+on:
+  push:
+    branches: [feat/kyb-session-handoff]
+    paths: ['supabase/functions/_shared/kyb-portal-handoff.ts', 'supabase/functions/bridge-kyb-link/index.ts', 'tests/unit/kyb_portal_handoff_test.ts', '.github/workflows/kyb-portal-handoff.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test tests/unit/kyb_portal_handoff_test.ts
+      - name: Existing verification URL regression checks
+        run: |
+          python3 tests/audit/kyb_backend_launcher_audit.py
+          python3 tests/audit/bridge_kyb_existing_customer_resume_audit.py
+          python3 tests/audit/bridge_kyb_cross_platform_callback_audit.py
+      - name: Verify destination supports secure-link redemption
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json
+          req=urllib.request.Request('https://kyb.borderpayvelocity.xyz/api/launch/redeem',data=b'{"ticket":"invalid-probe"}',headers={'Content-Type':'application/json'})
+          try: urllib.request.urlopen(req,timeout=20);raise AssertionError('Invalid link accepted')
+          except urllib.error.HTTPError as e:
+              assert e.code==401 and json.load(e)['code']=='verification_link_invalid'
+          PY
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy only the existing KYB link endpoint
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.KYB_EDGE_DEPLOY_TOKEN }}
+        run: supabase functions deploy bridge-kyb-link --project-ref orwrcpwsffjlvzuraxjc --use-api

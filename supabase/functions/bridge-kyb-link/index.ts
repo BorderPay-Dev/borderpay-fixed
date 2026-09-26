@@ -1,3 +1,4 @@
+import { kybPortalHandoff } from "../_shared/kyb-portal-handoff.ts";
 import { customerAppOrigin } from "../_shared/white-label-config.ts";
 // bridge-kyb-link v5 — embedded /v0/kyc_links flow for business accounts.
 //
@@ -221,9 +222,6 @@ Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return json({ success: false, error: "POST only" }, 405);
   }
-  if (!bridgeOnboardingEnabled()) {
-    return json(bridgeOnboardingPausedBody(), 503);
-  }
 
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "").trim();
@@ -244,6 +242,13 @@ Deno.serve(async (req: Request) => {
         code: "email_verification_required",
       },
     }, 409);
+  }
+
+  const portal = await kybPortalHandoff(user, token);
+  if (portal) return json(portal, portal.success ? 200 : 503);
+
+  if (!bridgeOnboardingEnabled()) {
+    return json(bridgeOnboardingPausedBody(), 503);
   }
 
   let body: { redirect_url?: string; endorsements?: string[]; phase?: "terms" | "kyb" } = {};
