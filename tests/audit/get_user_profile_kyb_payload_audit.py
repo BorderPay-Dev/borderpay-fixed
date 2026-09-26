@@ -55,7 +55,7 @@ def main() -> int:
     p3 = ("bridge_kyb_status:" in src
           and "bridgeKybStatus" in src
           and '.from("business_profiles")' in src
-          and '.select("bridge_kyb_status")' in src
+          and '.select("bridge_kyb_status,country")' in src
           and 'accountType === "business"' in src)
     checks.append(("P3 payload returns bridge_kyb_status from business_profiles (business)",
                    p3,
@@ -63,7 +63,7 @@ def main() -> int:
 
     checks.append(("P3b released clients receive restartable UBO compatibility state",
                    'const clientBusinessKybStatus = restartableBusinessVerification ? "not_started" : bridgeKybStatus' in src
-                   and "bridge_kyb_status:   clientBusinessKybStatus" in src,
+                   and "bridge_kyb_status:   portalStatus || clientBusinessKybStatus" in src and "portalStatus = await kybPortalStatus(user, token)" in src,
                    "incomplete/needs_ubos must project to not_started so released native clients restart through ToS"))
 
     checks.append(("P3c raw business KYB status remains available",
